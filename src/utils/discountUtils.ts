@@ -45,7 +45,8 @@ function normalizeCoupons(list: Coupon[]): Coupon[] {
         ...c,
         id: 'cp_cfa75',
         code: 'CFA75',
-        discountValue: 75
+        discountValue: 75,
+        active: true // Ensure it stays active if explicitly migrated
       };
     }
     return c;
@@ -158,8 +159,8 @@ export function getCourseDiscountInfo(
     return defaultNoDiscount;
   }
 
-  // Lista normalizada de cupons ativos (garantindo que se não houver cupons, assume o de 75% da plataforma)
-  const rawCoupons = coupons !== undefined ? coupons : DEFAULT_PLATFORM_COUPONS;
+  // Lista normalizada de cupons ativos
+  const rawCoupons = coupons !== undefined ? coupons : [];
   const activeCoupons = normalizeCoupons(rawCoupons.filter(c => c && c.active !== false));
 
   if (activeCoupons.length === 0) {
