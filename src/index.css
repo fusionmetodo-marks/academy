@@ -1,0 +1,148 @@
+@import url('https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Inter:wght@300;400;500;600&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap');
+
+@import "tailwindcss";
+
+@theme {
+  --color-tertiary-container: #e86c6e;
+  --color-on-surface-variant: #bccabe;
+  --color-surface: #131313;
+  --color-on-tertiary-container: #5e0211;
+  --color-secondary-container: #0b5229;
+  --color-surface-variant: #353534;
+  --color-on-secondary-fixed: #00210c;
+  --color-background: #131313;
+  --color-on-background: #e5e2e1;
+  --color-inverse-primary: #735c00;
+  --color-surface-dim: #131313;
+  --color-outline: #869489;
+  --color-surface-container-low: #1c1b1b;
+  --color-on-primary-fixed-variant: #574500;
+  --color-on-error-container: #ffdad6;
+  --color-secondary: #93d6a0;
+  --color-on-secondary-container: #82c490;
+  --color-on-error: #690005;
+  --color-surface-tint: #e9c349;
+  --color-on-primary: #3c2f00;
+  --color-secondary-fixed: #aef2bb;
+  --color-primary-fixed-dim: #e9c349;
+  --color-error-container: #93000a;
+  --color-primary: #e9c349;
+  --color-tertiary-fixed-dim: #ffb3b1;
+  --color-tertiary: #ffb3b1;
+  --color-primary-fixed: #ffe088;
+  --color-on-tertiary-fixed: #410008;
+  --color-on-tertiary-fixed-variant: #852229;
+  --color-surface-container-high: #2a2a2a;
+  --color-primary-container: #b18f14;
+  --color-error: #ffb4ab;
+  --color-surface-bright: #3a3939;
+  --color-on-primary-container: #372a00;
+  --color-secondary-fixed-dim: #93d6a0;
+  --color-on-surface: #e5e2e1;
+  --color-surface-container-highest: #353534;
+  --color-inverse-on-surface: #313030;
+  --color-on-tertiary: #650815;
+  --color-on-primary-fixed: #241a00;
+  --color-surface-container: #201f1f;
+  --color-tertiary-fixed: #ffdad8;
+  --color-outline-variant: #3d4a41;
+  --color-on-secondary-fixed-variant: #0b5229;
+  --color-on-secondary: #003919;
+  --color-inverse-surface: #e5e2e1;
+  --color-surface-container-lowest: #0e0e0e;
+
+  --font-headline: "Manrope", sans-serif;
+  --font-body: "Inter", sans-serif;
+  --font-label: "Inter", sans-serif;
+}
+
+body {
+  font-family: "Inter", sans-serif;
+  background-color: var(--color-background);
+  color: var(--color-on-background);
+  overflow-x: hidden !important;
+  max-width: 100vw;
+  width: 100%;
+}
+
+html {
+  overflow-x: hidden !important;
+  max-width: 100vw;
+  width: 100%;
+}
+
+/* Custom Sleek Dark Scrollbar - Removes stark white bars */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: #0d0d0d;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #2a2a2a;
+  border-radius: 9999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #e9c349;
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #2a2a2a #0d0d0d;
+}
+
+.material-symbols-outlined {
+  font-family: 'Material Symbols Outlined';
+  font-weight: normal;
+  font-style: normal;
+  font-size: 24px;
+  line-height: 1;
+  letter-spacing: normal;
+  text-transform: none;
+  display: inline-block;
+  white-space: nowrap;
+  word-wrap: normal;
+  direction: ltr;
+  -webkit-font-feature-settings: 'liga';
+  -webkit-font-smoothing: antialiased;
+  font-variation-settings: "FILL" 0, "wght" 400, "GRAD" 0, "opsz" 24;
+  font-display: block;
+}
+
+.grain-overlay {
+  background-image: url('https://lh3.googleusercontent.com/aida-public/AB6AXuDK6v0T24J0_f2h3-fjk-MlN2T8J3JwNxbCdDmC9kx38dkV7rR9Grtgec-T6Qb2zEb-k8qUADFKDtf2CRzCcq4KXvWf_QLlsK4ZvKgUES7YBiRfiXNauwac7y_lSfTNn24JUMdhCs2wEmwT1boPB0ixRjxIjhjpzYScDnN3viTf8W25nBxBNdCtRiXjw_xb-Ai54USo_Oht-D7YBBYhO_14Krw-8Y37dZkKnXGOuyO0ad3iUMjFyN_bmeHHmbTEzeo473i-HhkkPA');
+  opacity: 0.03;
+  pointer-events: none;
+}
+
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+@keyframes marquee {
+  0% {
+    transform: translateX(0%);
+  }
+  100% {
+    transform: translateX(-50%);
+  }
+}
+
+.animate-marquee {
+  display: flex;
+  width: max-content;
+  animation: marquee 30s linear infinite;
+}
+
+.animate-marquee:hover {
+  animation-play-state: paused;
+}

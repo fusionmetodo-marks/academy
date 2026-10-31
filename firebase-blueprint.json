@@ -1,0 +1,183 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "A user of the CFA Financial Academy platform.",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "description": "The unique identifier of the user (from Firebase Auth)."
+        },
+        "email": {
+          "type": "string",
+          "format": "email",
+          "description": "The email address of the user."
+        },
+        "role": {
+          "type": "string",
+          "enum": ["admin", "producer", "student"],
+          "description": "The role of the user."
+        },
+        "subscriptionStatus": {
+          "type": "string",
+          "enum": ["active", "inactive", "pending"],
+          "description": "Whether the user has an active subscription to access content."
+        },
+        "enrolledCourses": {
+          "type": "array",
+          "description": "Array of course IDs the user is enrolled in."
+        },
+        "completedLessons": {
+          "type": "array",
+          "description": "An array of lesson IDs that the student has completed."
+        },
+        "lessonViews": {
+          "type": "object",
+          "description": "A map where keys are lesson IDs and values are count of times viewed by user."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "When the user was created."
+        }
+      },
+      "required": ["uid", "email", "role", "subscriptionStatus"]
+    },
+    "Course": {
+      "title": "Course",
+      "description": "A course offered on the CFA Academy platform.",
+      "type": "object",
+      "properties": {
+        "title": { "type": "string" },
+        "price": { "type": "number" },
+        "imageUrl": { "type": "string" },
+        "description": { "type": "string" },
+        "instructor": { "type": "string" }
+      },
+      "required": ["title", "price"]
+    },
+    "Module": {
+      "title": "Module",
+      "description": "A thematic module grouping lessons in a course.",
+      "type": "object",
+      "properties": {
+        "title": { "type": "string" },
+        "courseId": { "type": "string" },
+        "order": { "type": "number" }
+      },
+      "required": ["title", "courseId"]
+    },
+    "Lesson": {
+      "title": "Lesson",
+      "description": "A specific class lesson belonging to a course.",
+      "type": "object",
+      "properties": {
+        "title": { "type": "string" },
+        "courseId": { "type": "string" },
+        "moduleId": { "type": "string" },
+        "videoUrl": { "type": "string" },
+        "description": { "type": "string" }
+      },
+      "required": ["title", "courseId"]
+    },
+    "Transaction": {
+      "title": "Transaction",
+      "description": "A payment submission / receipt confirmation.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "userName": { "type": "string" },
+        "userEmail": { "type": "string" },
+        "courseId": { "type": "string" },
+        "courseTitle": { "type": "string" },
+        "referenceNumber": { "type": "string" },
+        "status": {
+          "type": "string",
+          "enum": ["pending", "approved", "rejected"]
+        },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "courseId", "referenceNumber", "status"]
+    },
+    "Notification": {
+      "title": "Notification",
+      "description": "System broadcast or targeted user alert.",
+      "type": "object",
+      "properties": {
+        "title": { "type": "string" },
+        "message": { "type": "string" },
+        "targetUserId": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["title", "message"]
+    },
+    "Settings": {
+      "title": "Settings",
+      "description": "System settings such as payout IBAN, KWIK, and Multicaixa references.",
+      "type": "object",
+      "properties": {
+        "iban": { "type": "string" },
+        "ibanActive": { "type": "boolean" },
+        "bankName": { "type": "string" },
+        "expressIban": { "type": "string" },
+        "expressActive": { "type": "boolean" },
+        "expressPhone": { "type": "string" },
+        "expressName": { "type": "string" },
+        "kwikPhone": { "type": "string" },
+        "kwikActive": { "type": "boolean" },
+        "kwikName": { "type": "string" },
+        "multicaixaEntity": { "type": "string" },
+        "multicaixaReference": { "type": "string" },
+        "multicaixaActive": { "type": "boolean" },
+        "supportWhatsApp": { "type": "string" },
+        "platformName": { "type": "string" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      }
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": {
+        "$ref": "#/entities/User"
+      },
+      "description": "Stores user profiles including their roles and subscription status."
+    },
+    "/courses/{courseId}": {
+      "schema": {
+        "$ref": "#/entities/Course"
+      },
+      "description": "Stores course metadata and public catalog items."
+    },
+    "/modules/{moduleId}": {
+      "schema": {
+        "$ref": "#/entities/Module"
+      },
+      "description": "Stores course curriculum modules."
+    },
+    "/lessons/{lessonId}": {
+      "schema": {
+        "$ref": "#/entities/Lesson"
+      },
+      "description": "Stores video lessons accessible strictly to enrolled students."
+    },
+    "/transactions/{transactionId}": {
+      "schema": {
+        "$ref": "#/entities/Transaction"
+      },
+      "description": "Stores payment receipts and status verifications."
+    },
+    "/notifications/{notificationId}": {
+      "schema": {
+        "$ref": "#/entities/Notification"
+      },
+      "description": "Stores private user and system notifications."
+    },
+    "/settings/{settingsId}": {
+      "schema": {
+        "$ref": "#/entities/Settings"
+      },
+      "description": "Stores system configurations such as payment methods."
+    }
+  }
+}

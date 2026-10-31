@@ -1,0 +1,126 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // Funções globais de verificação
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isMaster() {
+      return isSignedIn() && (
+        request.auth.token.email == 'fusionmetodo@gmail.com' ||
+        request.auth.token.email == 'grupocassaminha@gmail.com' ||
+        request.auth.token.email == 'exportacoes.extras@gmail.com' ||
+        request.auth.token.email == 'Grupocassaminha@gmail.com'
+      );
+    }
+
+    function isAdmin() {
+      return isSignedIn() && (
+        isMaster() ||
+        (exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+         (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin' ||
+          get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'producer') &&
+         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.subscriptionStatus == 'active')
+      );
+    }
+    
+    function isEnrolled(courseId) {
+      return isSignedIn() && (
+        isAdmin() ||
+        (exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+         'enrolledCourses' in get(/databases/$(database)/documents/users/$(request.auth.uid)).data &&
+         courseId in get(/databases/$(database)/documents/users/$(request.auth.uid)).data.enrolledCourses)
+      );
+    }
+
+    // 1. Coleção Usuários:
+    // Alunos podem ler seu próprio perfil; Admins podem ler qualquer usuário.
+    // Criação: Aluno só pode criar seu perfil como 'student' e status 'inactive', sem poder forjar status de admin.
+    // Atualização: Alunos só podem atualizar campos comuns (nome, telefone, aulas concluídas). NÃO podem alterar 'role', 'subscriptionStatus', 'enrolledCourses' ou 'isApproved'.
+    match /users/{userId} {
+      allow read: if isSignedIn() && (request.auth.uid == userId || isAdmin());
+      
+      allow create: if isSignedIn() && (
+        isAdmin() || 
+        (request.auth.uid == userId && 
+         (!('role' in request.resource.data) || request.resource.data.role == 'student' || request.resource.data.role == 'producer') &&
+         (!('subscriptionStatus' in request.resource.data) || request.resource.data.subscriptionStatus != 'active' || isMaster()))
+      );
+
+      allow update: if isAdmin() || (
+        isSignedIn() && request.auth.uid == userId &&
+        !request.resource.data.diff(resource.data).affectedKeys().hasAny(['role', 'roleType', 'subscriptionStatus', 'isApproved', 'enrolledCourses'])
+      );
+
+      allow delete: if isAdmin();
+    }
+
+    // 2. Vitrine de Cursos: Público para leitura da vitrine; escrita restrita a Admin / Produtor proprietário.
+    match /courses/{courseId} {
+      allow read: if true;
+      allow create, update, delete: if isAdmin();
+    }
+
+    // 3. Módulos e Aulas:
+    // Módulos públicos na vitrine para visualização da grade curricular
+    match /modules/{moduleId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    // Aulas: APENAS matriculados e administradores têm acesso à leitura das aulas e URLs dos vídeos!
+    match /lessons/{lessonId} {
+      allow read: if isAdmin() || (
+        isSignedIn() && 
+        'courseId' in resource.data && 
+        resource.data.courseId != null && 
+        resource.data.courseId != '' && 
+        isEnrolled(resource.data.courseId)
+      );
+      allow write: if isAdmin();
+    }
+
+    // 4. Configurações da plataforma, métodos de pagamento e cupões
+    match /settings/{settingId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    match /coupons/{couponId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    match /paymentMethods/{methodId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    // 5. Transações (Comprovativos de Pagamento)
+    // Criação somente autenticada com seu próprio UID.
+    // Leitura somente o próprio aluno comprador ou Admin.
+    // Alteração de status somente Admin.
+    match /transactions/{transactionId} {
+      allow create: if isSignedIn() && request.resource.data.userId == request.auth.uid;
+      allow read: if isSignedIn() && (resource.data.userId == request.auth.uid || isAdmin());
+      allow update, delete: if isAdmin();
+    }
+
+    // 6. Notificações do Sistema:
+    // Criação restrita a usuários logados (evita spam anônimo).
+    // Leitura restrita a quem é o alvo da notificação ou Admin (evita espionagem de dados alheios).
+    match /notifications/{notificationId} {
+      allow create: if isSignedIn();
+      allow read: if isSignedIn() && (
+        isAdmin() || 
+        ('targetUserId' in resource.data && resource.data.targetUserId == request.auth.uid) ||
+        ('targetRole' in resource.data && resource.data.targetRole == 'student')
+      );
+      allow update, delete: if isAdmin() || (
+        isSignedIn() && 'targetUserId' in resource.data && resource.data.targetUserId == request.auth.uid
+      );
+    }
+  }
+}

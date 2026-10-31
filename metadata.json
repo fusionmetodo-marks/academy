@@ -1,0 +1,8 @@
+{
+  "name": "Marks o Monstro - ACADEMY",
+  "description": "Retração Com Método Fusion",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
