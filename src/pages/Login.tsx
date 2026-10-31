@@ -134,7 +134,7 @@ export default function Login() {
         sendSystemNotification({
           type: 'new_student',
           title: '🎓 Novo Estudante Cadastrado!',
-          message: `${registrationData?.firstName ? `${registrationData.firstName} ${registrationData.lastName}` : cleanEmail} acabou de se cadastrar como Estudante na CFA Academy.`,
+          message: `${registrationData?.firstName ? `${registrationData.firstName} ${registrationData.lastName}` : cleanEmail} acabou de se cadastrar como Estudante na Marks o Monstro - ACADEMY.`,
           link: '/students',
           targetRole: 'admin',
           metadata: {

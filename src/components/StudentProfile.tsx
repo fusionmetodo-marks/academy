@@ -165,7 +165,7 @@ export default function StudentProfile() {
     }
   };
   const numericId = getNumericId(profile?.uid || auth.currentUser?.uid || '');
-  const fullName = profile?.firstName ? `${profile.firstName} ${profile.lastName || ''}` : (auth.currentUser?.displayName || 'Estudante CFA');
+  const fullName = profile?.firstName ? `${profile.firstName} ${profile.lastName || ''}` : (auth.currentUser?.displayName || 'Estudante Marks ACADEMY');
   const currentPhone = profile?.phoneNumber ? `${profile.phoneCountryCode || ''} ${profile.phoneNumber}`.trim() : 'Não informado';
 
   return (
@@ -465,7 +465,7 @@ export default function StudentProfile() {
         {(() => {
           const cleanPhone = (supportWhatsApp || '244923456789').replace(/[^0-9]/g, '');
           const studentEmail = profile?.email || auth.currentUser?.email || '';
-          const textMessage = `Olá, equipe de Suporte CFA! Preciso de ajuda com a minha conta de aluno.\n\n*Nome:* ${fullName}\n*E-mail:* ${studentEmail}\n*ID de Matrícula:* #${numericId}`;
+          const textMessage = `Olá, equipe de Suporte Marks ACADEMY! Preciso de ajuda com a minha conta de estudante.\n\n*Nome:* ${fullName}\n*E-mail:* ${studentEmail}\n*ID de Matrícula:* #${numericId}`;
           const waUrl = `https://wa.me/${cleanPhone}?text=${encodeURIComponent(textMessage)}`;
 
           return (

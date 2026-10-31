@@ -13,6 +13,7 @@ import { parseVideoUrlOrIframe } from '../utils/videoParser';
 import { LessonLink } from '../types';
 import NotificationCenter from '../components/NotificationCenter';
 import { CertificateModal } from '../components/CertificateModal';
+import { isMasterEmail } from '../utils/constants';
 
 interface Lesson {
   id: string;
@@ -166,11 +167,7 @@ export default function VideoLibrary({ courseId }: VideoLibraryProps = {}) {
     }
   }, [enrollmentStatusLoaded, activeCourseId, enrolledCourseIds, navigate]);
 
-  const isMasterEmail = (email?: string | null) => {
-    if (!email) return false;
-    const clean = email.trim().toLowerCase();
-    return clean === 'grupocassaminha@gmail.com' || clean === 'exportacoes.extras@gmail.com';
-  };
+
 
   // Redirecionamento direto e silencioso para a página de apresentação do curso quando o usuário não tiver matrícula ativa
   useEffect(() => {

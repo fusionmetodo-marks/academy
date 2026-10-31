@@ -15,17 +15,17 @@ export default function PurchaseConfirmation() {
     iban: 'AO06 0040 0000 7829 1048 1018 2',
     ibanActive: true,
     bankName: 'BFA (Banco de Fomento Angola)',
-    ibanAccountName: 'GRUPO CASSAMINHA LDA',
+    ibanAccountName: 'MARKS O MONSTRO ACADEMY',
     expressPhone: '923 456 789',
     expressActive: true,
-    expressName: 'GRUPO CASSAMINHA LDA',
+    expressName: 'MARKS O MONSTRO ACADEMY',
     kwikPhone: '923 456 789',
     kwikActive: true,
-    kwikName: 'GRUPOCASSAMINHA',
+    kwikName: 'MARKS O MONSTRO ACADEMY',
     multicaixaEntity: '12345',
     multicaixaReference: '884 920 311',
     multicaixaActive: true,
-    multicaixaName: 'GRUPO CASSAMINHA LDA'
+    multicaixaName: 'MARKS O MONSTRO ACADEMY'
   });
 
   useEffect(() => {
@@ -85,7 +85,7 @@ export default function PurchaseConfirmation() {
   const whatsappNumber = transaction?.supportWhatsApp?.replace(/[^0-9]/g, '') || '244923456789';
   const refNum = transaction?.referenceNumber || 'REF-CFA-2024';
   const studentName = transaction?.userName || 'Estudante Marks ACADEMY';
-  const courseTitle = transaction?.courseTitle || 'CFA - Cassaminha Financial Academy';
+  const courseTitle = transaction?.courseTitle || 'Marks o Monstro - ACADEMY';
   const paymentMethod = transaction?.paymentMethod || 'Transferência';
   const formattedAmount = transaction?.amount && Number(transaction.amount) > 0
     ? new Intl.NumberFormat('pt-AO', { style: 'currency', currency: 'AOA', maximumFractionDigits: 0 }).format(Number(transaction.amount))

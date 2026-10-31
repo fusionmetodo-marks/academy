@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Plus, Edit, Trash2, MoreVertical, Copy, BookOpen, Layers, X, Check, Globe, Lock, AlertTriangle, ExternalLink, Image as ImageIcon, DollarSign, ClipboardPaste, Tag } from 'lucide-react';
 import { collection, onSnapshot, doc, deleteDoc, setDoc, updateDoc, getDoc, serverTimestamp } from 'firebase/firestore';
 import { db, auth } from '../firebase';
+import { isMasterEmail } from '../utils/constants';
 import { notifyNewCourse } from '../services/notificationService';
 import { Coupon } from '../types';
 import { subscribeCoupons, getCourseDiscountInfo, DEFAULT_PLATFORM_COUPONS } from '../utils/discountUtils';
@@ -172,7 +173,7 @@ export default function CoursesList({ onSelectCourse }: CoursesListProps) {
     const unsubCourses = onSnapshot(collection(db, 'courses'), async (querySnapshot) => {
       const currentUser = auth.currentUser;
       const cleanEmail = currentUser?.email?.trim().toLowerCase() || '';
-      const isMaster = cleanEmail === 'grupocassaminha@gmail.com' || cleanEmail === 'exportacoes.extras@gmail.com';
+      const isMaster = isMasterEmail(cleanEmail);
 
       let userRole = 'student';
       let userProducerName = '';
@@ -286,7 +287,7 @@ export default function CoursesList({ onSelectCourse }: CoursesListProps) {
 
     try {
       const courseRef = doc(db, 'courses', editingCourse.id);
-      const finalSignature = editForm.producerName.trim() || 'Instrutor CFA';
+      const finalSignature = editForm.producerName.trim() || 'Marks o Monstro';
       await updateDoc(courseRef, {
         title: editForm.title.trim(),
         price: Number(editForm.price) || 0,
@@ -330,7 +331,7 @@ export default function CoursesList({ onSelectCourse }: CoursesListProps) {
 
     const currentUser = auth.currentUser;
     let authorId = currentUser ? currentUser.uid : '';
-    let producerName = currentUser?.displayName || 'Instrutor CFA';
+    let producerName = currentUser?.displayName || 'Marks o Monstro';
     let producerPhone = '';
     let producerIban = '';
     let producerHolderName = '';
@@ -737,7 +738,7 @@ export default function CoursesList({ onSelectCourse }: CoursesListProps) {
                   type="text"
                   value={editForm.producerName}
                   onChange={(e) => setEditForm({ ...editForm, producerName: e.target.value })}
-                  placeholder="Ex: Prof. António Cassaminha"
+                  placeholder="Ex: Marks o Monstro"
                   className="w-full bg-black border border-gray-700 rounded-xl p-3 text-white text-sm focus:border-[#e9c349] outline-none font-medium"
                 />
               </div>
@@ -932,7 +933,7 @@ export default function CoursesList({ onSelectCourse }: CoursesListProps) {
                   type="text"
                   value={newCourseForm.producerName}
                   onChange={(e) => setNewCourseForm({ ...newCourseForm, producerName: e.target.value })}
-                  placeholder="Ex: Prof. António Cassaminha (deixe em branco para usar seu nome padrão)"
+                  placeholder="Ex: Marks o Monstro (deixe em branco para usar seu nome padrão)"
                   className="w-full bg-black border border-gray-700 rounded-xl p-3 text-white text-sm focus:border-[#e9c349] outline-none font-medium"
                 />
               </div>

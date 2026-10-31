@@ -11,7 +11,7 @@ import { db } from '../firebase';
 export const handleApproveTransaction = async (
   transactionId: string, 
   userId: string, 
-  courseId: string = 'cfa-financial-master'
+  courseId: string = 'marks-trading-master'
 ) => {
   try {
     const batch = writeBatch(db);

@@ -41,7 +41,8 @@ export interface SystemNotification {
   timestamp?: number;
 }
 
-const CFA_ICON = 'https://i.postimg.cc/mDY7XpVF/apenas-12-vagas.png';
+const ACADEMY_ICON = 'https://i.postimg.cc/mDY7XpVF/apenas-12-vagas.png';
+const CFA_ICON = ACADEMY_ICON;
 
 /**
  * Toca um som suave de notificação de alta qualidade usando Web Audio API
@@ -265,7 +266,7 @@ export const sendSystemNotification = async (payload: {
       const data = docSnap.data();
       if (data.pushSubscriptions && Array.isArray(data.pushSubscriptions)) {
         // Extra check for complex roles (e.g., student vs admin simulation)
-        if (payload.targetRole === 'admin' && (data.role !== 'admin' && data.roleType !== 'producer' && !data.email?.includes('cassaminha'))) return;
+        if (payload.targetRole === 'admin' && (data.role !== 'admin' && data.roleType !== 'producer' && data.email !== 'fusionmetodo@gmail.com')) return;
         
         allSubscriptions = [...allSubscriptions, ...data.pushSubscriptions];
       }
@@ -305,13 +306,13 @@ export const notifyNewCourse = async (course: {
   return sendSystemNotification({
     type: 'new_course',
     title: '🎓 Novo Curso Disponível!',
-    message: `O curso "${course.title}" foi publicado na CFA Academy! Clique para ver os detalhes e garantir a sua vaga.`,
+    message: `O curso "${course.title}" foi publicado na Marks o Monstro - ACADEMY! Clique para ver os detalhes e garantir a sua vaga.`,
     link: `/preview/${course.id}`,
     targetRole: 'all',
     metadata: {
       courseId: course.id,
       courseTitle: course.title,
-      instructor: course.instructor || 'CFA Academy',
+      instructor: course.instructor || 'Marks o Monstro',
       price: course.price
     }
   });
@@ -337,7 +338,7 @@ export const sendBroadcastPushNotification = async (params: {
     targetUserId: params.targetUserId || undefined,
     metadata: {
       isBroadcast: true,
-      senderName: params.senderName || 'Administração CFA',
+      senderName: params.senderName || 'Administração Marks ACADEMY',
       sentAt: new Date().toISOString()
     }
   });
@@ -461,7 +462,7 @@ export const subscribeToNotifications = (
         notifs.push({
           id: docSnap.id,
           type: data.type || 'general',
-          title: data.title || 'Notificação CFA',
+          title: data.title || 'Notificação Marks ACADEMY',
           message: data.message || '',
           link: data.link || '/dashboard',
           targetRole: docRole,
@@ -507,7 +508,7 @@ export const subscribeToNotifications = (
 
             if (shouldNotify) {
               showNativeNotification(
-                data.title || 'CFA Academy',
+                data.title || 'Marks o Monstro - ACADEMY',
                 data.message || 'Nova atualização na plataforma',
                 data.link || '/library'
               );

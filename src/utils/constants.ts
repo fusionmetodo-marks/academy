@@ -1,9 +1,8 @@
-export const DEFAULT_CFA_LOGO = 'https://i.postimg.cc/mDY7XpVF/apenas-12-vagas.png';
+export const DEFAULT_ACADEMY_LOGO = 'https://i.postimg.cc/mDY7XpVF/apenas-12-vagas.png';
+export const DEFAULT_CFA_LOGO = DEFAULT_ACADEMY_LOGO;
 
 export const MASTER_ADMIN_EMAILS = [
-  'fusionmetodo@gmail.com',
-  'grupocassaminha@gmail.com',
-  'exportacoes.extras@gmail.com'
+  'fusionmetodo@gmail.com'
 ];
 
 export const isMasterEmail = (email?: string | null): boolean => {
@@ -14,7 +13,7 @@ export const isMasterEmail = (email?: string | null): boolean => {
 
 export function getValidLogoUrl(url?: string): string {
   if (!url || typeof url !== 'string' || !url.trim()) {
-    return DEFAULT_CFA_LOGO;
+    return DEFAULT_ACADEMY_LOGO;
   }
   if (
     url.includes('googleusercontent.com') ||
@@ -22,7 +21,7 @@ export function getValidLogoUrl(url?: string): string {
     url.includes('SKLjyxVP') ||
     (url.includes('postimg.cc') && !url.includes('mDY7XpVF'))
   ) {
-    return DEFAULT_CFA_LOGO;
+    return DEFAULT_ACADEMY_LOGO;
   }
   return url;
 }

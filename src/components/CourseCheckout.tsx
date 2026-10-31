@@ -16,10 +16,10 @@ interface CheckoutProps {
 }
 
 const DEFAULT_PAYMENT_METHODS = [
-  { id: 'multicaixa', type: 'multicaixa', shortName: 'Multicaixa', bankName: 'Multicaixa (Entidade / Referência)', accountNumber: 'Entidade: 12345 | Ref: 884920311', holderName: 'GRUPO CASSAMINHA LDA' },
-  { id: 'iban', type: 'iban', shortName: 'Transferência IBAN', bankName: 'Banco BFA / BAI', accountNumber: 'AO06 0040 0000 7829 1048 1018 2', holderName: 'GRUPO CASSAMINHA LDA' },
-  { id: 'express', type: 'express', shortName: 'Multicaixa Express', bankName: 'Multicaixa Express', accountNumber: '923 456 789', holderName: 'GRUPO CASSAMINHA LDA' },
-  { id: 'kwik', type: 'kwik', shortName: 'KWIK Pagamentos', bankName: 'Transferência KWIK', accountNumber: '931 112 233', holderName: 'GRUPOCASSAMINHA' }
+  { id: 'multicaixa', type: 'multicaixa', shortName: 'Multicaixa', bankName: 'Multicaixa (Entidade / Referência)', accountNumber: 'Entidade: 12345 | Ref: 884920311', holderName: 'MARKS O MONSTRO ACADEMY' },
+  { id: 'iban', type: 'iban', shortName: 'Transferência IBAN', bankName: 'Banco BFA / BAI', accountNumber: 'AO06 0040 0000 7829 1048 1018 2', holderName: 'MARKS O MONSTRO ACADEMY' },
+  { id: 'express', type: 'express', shortName: 'Multicaixa Express', bankName: 'Multicaixa Express', accountNumber: '923 456 789', holderName: 'MARKS O MONSTRO ACADEMY' },
+  { id: 'kwik', type: 'kwik', shortName: 'KWIK Pagamentos', bankName: 'Transferência KWIK', accountNumber: '931 112 233', holderName: 'MARKS O MONSTRO ACADEMY' }
 ];
 
 export default function CourseCheckout({ courseId, courseTitle, coursePrice, courseCover, onBack, preAppliedCoupon }: CheckoutProps) {
@@ -156,7 +156,7 @@ export default function CourseCheckout({ courseId, courseTitle, coursePrice, cou
               shortName: 'Multicaixa',
               bankName: 'Multicaixa (Entidade / Referência)',
               accountNumber: `Entidade: ${pData.multicaixaEntity || '12345'} | Ref: ${pData.multicaixaReference || '884920311'}`,
-              holderName: pData.multicaixaName || 'GRUPO CASSAMINHA LDA'
+              holderName: pData.multicaixaName || 'MARKS O MONSTRO ACADEMY'
             });
           }
 
@@ -167,7 +167,7 @@ export default function CourseCheckout({ courseId, courseTitle, coursePrice, cou
               shortName: 'Transferência IBAN',
               bankName: pData.bankName || 'Banco BFA / BAI',
               accountNumber: pData.iban || 'AO06 0040 0000 7829 1048 1018 2',
-              holderName: pData.ibanAccountName || 'GRUPO CASSAMINHA LDA'
+              holderName: pData.ibanAccountName || 'MARKS O MONSTRO ACADEMY'
             });
           }
 
@@ -178,7 +178,7 @@ export default function CourseCheckout({ courseId, courseTitle, coursePrice, cou
               shortName: 'Multicaixa Express',
               bankName: 'Multicaixa Express',
               accountNumber: pData.expressPhone || '923 456 789',
-              holderName: pData.expressName || 'GRUPO CASSAMINHA LDA'
+              holderName: pData.expressName || 'MARKS O MONSTRO ACADEMY'
             });
           }
 
@@ -189,7 +189,7 @@ export default function CourseCheckout({ courseId, courseTitle, coursePrice, cou
               shortName: 'KWIK Pagamentos',
               bankName: 'Transferência KWIK',
               accountNumber: pData.kwikPhone || '931 112 233',
-              holderName: pData.kwikName || 'GRUPOCASSAMINHA'
+              holderName: pData.kwikName || 'MARKS O MONSTRO ACADEMY'
             });
           }
         }
@@ -205,7 +205,7 @@ export default function CourseCheckout({ courseId, courseTitle, coursePrice, cou
                 shortName: data.shortName || data.bankName || 'Método',
                 bankName: data.bankName || 'Banco Oficial',
                 accountNumber: data.accountNumber || data.phoneNumber || '',
-                holderName: data.holderName || 'GRUPO CASSAMINHA LDA'
+                holderName: data.holderName || 'MARKS O MONSTRO ACADEMY'
               });
             }
           });
@@ -442,7 +442,7 @@ export default function CourseCheckout({ courseId, courseTitle, coursePrice, cou
       sendSystemNotification({
         type: 'payment_submitted',
         title: '💳 Pagamento Informado ("Já Paguei")!',
-        message: `O aluno ${finalStudentName} informou pagamento de ${formattedPrice} no curso "${safeTitle}" (Produtor: ${courseAuthorEmail || 'CFA Academy'}). Referência: ${cleanRef}`,
+        message: `O estudante ${finalStudentName} informou pagamento de ${formattedPrice} no curso "${safeTitle}" (Formador: ${courseAuthorEmail || 'Marks o Monstro'}). Referência: ${cleanRef}`,
         link: '/dashboard',
         targetRole: 'admin',
         metadata: {
@@ -968,7 +968,7 @@ export default function CourseCheckout({ courseId, courseTitle, coursePrice, cou
                     </div>
                     <div className="flex justify-between text-stone-300">
                       <span>📱 Destinatário:</span>
-                      <span className="text-[#e9c349] font-medium">{producerName ? `${producerName} (Produtor)` : 'Suporte Oficial CFA'}</span>
+                      <span className="text-[#e9c349] font-medium">{producerName ? `${producerName}` : 'Suporte Oficial Marks ACADEMY'}</span>
                     </div>
                   </div>
 

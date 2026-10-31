@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { logout, db, auth } from '../firebase';
 import { doc, getDoc } from 'firebase/firestore';
-import { DEFAULT_CFA_LOGO, getValidLogoUrl } from '../utils/constants';
+import { DEFAULT_CFA_LOGO, getValidLogoUrl, isMasterEmail } from '../utils/constants';
 import { AndroidInstallModal } from './AndroidInstallModal';
 import { shouldShowInstallPopup } from '../utils/deviceDetection';
 import { NotificationCenter } from './NotificationCenter';
@@ -37,12 +37,6 @@ export default function Sidebar() {
     return () => unsub();
   }, []);
 
-  const isMasterEmail = (email?: string | null) => {
-    if (!email) return false;
-    const clean = email.trim().toLowerCase();
-    return clean === 'grupocassaminha@gmail.com' || clean === 'exportacoes.extras@gmail.com';
-  };
-
   const isMaster = isMasterEmail(currentUserEmail);
 
   // Fecha a barra lateral no mobile sempre que mudar de rota
@@ -54,7 +48,7 @@ export default function Sidebar() {
   const [isSupportModalOpen, setIsSupportModalOpen] = useState(false);
   const [isAndroidModalOpen, setIsAndroidModalOpen] = useState(false);
   const [supportWhatsApp, setSupportWhatsApp] = useState('244923456789');
-  const [supportEmail, setSupportEmail] = useState('suporte@grupocassaminha.com');
+  const [supportEmail, setSupportEmail] = useState('fusionmetodo@gmail.com');
   const [copiedEmail, setCopiedEmail] = useState(false);
 
   useEffect(() => {
@@ -366,7 +360,7 @@ export default function Sidebar() {
                 <HelpCircle className="w-5 h-5" />
               </div>
               <div>
-                <h3 className="text-lg font-bold text-white font-headline">Central de Suporte CFA</h3>
+                <h3 className="text-lg font-bold text-white font-headline">Central de Suporte Marks ACADEMY</h3>
                 <p className="text-xs text-stone-400">Atendimento ao aluno e equipe</p>
               </div>
             </div>

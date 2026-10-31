@@ -14,7 +14,7 @@ const publicVapidKey = process.env.VAPID_PUBLIC_KEY || 'BH78AfuxrLzczmvgRlw_wBSC
 const privateVapidKey = process.env.VAPID_PRIVATE_KEY || '-uGUUBJgbXtlcyzpSKtKWAOTxYdTMh95Xosnd4PRi5Q';
 
 webpush.setVapidDetails(
-  'mailto:grupocassaminha@gmail.com',
+  'mailto:fusionmetodo@gmail.com',
   publicVapidKey,
   privateVapidKey
 );
@@ -31,7 +31,7 @@ app.post('/api/push/send', async (req, res) => {
   }
 
   const pushPayload = JSON.stringify({
-    title: payload.title || 'CFA Academy',
+    title: payload.title || 'Marks o Monstro - ACADEMY',
     body: payload.body || 'Nova notificação!',
     url: payload.url || '/dashboard'
   });

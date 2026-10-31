@@ -4,6 +4,7 @@ import { logout, auth, db } from '../firebase';
 import { doc, getDoc, onSnapshot } from 'firebase/firestore';
 import { useNavigate } from 'react-router-dom';
 import NotificationCenter from './NotificationCenter';
+import { isMasterEmail } from '../utils/constants';
 
 interface StudentLayoutProps {
   children: React.ReactNode;
@@ -18,11 +19,6 @@ export default function StudentLayout({ children, activeTab, setActiveTab, onLog
   const [isProducer, setIsProducer] = useState(false);
 
   useEffect(() => {
-    const isMasterEmail = (email?: string | null) => {
-      if (!email) return false;
-      const clean = email.trim().toLowerCase();
-      return clean === 'grupocassaminha@gmail.com' || clean === 'exportacoes.extras@gmail.com';
-    };
 
     let unsubUser: (() => void) | null = null;
 
@@ -84,7 +80,7 @@ export default function StudentLayout({ children, activeTab, setActiveTab, onLog
             <div>
               <h1 className="text-2xl font-bold text-[#e9c349] flex items-center gap-2 font-headline">
                 <BookOpen className="w-6 h-6" />
-                CFA
+                Marks ACADEMY
               </h1>
               <p className="text-[10px] text-gray-500 mt-1 uppercase tracking-widest font-mono">Academy Portal</p>
             </div>

@@ -141,7 +141,7 @@ export default function StudentMyCourses({ onExplore }: { onExplore: () => void 
                   {course.coverImage ? (
                     <img src={course.coverImage} alt={course.title} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
                   ) : (
-                    <div className="w-full h-full bg-gray-900 flex items-center justify-center text-gray-600 font-mono text-xs">CFA Academy</div>
+                    <div className="w-full h-full bg-gray-900 flex items-center justify-center text-gray-600 font-mono text-xs">Marks ACADEMY</div>
                   )}
                   {isDirectLink ? (
                     <div className="absolute top-2.5 right-2.5 bg-sky-500/80 backdrop-blur-md px-2.5 py-0.5 sm:px-3 sm:py-1 rounded-full border border-sky-500/20 text-white text-[10px] sm:text-xs font-bold font-mono">
@@ -161,7 +161,7 @@ export default function StudentMyCourses({ onExplore }: { onExplore: () => void 
                 <div className="p-3.5 sm:p-5 md:p-6 flex-1 flex flex-col justify-between">
                   <div>
                     <h3 className="text-sm sm:text-base md:text-lg font-bold text-white mb-1.5 line-clamp-2">{course.title}</h3>
-                    <p className="text-gray-400 text-[11px] sm:text-xs line-clamp-2 sm:line-clamp-4 leading-relaxed mb-3 sm:mb-4">{course.description || 'Treinamento completo profissional CFA.'}</p>
+                    <p className="text-gray-400 text-[11px] sm:text-xs line-clamp-2 sm:line-clamp-4 leading-relaxed mb-3 sm:mb-4">{course.description || 'Treinamento completo em trading Método Fusion.'}</p>
                     
                     {/* Progress Bar or delivery type info */}
                     {isDirectLink ? (

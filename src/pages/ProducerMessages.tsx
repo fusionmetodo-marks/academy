@@ -128,7 +128,7 @@ export default function ProducerMessages() {
 
     setIsSubmittingDoubt(true);
     try {
-      const producerName = currentUser.displayName || currentUser.email?.split('@')[0] || 'Produtor CFA';
+      const producerName = currentUser.displayName || currentUser.email?.split('@')[0] || 'Marks ACADEMY';
       await sendProducerDoubtMessage({
         producerUid: currentUser.uid,
         producerName,

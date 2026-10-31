@@ -85,11 +85,11 @@ export const AndroidInstallModal: React.FC<AndroidInstallModalProps> = ({
             </div>
             <div>
               <h2 className="text-base font-bold text-white font-headline leading-tight">
-                {isProducerOrAdmin ? 'Instalar App do Produtor' : 'Instalar App CFA Academy'}
+                {isProducerOrAdmin ? 'Instalar App de Gestão' : 'Instalar App Marks ACADEMY'}
               </h2>
               <span className="text-[11px] text-[#e9c349] font-medium flex items-center gap-1 mt-0.5">
                 <Sparkles className="w-3 h-3" />
-                {isProducerOrAdmin ? 'Painel Mobile do Produtor' : 'Acesso Rápido ao Curso'}
+                {isProducerOrAdmin ? 'Painel Mobile do Maestro' : 'Acesso Rápido às Aulas'}
               </span>
             </div>
           </div>
@@ -111,7 +111,7 @@ export const AndroidInstallModal: React.FC<AndroidInstallModalProps> = ({
             <div className="w-14 h-14 bg-black rounded-2xl border border-[#e9c349]/40 mx-auto flex items-center justify-center shadow-lg p-2 overflow-hidden">
               <img 
                 src="https://i.postimg.cc/mDY7XpVF/apenas-12-vagas.png" 
-                alt="CFA Academy App" 
+                alt="Marks o Monstro - ACADEMY App" 
                 className="w-full h-full object-contain rounded-lg"
               />
             </div>
@@ -119,18 +119,18 @@ export const AndroidInstallModal: React.FC<AndroidInstallModalProps> = ({
             <div>
               <h3 className="text-base font-bold text-white font-headline">
                 {isProducerOrAdmin 
-                  ? 'Acompanhe as suas Vendas & Alunos no Telemóvel!' 
+                  ? 'Acompanhe os seus Estudantes no Telemóvel!' 
                   : 'Acesse o seu Curso com 1 Toque!'}
               </h3>
               
               <p className="text-xs text-stone-300 mt-2 leading-relaxed">
                 {isProducerOrAdmin ? (
                   <>
-                    Instale a app para receber <strong>alertas instantâneos</strong> de novas matrículas de alunos, confirmações de vendas, registos de pagamento e o resumo de quanto faturou no dia!
+                    Instale a app para receber <strong>alertas instantâneos</strong> de novos estudantes cadastrados e acessos às aulas!
                   </>
                 ) : (
                   <>
-                    Instale a app no seu telemóvel para receber <strong>notificações imediatas</strong> sempre que forem adicionadas novas aulas, novos módulos ou novos cursos na plataforma!
+                    Instale a app no seu telemóvel para receber <strong>notificações imediatas</strong> sempre que forem adicionadas novas aulas ou novos conteúdos no Método Fusion!
                   </>
                 )}
               </p>
@@ -146,7 +146,7 @@ export const AndroidInstallModal: React.FC<AndroidInstallModalProps> = ({
                 {isInstalled 
                   ? 'Aplicação Já Instalada' 
                   : isProducerOrAdmin 
-                    ? 'Instalar App do Produtor Agora' 
+                    ? 'Instalar App do Maestro Agora' 
                     : 'Instalar Aplicação no Telemóvel'}
               </span>
             </button>
@@ -204,7 +204,7 @@ export const AndroidInstallModal: React.FC<AndroidInstallModalProps> = ({
                   <span>Capacitor Android Package</span>
                 </div>
                 <p className="text-[11px]">
-                  ID do Pacote: <code className="text-[#e9c349] font-mono bg-black/40 px-1 py-0.5 rounded">com.grupocassaminha.cfa</code>
+                  ID do Pacote: <code className="text-[#e9c349] font-mono bg-black/40 px-1 py-0.5 rounded">com.marksomonstro.academy</code>
                 </p>
                 <div className="text-[10px] text-stone-400">
                   Execute <code className="text-emerald-400 font-mono">npx cap sync</code> no terminal para gerar o build nativo da Google Play Store.

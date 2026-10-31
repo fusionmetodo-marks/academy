@@ -39,7 +39,7 @@ export function CertificateModal({
   const [zoomMode, setZoomMode] = useState<'fit' | 'custom'>('fit');
 
   // Generate a random validation code once per modal open
-  const validationCode = useRef(`CFA-${Math.random().toString(36).substr(2, 6).toUpperCase()}-${Date.now().toString().slice(-4)}`);
+  const validationCode = useRef(`MMA-${Math.random().toString(36).substr(2, 6).toUpperCase()}-${Date.now().toString().slice(-4)}`);
 
   // Detectar inteligentemente o Autor / Formador do Curso
   useEffect(() => {
@@ -49,7 +49,7 @@ export function CertificateModal({
 
     const resolveInstructor = async () => {
       // 1. Se já recebemos um nome de instrutor customizado explícito
-      if (instructorName && instructorName !== "Marks o Monstro" && instructorName !== "Pedro Cassaminha" && instructorName !== "Instrutor CFA") {
+      if (instructorName && instructorName !== "Marks o Monstro") {
         setInstructor(instructorName);
         return;
       }
@@ -66,7 +66,7 @@ export function CertificateModal({
             let detected = cData.producerName || cData.instructor || '';
 
             // Se não estiver preenchido diretamente no curso, busca no perfil do autor
-            if ((!detected || detected === 'Instrutor CFA') && cData.authorId) {
+            if (!detected && cData.authorId) {
               const authorSnap = await getDoc(doc(db, 'users', cData.authorId));
               if (authorSnap.exists()) {
                 const uData = authorSnap.data();
@@ -444,7 +444,7 @@ export function CertificateModal({
               borderRadius: '8px'
             }}>
               <QRCodeSVG 
-                value={`https://cfa-academy.site/validar?code=${validationCode.current}`} 
+                value={`${window.location.origin}/validar?code=${validationCode.current}`} 
                 size={90}
                 level="M"
               />

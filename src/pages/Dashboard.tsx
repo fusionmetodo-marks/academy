@@ -6,6 +6,7 @@ import { PushSubscriptionBanner } from '../components/PushSubscriptionBanner';
 import { collection, onSnapshot, updateDoc, doc, arrayRemove, deleteDoc, query, where, getDocs, getDoc } from 'firebase/firestore';
 import { db, auth, approveStudentTransaction } from '../firebase';
 import { Transaction } from '../types';
+import { isMasterEmail } from '../utils/constants';
 import { 
   BarChart3, 
   TrendingUp, 
@@ -160,8 +161,8 @@ export default function Dashboard() {
 
   const handleApproveTransaction = async (tx: Transaction) => {
     try {
-      const courseIdToEnroll = tx.courseId || 'cfa-financial-master';
-      const courseTitle = tx.courseTitle || 'Curso CFA';
+      const courseIdToEnroll = tx.courseId || 'marks-trading-master';
+      const courseTitle = tx.courseTitle || 'Curso Marks ACADEMY';
       
       await approveStudentTransaction(tx.id, tx.userId, courseIdToEnroll, tx.userEmail);
       showNotification(`Pagamento aprovado! Curso "${courseTitle}" liberado com sucesso para ${tx.userName || tx.userEmail}!`);
@@ -183,7 +184,7 @@ export default function Dashboard() {
 
   const handleCancelSubscription = async (tx: Transaction) => {
     try {
-      const courseIdToRemove = tx.courseId || 'cfa-financial-master';
+      const courseIdToRemove = tx.courseId || 'marks-trading-master';
       
       // 1. Revert transaction status back to 'pending'
       await updateDoc(doc(db, 'transactions', tx.id), {
@@ -271,12 +272,6 @@ export default function Dashboard() {
     }
   };
 
-  const isMasterEmail = (email?: string | null) => {
-    if (!email) return false;
-    const clean = email.trim().toLowerCase();
-    return clean === 'grupocassaminha@gmail.com' || clean === 'exportacoes.extras@gmail.com';
-  };
-
   // Filter students (exclude master admin & producer from student count metrics)
   const realStudents = useMemo(() => {
     return students.filter(s => {
@@ -290,7 +285,7 @@ export default function Dashboard() {
   // Detect current user role & producer status for data isolation
   const currentAuthUser = auth.currentUser;
   const cleanCurrentEmail = currentAuthUser?.email?.trim().toLowerCase() || '';
-  const isMasterUser = cleanCurrentEmail === 'grupocassaminha@gmail.com' || cleanCurrentEmail === 'exportacoes.extras@gmail.com';
+  const isMasterUser = isMasterEmail(cleanCurrentEmail);
   const isProducerRole = currentUserProfile?.role === 'producer' || currentUserProfile?.roleType === 'producer';
   const isProducerMode = !isMasterUser && (isProducerRole || currentUserProfile?.role === 'admin');
 
@@ -679,7 +674,7 @@ export default function Dashboard() {
       const csvRows: string[] = [];
       
       // Header Section
-      csvRows.push('RELATÓRIO DE DESEMPENHO E AUDITORIA - CASSAMINHA FINANCIAL ACADEMY (CFA)');
+      csvRows.push('RELATÓRIO DE DESEMPENHO E AUDITORIA - MARKS O MONSTRO ACADEMY');
       csvRows.push(`Data de Emissão: ${new Date().toLocaleString('pt-AO')}`);
       csvRows.push(`Faturamento Total Aprovado: ${revenueFormatted}`);
       csvRows.push(`Total de Estudantes Registados: ${totalStudents}`);
@@ -697,7 +692,7 @@ export default function Dashboard() {
         const cleanRef = (t.referenceNumber || 'N/A').replace(/,/g, ' ');
         const cleanName = (t.userName || 'Estudante').replace(/,/g, ' ');
         const cleanEmail = (t.userEmail || '').replace(/,/g, ' ');
-        const cleanCourse = (t.courseTitle || 'Curso CFA').replace(/,/g, ' ');
+        const cleanCourse = (t.courseTitle || 'Curso Marks ACADEMY').replace(/,/g, ' ');
         const amount = t.amount || 0;
         const status = t.status === 'approved' ? 'Aprovado' : t.status === 'rejected' ? 'Recusado' : 'Pendente';
         csvRows.push(`"${cleanRef}","${cleanName}","${cleanEmail}","${cleanCourse}",${amount},"${status}","${dateFormatted}"`);
@@ -721,7 +716,7 @@ export default function Dashboard() {
       const url = URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.setAttribute('href', url);
-      link.setAttribute('download', `relatorio_cfa_dashboard_${new Date().toISOString().split('T')[0]}.csv`);
+      link.setAttribute('download', `relatorio_marks_academy_${new Date().toISOString().split('T')[0]}.csv`);
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
@@ -913,7 +908,7 @@ export default function Dashboard() {
                           <p className="font-medium text-on-surface">{tx.userName || 'Estudante'}</p>
                           <p className="text-[11px] text-stone-500">{tx.userEmail || tx.userId || ''}</p>
                         </td>
-                        <td className="py-3 px-3 text-stone-300">{tx.courseTitle || 'CFA Master'}</td>
+                        <td className="py-3 px-3 text-stone-300">{tx.courseTitle || 'Método Fusion'}</td>
                         <td className="py-3 px-3 text-stone-400 text-xs font-mono">
                           {tx.createdAt ? (tx.createdAt.toDate ? tx.createdAt.toDate().toLocaleString('pt-AO') : new Date(tx.createdAt).toLocaleString('pt-AO')) : '-'}
                         </td>
@@ -1429,7 +1424,7 @@ export default function Dashboard() {
                               <p className="font-medium text-on-surface text-xs">{tx.userName || 'Estudante'}</p>
                               <p className="text-[10px] text-stone-500 font-mono">ID: {tx.userId || 'N/A'}</p>
                             </td>
-                            <td className="py-2.5 px-2.5 text-stone-300 font-semibold text-xs">{tx.courseTitle || 'CFA Master'}</td>
+                            <td className="py-2.5 px-2.5 text-stone-300 font-semibold text-xs">{tx.courseTitle || 'Método Fusion'}</td>
                             <td className="py-2.5 px-2.5 text-[#e9c349] font-bold font-mono text-xs">
                               {new Intl.NumberFormat('pt-AO', { style: 'currency', currency: 'AOA', maximumFractionDigits: 0, minimumFractionDigits: 0 }).format(tx.amount || 0)}
                             </td>

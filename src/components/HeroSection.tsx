@@ -14,7 +14,7 @@ export default function HeroSection({ currentUser }: HeroSectionProps) {
       <div className="absolute inset-0 z-0">
         <img
           src="https://i.postimg.cc/kG5gtcj8/CAPA-CFA.png"
-          alt="CFA Academy"
+          alt="Marks o Monstro - ACADEMY"
           className="w-full h-full object-cover object-[75%_center] sm:object-right md:object-center opacity-85 sm:opacity-100"
           referrerPolicy="no-referrer"
           fetchPriority="high"

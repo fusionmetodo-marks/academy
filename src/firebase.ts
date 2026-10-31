@@ -111,7 +111,7 @@ export const adminCreateStudentAccount = async (
 export const approveStudentTransaction = async (
   transactionId: string, 
   userId?: string, 
-  courseId: string = 'cfa-financial-master',
+  courseId: string = 'marks-trading-master',
   userEmail?: string
 ) => {
   try {
@@ -123,7 +123,7 @@ export const approveStudentTransaction = async (
       approvedBy: auth.currentUser?.email || 'admin'
     });
 
-    const targetCourseId = courseId || 'cfa-financial-master';
+    const targetCourseId = courseId || 'marks-trading-master';
 
     // 2. Inteligência: Insere o ID exato do curso comprado no array de cursos do usuário
     if (userId && !userId.startsWith('guest_')) {

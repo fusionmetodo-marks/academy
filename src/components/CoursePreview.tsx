@@ -158,8 +158,8 @@ export default function CoursePreview({ courseId, onBack, onOpenCheckout }: Cour
           }));
 
           setCourse({
-            title: data.title || 'Curso CFA Academy',
-            description: data.description || 'Treinamento prático da CFA Academy.',
+            title: data.title || 'Curso Marks ACADEMY',
+            description: data.description || 'Treinamento prático da Marks o Monstro - ACADEMY.',
             price: Number(data.price) || 0,
             image: data.coverImage || data.imageUrl || data.image || 'https://images.unsplash.com/photo-1611974789855-9c2a0a7236a3?auto=format&fit=crop&q=80&w=800',
             producerPhone: data.producerPhone || '',
@@ -234,7 +234,7 @@ export default function CoursePreview({ courseId, onBack, onOpenCheckout }: Cour
             <div className="bg-[#131313]/70 backdrop-blur-md p-4 sm:p-6 md:p-8 rounded-2xl sm:rounded-3xl border border-gray-800/80 shadow-xl">
               <div className="flex items-center gap-2 mb-2 sm:mb-3">
                 <span className="px-2.5 py-0.5 sm:px-3.5 sm:py-1 bg-[#e9c349]/20 text-[#e9c349] border border-[#e9c349]/30 rounded-full text-[10px] sm:text-xs font-bold font-mono uppercase tracking-widest shadow-sm">
-                  🌟 Programa Oficial CFA
+                  🌟 Programa Oficial Método Fusion
                 </span>
               </div>
               <h1 className="text-xl sm:text-3xl md:text-4xl font-extrabold text-white mb-2 sm:mb-4 font-headline leading-tight drop-shadow-md">

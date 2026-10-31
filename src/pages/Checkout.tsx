@@ -34,18 +34,18 @@ export default function Checkout() {
     iban: 'AO06 0040 0000 7829 1048 1018 2',
     ibanActive: true,
     bankName: 'BFA (Banco de Fomento Angola)',
-    ibanAccountName: 'GRUPO CASSAMINHA LDA',
+    ibanAccountName: 'MARKS O MONSTRO ACADEMY',
     expressIban: 'AO06 0040 0000 7829 1048 1018 2',
     expressActive: true,
     expressPhone: '923 456 789',
-    expressName: 'GRUPO CASSAMINHA LDA',
+    expressName: 'MARKS O MONSTRO ACADEMY',
     kwikPhone: '923 456 789',
     kwikActive: true,
-    kwikName: 'GRUPOCASSAMINHA',
+    kwikName: 'MARKS O MONSTRO ACADEMY',
     multicaixaEntity: '12345',
     multicaixaReference: '884 920 311',
     multicaixaActive: true,
-    multicaixaName: 'GRUPO CASSAMINHA LDA'
+    multicaixaName: 'MARKS O MONSTRO ACADEMY'
   });
 
   useEffect(() => {
@@ -633,7 +633,7 @@ export default function Checkout() {
 
                       <div className="flex justify-between items-center text-xs text-stone-300 pt-1 border-t border-gray-800/60">
                         <span className="text-stone-400">Titular da Conta:</span>
-                        <strong className="text-white font-medium">{paymentSettings.expressName || 'GRUPO CASSAMINHA LDA'}</strong>
+                        <strong className="text-white font-medium">{paymentSettings.expressName || 'MARKS O MONSTRO ACADEMY'}</strong>
                       </div>
                     </div>
                   </div>
@@ -702,7 +702,7 @@ export default function Checkout() {
 
                     <div className="flex justify-between items-center text-xs text-stone-300 pt-1 border-t border-gray-800/60">
                       <span className="text-stone-400">Beneficiário:</span>
-                      <strong className="text-white font-medium">{paymentSettings.multicaixaName || 'GRUPO CASSAMINHA LDA'}</strong>
+                      <strong className="text-white font-medium">{paymentSettings.multicaixaName || 'MARKS O MONSTRO ACADEMY'}</strong>
                     </div>
                   </div>
                 )}
@@ -748,7 +748,7 @@ export default function Checkout() {
 
                       <div className="flex justify-between items-center text-xs text-stone-300 pt-1 border-t border-gray-800/60">
                         <span className="text-stone-400">Titular da Conta:</span>
-                        <strong className="text-white font-medium">{paymentSettings.ibanAccountName || paymentSettings.expressName || 'GRUPO CASSAMINHA LDA'}</strong>
+                        <strong className="text-white font-medium">{paymentSettings.ibanAccountName || paymentSettings.expressName || 'MARKS O MONSTRO ACADEMY'}</strong>
                       </div>
                     </div>
                   </div>

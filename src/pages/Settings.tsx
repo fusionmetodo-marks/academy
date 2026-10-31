@@ -5,7 +5,7 @@ import { doc, getDoc, setDoc, collection, getDocs, updateDoc, serverTimestamp, q
 import { db, auth } from '../firebase';
 import { PlatformSettings, Coupon } from '../types';
 import { DEFAULT_PLATFORM_COUPONS } from '../utils/discountUtils';
-import { DEFAULT_CFA_LOGO, getValidLogoUrl } from '../utils/constants';
+import { DEFAULT_CFA_LOGO, getValidLogoUrl, isMasterEmail } from '../utils/constants';
 import { CertificateModal } from '../components/CertificateModal';
 import { compressImage, compressDataUrl } from '../utils/imageCompressor';
 import { 
@@ -128,7 +128,7 @@ export default function Settings() {
   // 1. Global Platform Identity State
   const [platformName, setPlatformName] = useState('Marks o Monstro - ACADEMY');
   const [supportWhatsApp, setSupportWhatsApp] = useState('244923456789');
-  const [supportEmail, setSupportEmail] = useState('suporte@grupocassaminha.com');
+  const [supportEmail, setSupportEmail] = useState('fusionmetodo@gmail.com');
   const [defaultCurrency, setDefaultCurrency] = useState('Kz');
   const [timezone, setTimezone] = useState('WAT (UTC+01:00) Luanda');
   const [logoUrl, setLogoUrl] = useState(DEFAULT_CFA_LOGO);
@@ -146,21 +146,21 @@ export default function Settings() {
     iban: 'AO06 0040 0000 7829 1048 1018 2',
     ibanActive: true,
     bankName: 'BFA (Banco de Fomento Angola)',
-    ibanAccountName: 'GRUPO CASSAMINHA LDA',
+    ibanAccountName: 'MARKS O MONSTRO ACADEMY',
     
     expressIban: 'AO06 0040 0000 7829 1048 1018 2',
     expressActive: true,
     expressPhone: '923 456 789',
-    expressName: 'GRUPO CASSAMINHA LDA',
+    expressName: 'MARKS O MONSTRO ACADEMY',
     
     kwikPhone: '923 456 789',
     kwikActive: true,
-    kwikName: 'GRUPOCASSAMINHA',
+    kwikName: 'MARKS O MONSTRO ACADEMY',
     
     multicaixaEntity: '12345',
     multicaixaReference: '884 920 311',
     multicaixaActive: true,
-    multicaixaName: 'GRUPO CASSAMINHA LDA'
+    multicaixaName: 'MARKS O MONSTRO ACADEMY'
   });
 
   // 3. Roles & Permissions State
@@ -207,7 +207,7 @@ export default function Settings() {
           setCurrentUserFullProfile({ id: user.uid, uid: user.uid, ...uData });
           if (uData.role === 'producer' || uData.roleType === 'producer') {
             setCurrentUserRole('producer');
-          } else if (uData.role === 'admin' || uData.role === 'super_admin' || uData.roleType === 'admin' || uData.email === 'grupocassaminha@gmail.com') {
+          } else if (uData.role === 'admin' || uData.role === 'super_admin' || uData.roleType === 'admin' || isMasterEmail(uData.email)) {
             setCurrentUserRole('admin');
           }
           setProducerData({
@@ -973,7 +973,7 @@ export default function Settings() {
                     Meu Contrato
                   </h3>
                   <p className="text-xs text-stone-400 mt-1.5 line-clamp-5 leading-relaxed">
-                    Consulte os termos legais celebrados com a CFA Cassaminha Financial Academy.
+                    Consulte os termos legais celebrados com a Marks o Monstro - ACADEMY.
                   </p>
                 </div>
               </div>
@@ -1244,7 +1244,7 @@ export default function Settings() {
                       ? 'text-emerald-400 bg-emerald-400/10' 
                       : 'text-amber-400 bg-amber-400/10'
                   }`}>
-                    {certificateTemplate ? 'Ativo & Pronto' : 'Padrão da CFA'}
+                    {certificateTemplate ? 'Ativo & Pronto' : 'Padrão da Academia'}
                   </span>
                 </div>
                 <div className="flex justify-between items-center text-stone-400">
@@ -1349,7 +1349,7 @@ export default function Settings() {
             </div>
           </div>
           <div className="text-[10px] uppercase font-bold tracking-widest text-stone-500 font-mono">
-            CFA Core v2.8 • Sovereign Production
+            Marks ACADEMY v2.8 • Sovereign Production
           </div>
         </footer>
       </main>
@@ -1389,7 +1389,7 @@ export default function Settings() {
                   type="text" 
                   value={platformName}
                   onChange={(e) => setPlatformName(e.target.value)}
-                  placeholder="Ex: CFA - Cassaminha Financial Academy"
+                  placeholder="Ex: Marks o Monstro - ACADEMY"
                 />
               </div>
 
@@ -1421,7 +1421,7 @@ export default function Settings() {
                     <input 
                       className="w-full bg-black/60 border border-outline-variant/20 focus:border-[#e9c349] focus:ring-1 focus:ring-[#e9c349] rounded-xl text-white py-2.5 px-4 pl-10 text-sm font-medium outline-none transition-all" 
                       type="email" 
-                      placeholder="Ex: suporte@grupocassaminha.com"
+                      placeholder="Ex: fusionmetodo@gmail.com"
                       value={supportEmail}
                       onChange={(e) => setSupportEmail(e.target.value)}
                     />
@@ -1800,7 +1800,7 @@ export default function Settings() {
                         type="text" 
                         value={paymentSettings.kwikName}
                         onChange={(e) => setPaymentSettings(prev => ({ ...prev, kwikName: e.target.value }))}
-                        placeholder="Ex: GRUPOCASSAMINHA"
+                        placeholder="Ex: MARKS O MONSTRO ACADEMY"
                       />
                     </div>
                   </div>

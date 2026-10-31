@@ -271,7 +271,7 @@ export default function CourseEditor({ courseId, onBack }: CourseEditorProps) {
       if (newStatus) {
         notifyNewCourse({
           id: courseId,
-          title: title || 'Curso CFA Academy',
+          title: title || 'Curso Marks ACADEMY',
           price: Number(price) || 0
         }).catch(err => console.warn('Falha ao disparar notificação de curso:', err));
       }
@@ -343,7 +343,7 @@ export default function CourseEditor({ courseId, onBack }: CourseEditorProps) {
       if (isPublished) {
         notifyNewModule({
           courseId,
-          courseTitle: title || 'Curso CFA Academy',
+          courseTitle: title || 'Curso Marks ACADEMY',
           moduleTitle: cleanTitle
         }).catch(err => console.warn('Erro ao disparar notificação de módulo:', err));
       }
@@ -480,7 +480,7 @@ export default function CourseEditor({ courseId, onBack }: CourseEditorProps) {
           if (isPublished) {
             notifyNewLesson({
               courseId,
-              courseTitle: title || 'Curso CFA Academy',
+              courseTitle: title || 'Curso Marks ACADEMY',
               moduleTitle: mod.title,
               lessonTitle: cleanLessonTitle
             }).catch(err => console.warn('Erro ao disparar notificação de aula:', err));
@@ -685,7 +685,7 @@ export default function CourseEditor({ courseId, onBack }: CourseEditorProps) {
     if (isPublished) {
       notifyNewModule({
         courseId,
-        courseTitle: title || 'Curso CFA Academy',
+        courseTitle: title || 'Curso Marks ACADEMY',
         moduleTitle: newModule.title
       }).catch(err => console.warn('Erro ao disparar notificação de módulo colado:', err));
     }

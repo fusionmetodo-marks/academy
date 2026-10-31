@@ -68,7 +68,7 @@ export default function StudentDirectory() {
     phoneCountryCode: '+244',
     phoneNumber: '',
     selectedCourses: [] as string[],
-    plan: 'Acesso Padrão CFA'
+    plan: 'Acesso Padrão Marks ACADEMY'
   });
 
   // Modal de Gerenciamento de Cursos de um Aluno
@@ -214,7 +214,7 @@ export default function StudentDirectory() {
               userPhone: `${formData.phoneCountryCode || ''} ${formData.phoneNumber || ''}`.trim(),
               courseId: courseId,
               courseTitle: courseData.title,
-              referenceNumber: `CFA-ATRIB-${Math.random().toString(36).substring(2,8).toUpperCase()}`,
+              referenceNumber: `MMA-ATRIB-${Math.random().toString(36).substring(2,8).toUpperCase()}`,
               paymentMethod: 'Atribuição Administrativa',
               amount: courseData.price || 0,
               originalAmount: courseData.price || 0,
@@ -240,7 +240,7 @@ export default function StudentDirectory() {
         phoneCountryCode: '+244',
         phoneNumber: '',
         selectedCourses: [] as string[],
-        plan: 'Acesso Padrão CFA'
+        plan: 'Acesso Padrão Marks ACADEMY'
       });
     } catch (error: any) {
       console.error("Erro ao cadastrar aluno:", error);
@@ -358,7 +358,7 @@ export default function StudentDirectory() {
               userPhone: `${selectedStudentForCourses.phoneCountryCode || ''} ${selectedStudentForCourses.phoneNumber || ''}`.trim(),
               courseId: courseId,
               courseTitle: courseData.title,
-              referenceNumber: `CFA-ATRIB-${Math.random().toString(36).substring(2,8).toUpperCase()}`,
+              referenceNumber: `MMA-ATRIB-${Math.random().toString(36).substring(2,8).toUpperCase()}`,
               paymentMethod: 'Atribuição Administrativa',
               amount: courseData.price || 0,
               originalAmount: courseData.price || 0,
@@ -525,8 +525,8 @@ export default function StudentDirectory() {
       const cleanEmailA = (a.email || '').trim().toLowerCase();
       const cleanEmailB = (b.email || '').trim().toLowerCase();
 
-      const aIsMaster = isMasterEmail(cleanEmailA) || a.role === 'master_admin' || a.roleType === 'master_admin' || a.isMaster === true || cleanEmailA.includes('grupocassaminha');
-      const bIsMaster = isMasterEmail(cleanEmailB) || b.role === 'master_admin' || b.roleType === 'master_admin' || b.isMaster === true || cleanEmailB.includes('grupocassaminha');
+      const aIsMaster = isMasterEmail(cleanEmailA) || a.role === 'master_admin' || a.roleType === 'master_admin' || a.isMaster === true;
+      const bIsMaster = isMasterEmail(cleanEmailB) || b.role === 'master_admin' || b.roleType === 'master_admin' || b.isMaster === true;
 
       if (aIsMaster && !bIsMaster) return -1;
       if (!aIsMaster && bIsMaster) return 1;

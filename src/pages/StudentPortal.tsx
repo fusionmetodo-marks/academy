@@ -12,7 +12,7 @@ import { BookOpen, Home, User, LogOut, Compass, Smartphone } from 'lucide-react'
 import { doc, getDoc, collection, getDocs, query, where } from 'firebase/firestore';
 import { logout, auth, db } from '../firebase';
 import { useNavigate, useParams } from 'react-router-dom';
-import { DEFAULT_CFA_LOGO, getValidLogoUrl } from '../utils/constants';
+import { DEFAULT_CFA_LOGO, getValidLogoUrl, isMasterEmail } from '../utils/constants';
 import { slugify } from '../utils/slugify';
 
 export default function StudentPortal() {
@@ -188,11 +188,7 @@ export default function StudentPortal() {
   }, []);
 
   useEffect(() => {
-    const isMasterEmail = (email?: string | null) => {
-      if (!email) return false;
-      const clean = email.trim().toLowerCase();
-      return clean === 'grupocassaminha@gmail.com' || clean === 'exportacoes.extras@gmail.com';
-    };
+
 
     const checkAdmin = () => {
       const isSimulating = localStorage.getItem('viewAsStudent') === 'true';

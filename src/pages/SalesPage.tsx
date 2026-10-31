@@ -4,7 +4,7 @@ import { collection, getDocs, query, where, doc, getDoc } from 'firebase/firesto
 import { Coupon } from '../types';
 import { auth, db } from '../firebase';
 import { onAuthStateChanged } from 'firebase/auth';
-import { DEFAULT_CFA_LOGO, getValidLogoUrl } from '../utils/constants';
+import { DEFAULT_CFA_LOGO, getValidLogoUrl, isMasterEmail } from '../utils/constants';
 import HeroSection from '../components/HeroSection';
 import AnnouncementBar from '../components/AnnouncementBar';
 import { EcosystemFooter } from '../components/EcosystemFooter';
@@ -61,7 +61,6 @@ export default function SalesPage() {
         return c.courseId === course.id;
       }
       if (c.scope === 'producer') {
-        const adminEmails = ['grupocassaminha@gmail.com', 'exportacoes.extras@gmail.com', 'grupocassaminha@gmail.com'];
         const courseAuthorId = course.authorId;
         const courseAuthorEmail = course.authorEmail;
         const couponProducerId = c.producerId;
@@ -73,7 +72,7 @@ export default function SalesPage() {
         // Cursos antigos sem owner são do admin
         const isCourseOldAdmin = !courseAuthorId && !courseAuthorEmail;
         // Cupões criados pelo admin (ou antes de ter email salvo)
-        const isCouponAdmin = !couponProducerEmail || adminEmails.includes(couponProducerEmail.toLowerCase());
+        const isCouponAdmin = !couponProducerEmail || isMasterEmail(couponProducerEmail);
         
         if (isCourseOldAdmin && isCouponAdmin) {
            return true;
@@ -144,7 +143,7 @@ export default function SalesPage() {
       if (user) {
         try {
           const email = user.email?.toLowerCase().trim();
-          if (email === 'exportacoes.extras@gmail.com' || email === 'grupocassaminha@gmail.com') {
+          if (isMasterEmail(email)) {
             setIsAdmin(true);
           }
           const userDoc = await getDoc(doc(db, 'users', user.uid)).catch(() => null);

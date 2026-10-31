@@ -60,8 +60,8 @@ export default function PendingSubscription() {
   const cleanWhatsApp = supportWhatsApp.replace(/[^0-9]/g, '');
   const whatsappUrl = `https://wa.me/${cleanWhatsApp}?text=${encodeURIComponent(
     isProducerOrAdmin 
-      ? `Olá Administrador CFA! Sou ${userProfile?.firstName || 'Produtor'} (${userProfile?.email || auth.currentUser?.email}) e solicitei acesso como Produtor/Administrador à plataforma.`
-      : 'Olá Suporte CFA! Gostaria de verificar a ativação da minha assinatura.'
+      ? `Olá Administrador Marks ACADEMY! Sou ${userProfile?.firstName || 'Membro'} (${userProfile?.email || auth.currentUser?.email}) e solicitei acesso à plataforma.`
+      : 'Olá Suporte Marks ACADEMY! Gostaria de verificar a ativação da minha assinatura.'
   )}`;
 
   return (

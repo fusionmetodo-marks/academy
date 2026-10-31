@@ -40,6 +40,7 @@ import {
   serverTimestamp
 } from 'firebase/firestore';
 import { db, auth } from '../firebase';
+import { isMasterEmail } from '../utils/constants';
 import { 
   sendBroadcastPushNotification, 
   showNativeNotification, 
@@ -356,12 +357,6 @@ export default function PushBroadcastManager() {
     return name.includes(term) || email.includes(term);
   });
 
-  const isMasterEmail = (email?: string | null) => {
-    if (!email) return false;
-    const clean = email.trim().toLowerCase();
-    return clean === 'grupocassaminha@gmail.com' || clean === 'exportacoes.extras@gmail.com';
-  };
-
   const isMaster = isMasterEmail(auth.currentUser?.email);
 
   if (!isMaster) {
@@ -375,7 +370,7 @@ export default function PushBroadcastManager() {
             </div>
             <h2 className="text-xl font-bold font-headline text-white">Acesso Exclusivo ao Master Admin</h2>
             <p className="text-xs text-stone-400 leading-relaxed">
-              A gestão e transmissão de Notificações Push é uma funcionalidade exclusiva do Administrador Master do Grupo Cassaminha.
+              A gestão e transmissão de Notificações Push é uma funcionalidade exclusiva do Administrador Master da Marks o Monstro - ACADEMY.
             </p>
             <button 
               onClick={() => window.location.href = '/analytics'}
@@ -1205,7 +1200,7 @@ export default function PushBroadcastManager() {
                       ? `${userItem.firstName} ${userItem.lastName || ''}`.trim()
                       : userItem.name || 'Utilizador Sem Nome';
                     const cleanEmail = (userItem.email || '').trim().toLowerCase();
-                    const isMaster = cleanEmail === 'grupocassaminha@gmail.com' || cleanEmail === 'exportacoes.extras@gmail.com';
+                    const isMaster = isMasterEmail(cleanEmail);
                     const isProducer = userItem.role === 'producer' || userItem.roleType === 'producer';
                     const isInstalled = userItem.appInstalled || userItem.isAppInstalled || userItem.isStandalone;
                     const isPushActive = userItem.pushEnabled || userItem.pushStatus === 'granted';

@@ -8,6 +8,7 @@ import { Play, SearchX, Plus, Check, BookmarkCheck, Sparkles, CheckCircle2, Book
 import ExpandableSearch from './ExpandableSearch';
 import { Coupon } from '../types';
 import { EcosystemFooter } from './EcosystemFooter';
+import { isMasterEmail } from '../utils/constants';
 
 export interface Course {
   id: string;
@@ -73,7 +74,6 @@ export default function StudentCatalog({ onSelectCourse }: StudentCatalogProps) 
         return c.courseId === course.id;
       }
       if (c.scope === 'producer') {
-        const adminEmails = ['grupocassaminha@gmail.com', 'exportacoes.extras@gmail.com', 'grupocassaminha@gmail.com'];
         const courseAuthorId = course.authorId;
         const courseAuthorEmail = course.authorEmail;
         const couponProducerId = c.producerId;
@@ -85,7 +85,7 @@ export default function StudentCatalog({ onSelectCourse }: StudentCatalogProps) 
         // Cursos antigos sem owner são do admin
         const isCourseOldAdmin = !courseAuthorId && !courseAuthorEmail;
         // Cupões criados pelo admin (ou antes de ter email salvo)
-        const isCouponAdmin = !couponProducerEmail || adminEmails.includes(couponProducerEmail.toLowerCase());
+        const isCouponAdmin = !couponProducerEmail || isMasterEmail(couponProducerEmail);
         
         if (isCourseOldAdmin && isCouponAdmin) {
            return true;
@@ -140,11 +140,7 @@ export default function StudentCatalog({ onSelectCourse }: StudentCatalogProps) 
     };
   };
 
-  const isMasterEmail = (email?: string | null) => {
-    if (!email) return false;
-    const clean = email.trim().toLowerCase();
-    return clean === 'grupocassaminha@gmail.com' || clean === 'exportacoes.extras@gmail.com';
-  };
+
 
   useEffect(() => {
     let unsubEnroll = () => {};
@@ -232,7 +228,7 @@ export default function StudentCatalog({ onSelectCourse }: StudentCatalogProps) 
   };
 
   if (isLoading) {
-    return <div className="flex justify-center items-center h-screen bg-[#0a0a0a] text-[#e9c349]">Carregando catálogo da CFA...</div>;
+    return <div className="flex justify-center items-center h-screen bg-[#0a0a0a] text-[#e9c349]">Carregando catálogo...</div>;
   }
 
   if (courses.length === 0) {
@@ -268,7 +264,7 @@ export default function StudentCatalog({ onSelectCourse }: StudentCatalogProps) 
             />
           ) : (
             <div className="w-full h-full bg-[#121212] flex items-center justify-center text-gray-500 font-mono text-sm">
-              CFA Academy
+              Marks o Monstro - ACADEMY
             </div>
           )}
           {/* Vinheta suave focada na base e lateral esquerda para legibilidade sem tapar a arte do banner */}
@@ -414,7 +410,7 @@ export default function StudentCatalog({ onSelectCourse }: StudentCatalogProps) 
                   <div className="p-3.5 sm:p-5 md:p-6 flex-1 flex flex-col justify-between">
                     <div>
                       <div className="text-[10px] sm:text-xs text-gray-400 font-semibold mb-1">
-                        Por: <span className="text-[#e9c349] font-bold">{course.producerName || course.instructor || 'CFA Academy'}</span>
+                        Por: <span className="text-[#e9c349] font-bold">{course.producerName || course.instructor || 'Marks o Monstro'}</span>
                       </div>
                       <h3 className="text-sm sm:text-base md:text-lg font-bold text-white mb-1.5 sm:mb-2 line-clamp-2">{course.title}</h3>
                       <p className="text-gray-400 text-[11px] sm:text-xs md:text-sm line-clamp-4 leading-relaxed mb-3 sm:mb-5">{course.description}</p>

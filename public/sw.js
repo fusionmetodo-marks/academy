@@ -4,7 +4,7 @@ self.addEventListener('push', function(event) {
     data = event.data.json();
   }
 
-  const title = data.title || 'CFA Academy';
+  const title = data.title || 'Marks o Monstro - ACADEMY';
   const options = {
     body: data.body || 'Você tem uma nova notificação.',
     icon: 'https://cdn-icons-png.flaticon.com/512/3135/3135715.png', // Generic icon
