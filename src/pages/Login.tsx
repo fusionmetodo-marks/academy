@@ -84,7 +84,7 @@ export default function Login() {
     }
   };
 
-  const handleUserRouting = async (user: any, registrationData?: { firstName: string; lastName: string; phoneCountryCode: string; phoneNumber: string }) => {
+  const handleUserRouting = async (user: any, registrationData?: { firstName: string; phoneCountryCode: string; phoneNumber: string }) => {
     const userRef = doc(db, 'users', user.uid);
     const userSnap = await getDoc(userRef);
     
@@ -121,8 +121,7 @@ export default function Login() {
       };
 
       if (registrationData) {
-        payload.firstName = registrationData.firstName;
-        payload.lastName = registrationData.lastName;
+        payload.fullName = registrationData.firstName;
         payload.phoneCountryCode = registrationData.phoneCountryCode;
         payload.phoneNumber = registrationData.phoneNumber;
       }
@@ -134,12 +133,12 @@ export default function Login() {
         sendSystemNotification({
           type: 'new_student',
           title: '🎓 Novo Estudante Cadastrado!',
-          message: `${registrationData?.firstName ? `${registrationData.firstName} ${registrationData.lastName}` : cleanEmail} acabou de se cadastrar como Estudante na Marks o Monstro - ACADEMY.`,
+          message: `${registrationData?.firstName ? `${registrationData.firstName}` : cleanEmail} acabou de se cadastrar como Estudante na Money Building - Academia de Opções Binárias.`,
           link: '/students',
           targetRole: 'admin',
           metadata: {
             email: cleanEmail,
-            name: `${registrationData?.firstName || ''} ${registrationData?.lastName || ''}`.trim(),
+            name: `${registrationData?.firstName || ''}`.trim(),
             phone: `${registrationData?.phoneCountryCode || ''} ${registrationData?.phoneNumber || ''}`.trim(),
             uid: user.uid
           }
@@ -157,8 +156,7 @@ export default function Login() {
 
       if (registrationData) {
         await setDoc(userRef, {
-          firstName: registrationData.firstName,
-          lastName: registrationData.lastName,
+          fullName: registrationData.firstName,
           phoneCountryCode: registrationData.phoneCountryCode,
           phoneNumber: registrationData.phoneNumber
         }, { merge: true });
@@ -169,8 +167,7 @@ export default function Login() {
         setPendingContractUser({
           uid: user.uid,
           email: cleanEmail,
-          firstName: data.firstName || registrationData?.firstName || '',
-          lastName: data.lastName || registrationData?.lastName || '',
+          fullName: data.fullName || registrationData?.firstName || '',
           phoneNumber: data.phoneNumber || registrationData?.phoneNumber || '',
           phoneCountryCode: data.phoneCountryCode || registrationData?.phoneCountryCode || '+244',
           contractAccepted: false,
@@ -237,15 +234,15 @@ export default function Login() {
     
     if (isRegistering) {
       if (!firstName.trim()) {
-        setErrorMessage("Por favor, informe o seu Primeiro Nome.");
-        return;
-      }
-      if (!lastName.trim()) {
-        setErrorMessage("Por favor, informe o seu Último Nome.");
+        setErrorMessage("Por favor, informe o seu Nome Completo.");
         return;
       }
       if (!phoneNumber.trim()) {
         setErrorMessage("Por favor, insira o seu número de telefone.");
+        return;
+      }
+      if (!email.trim()) {
+        setErrorMessage("Por favor, insira o seu E-mail.");
         return;
       }
       if (password.length < 8 || !/[a-zA-Z]/.test(password) || !/[0-9]/.test(password)) {
@@ -268,7 +265,7 @@ export default function Login() {
       }
       await handleUserRouting(
         user,
-        isRegistering ? { firstName, lastName, phoneCountryCode, phoneNumber } : undefined
+        isRegistering ? { firstName, phoneNumber, phoneCountryCode } : undefined
       );
     } catch (error: any) {
       console.error("Auth failed", error);
@@ -383,35 +380,19 @@ export default function Login() {
           <form className="space-y-4" onSubmit={handleEmailSubmit}>
 
             {isRegistering && (
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <label className="block text-xs font-semibold text-on-surface-variant uppercase tracking-wider font-label" htmlFor="firstName">
-                    PRIMEIRO NOME
-                  </label>
-                  <input
-                    className="w-full bg-surface-container-lowest border-none rounded-xl py-3.5 px-4 text-on-surface placeholder:text-outline-variant/60 focus:ring-1 focus:ring-primary transition-all duration-300 outline-none font-body"
-                    id="firstName"
-                    value={firstName}
-                    onChange={(e) => setFirstName(e.target.value)}
-                    placeholder="Ex: João"
-                    type="text"
-                    required
-                  />
-                </div>
-                <div className="space-y-2">
-                  <label className="block text-xs font-semibold text-on-surface-variant uppercase tracking-wider font-label" htmlFor="lastName">
-                    ÚLTIMO NOME
-                  </label>
-                  <input
-                    className="w-full bg-surface-container-lowest border-none rounded-xl py-3.5 px-4 text-on-surface placeholder:text-outline-variant/60 focus:ring-1 focus:ring-primary transition-all duration-300 outline-none font-body"
-                    id="lastName"
-                    value={lastName}
-                    onChange={(e) => setLastName(e.target.value)}
-                    placeholder="Ex: Silva"
-                    type="text"
-                    required
-                  />
-                </div>
+              <div className="space-y-2">
+                <label className="block text-xs font-semibold text-on-surface-variant uppercase tracking-wider font-label" htmlFor="fullName">
+                  NOME COMPLETO
+                </label>
+                <input
+                  className="w-full bg-surface-container-lowest border-none rounded-xl py-3.5 px-4 text-on-surface placeholder:text-outline-variant/60 focus:ring-1 focus:ring-primary transition-all duration-300 outline-none font-body"
+                  id="fullName"
+                  value={firstName}
+                  onChange={(e) => setFirstName(e.target.value)}
+                  placeholder="Ex: João Silva"
+                  type="text"
+                  required
+                />
               </div>
             )}
 

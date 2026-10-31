@@ -192,7 +192,7 @@ export default function Sidebar() {
                 </div>
                 <div>
                   <h2 className="font-headline font-bold text-base leading-tight text-white">Money Building</h2>
-                  <p className="text-[9px] uppercase tracking-widest text-[#e9c349] font-mono">OPÇÕES BINÁRIAS</p>
+                  <p className="text-[9px] uppercase tracking-widest text-[#e9c349] font-mono">Academia de Opções Binárias</p>
                 </div>
               </div>
             )}
