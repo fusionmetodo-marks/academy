@@ -116,7 +116,7 @@ export default function Sidebar() {
   };
 
   const cleanWhatsApp = supportWhatsApp.replace(/[^0-9]/g, '') || '244923456789';
-  const whatsappUrl = `https://wa.me/${cleanWhatsApp}?text=${encodeURIComponent('Olá, preciso de suporte na plataforma Marks o Monstro - ACADEMY.')}`;
+  const whatsappUrl = `https://wa.me/${cleanWhatsApp}?text=${encodeURIComponent('Olá, preciso de suporte na plataforma Money Building.')}`;
 
   const copyEmailToClipboard = () => {
     navigator.clipboard.writeText(supportEmail);
@@ -147,9 +147,9 @@ export default function Sidebar() {
 
           <Link to="/dashboard" className="flex items-center gap-2">
             {logoUrl ? (
-              <img src={logoUrl} alt="Logo Marks Academy" className="h-8 w-auto object-contain" />
+              <img src={logoUrl} alt="Logo Money Building" className="h-8 w-auto object-contain" />
             ) : (
-              <span className="font-headline font-bold text-sm text-white">Marks ACADEMY</span>
+              <span className="font-headline font-bold text-sm text-white">Money Building</span>
             )}
           </Link>
         </div>
@@ -182,17 +182,17 @@ export default function Sidebar() {
             {logoUrl ? (
               <img 
                 src={logoUrl} 
-                alt="Logo Marks Academy" 
+                alt="Logo Money Building" 
                 className="max-h-12 lg:max-h-14 w-auto object-contain mx-0 drop-shadow" 
               />
             ) : (
               <div className="flex items-center gap-3">
                 <div className="w-10 h-10 bg-[#e9c349] text-black font-black rounded-xl flex items-center justify-center font-headline text-base">
-                  MM
+                  MB
                 </div>
                 <div>
-                  <h2 className="font-headline font-bold text-base leading-tight text-white">Marks o Monstro</h2>
-                  <p className="text-[9px] uppercase tracking-widest text-[#e9c349] font-mono">ACADEMY &middot; TRADING</p>
+                  <h2 className="font-headline font-bold text-base leading-tight text-white">Money Building</h2>
+                  <p className="text-[9px] uppercase tracking-widest text-[#e9c349] font-mono">OPÇÕES BINÁRIAS</p>
                 </div>
               </div>
             )}
@@ -208,7 +208,7 @@ export default function Sidebar() {
           </button>
         </div>
         <p className="text-[10px] text-stone-400 font-body px-6 mb-4">
-          Plataforma Oficial <strong className="text-[#e9c349]">Marks o Monstro</strong>
+          Plataforma Oficial <strong className="text-[#e9c349]">Money Building</strong>
         </p>
         <nav className="flex-1 space-y-1 overflow-y-auto">
         <Link

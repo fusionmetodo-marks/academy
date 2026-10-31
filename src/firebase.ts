@@ -41,14 +41,12 @@ export const db = initializeFirestore(app, {
 
 export const googleProvider = new GoogleAuthProvider();
 
-// Validate connection to Firestore on boot
+// Validate connection to Firestore on boot silently
 async function testConnection() {
   try {
-    await getDocFromServer(doc(db, 'test', 'connection'));
+    await getDoc(doc(db, 'settings', 'general')).catch(() => {});
   } catch (error) {
-    if (error instanceof Error && error.message.includes('the client is offline')) {
-      console.error("Please check your Firebase configuration.");
-    }
+    // Silent
   }
 }
 testConnection();

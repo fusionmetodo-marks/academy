@@ -78,11 +78,11 @@ export default function StudentLayout({ children, activeTab, setActiveTab, onLog
         <div>
           <div className="p-6 border-b border-gray-800 flex items-center justify-between">
             <div>
-              <h1 className="text-2xl font-bold text-[#e9c349] flex items-center gap-2 font-headline">
+              <h1 className="text-xl font-bold text-[#e9c349] flex items-center gap-2 font-headline">
                 <BookOpen className="w-6 h-6" />
-                Marks ACADEMY
+                Money Building
               </h1>
-              <p className="text-[10px] text-gray-500 mt-1 uppercase tracking-widest font-mono">Academy Portal</p>
+              <p className="text-[10px] text-gray-500 mt-1 uppercase tracking-widest font-mono">Opções Binárias</p>
             </div>
             <NotificationCenter userRole="student" userId={auth.currentUser?.uid} />
           </div>

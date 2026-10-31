@@ -1,8 +1,8 @@
 import type { CapacitorConfig } from '@capacitor/cli';
 
 const config: CapacitorConfig = {
-  appId: 'com.marksomonstro.academy',
-  appName: 'Marks o Monstro - ACADEMY',
+  appId: 'com.moneybuilding.academy',
+  appName: 'Money Building - Academia de Opções Binárias',
   webDir: 'dist',
   server: {
     androidScheme: 'https'

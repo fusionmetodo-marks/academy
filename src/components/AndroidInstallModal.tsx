@@ -85,7 +85,7 @@ export const AndroidInstallModal: React.FC<AndroidInstallModalProps> = ({
             </div>
             <div>
               <h2 className="text-base font-bold text-white font-headline leading-tight">
-                {isProducerOrAdmin ? 'Instalar App de Gestão' : 'Instalar App Marks ACADEMY'}
+                {isProducerOrAdmin ? 'Instalar App de Gestão' : 'Instalar App Money Building'}
               </h2>
               <span className="text-[11px] text-[#e9c349] font-medium flex items-center gap-1 mt-0.5">
                 <Sparkles className="w-3 h-3" />
@@ -110,8 +110,8 @@ export const AndroidInstallModal: React.FC<AndroidInstallModalProps> = ({
           <div className="bg-gradient-to-br from-[#1a1c23] via-[#14161d] to-[#0f1117] border border-[#e9c349]/30 rounded-2xl p-5 text-center space-y-3 shadow-lg">
             <div className="w-14 h-14 bg-black rounded-2xl border border-[#e9c349]/40 mx-auto flex items-center justify-center shadow-lg p-2 overflow-hidden">
               <img 
-                src="https://i.postimg.cc/mDY7XpVF/apenas-12-vagas.png" 
-                alt="Marks o Monstro - ACADEMY App" 
+                src="https://i.postimg.cc/LXt95dqk/rt.png" 
+                alt="Money Building App" 
                 className="w-full h-full object-contain rounded-lg"
               />
             </div>
@@ -204,7 +204,7 @@ export const AndroidInstallModal: React.FC<AndroidInstallModalProps> = ({
                   <span>Capacitor Android Package</span>
                 </div>
                 <p className="text-[11px]">
-                  ID do Pacote: <code className="text-[#e9c349] font-mono bg-black/40 px-1 py-0.5 rounded">com.marksomonstro.academy</code>
+                  ID do Pacote: <code className="text-[#e9c349] font-mono bg-black/40 px-1 py-0.5 rounded">com.moneybuilding.academy</code>
                 </p>
                 <div className="text-[10px] text-stone-400">
                   Execute <code className="text-emerald-400 font-mono">npx cap sync</code> no terminal para gerar o build nativo da Google Play Store.

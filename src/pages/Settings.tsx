@@ -126,7 +126,7 @@ export default function Settings() {
   const [tempLogoUrl, setTempLogoUrl] = useState('');
 
   // 1. Global Platform Identity State
-  const [platformName, setPlatformName] = useState('Marks o Monstro - ACADEMY');
+  const [platformName, setPlatformName] = useState('Money Building - Academia de Opções Binárias');
   const [supportWhatsApp, setSupportWhatsApp] = useState('244923456789');
   const [supportEmail, setSupportEmail] = useState('fusionmetodo@gmail.com');
   const [defaultCurrency, setDefaultCurrency] = useState('Kz');
@@ -146,21 +146,21 @@ export default function Settings() {
     iban: 'AO06 0040 0000 7829 1048 1018 2',
     ibanActive: true,
     bankName: 'BFA (Banco de Fomento Angola)',
-    ibanAccountName: 'MARKS O MONSTRO ACADEMY',
+    ibanAccountName: 'MONEY BUILDING ACADEMY',
     
     expressIban: 'AO06 0040 0000 7829 1048 1018 2',
     expressActive: true,
     expressPhone: '923 456 789',
-    expressName: 'MARKS O MONSTRO ACADEMY',
+    expressName: 'MONEY BUILDING ACADEMY',
     
     kwikPhone: '923 456 789',
     kwikActive: true,
-    kwikName: 'MARKS O MONSTRO ACADEMY',
+    kwikName: 'MONEY BUILDING ACADEMY',
     
     multicaixaEntity: '12345',
     multicaixaReference: '884 920 311',
     multicaixaActive: true,
-    multicaixaName: 'MARKS O MONSTRO ACADEMY'
+    multicaixaName: 'MONEY BUILDING ACADEMY'
   });
 
   // 3. Roles & Permissions State

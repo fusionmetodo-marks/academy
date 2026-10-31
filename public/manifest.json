@@ -1,28 +1,28 @@
 {
-  "short_name": "Marks ACADEMY",
-  "name": "Marks o Monstro - ACADEMY",
-  "description": "Plataforma de Formação em Trading e Retração com Método Fusion com Marks o Monstro",
+  "short_name": "Money Building",
+  "name": "Money Building - Academia de Opções Binárias",
+  "description": "Plataforma de Formação em Opções Binárias e Trading",
   "icons": [
     {
-      "src": "https://i.postimg.cc/mDY7XpVF/apenas-12-vagas.png",
+      "src": "https://i.postimg.cc/LXt95dqk/rt.png",
       "sizes": "192x192",
       "type": "image/png",
       "purpose": "any"
     },
     {
-      "src": "https://i.postimg.cc/mDY7XpVF/apenas-12-vagas.png",
+      "src": "https://i.postimg.cc/LXt95dqk/rt.png",
       "sizes": "192x192",
       "type": "image/png",
       "purpose": "maskable"
     },
     {
-      "src": "https://i.postimg.cc/mDY7XpVF/apenas-12-vagas.png",
+      "src": "https://i.postimg.cc/LXt95dqk/rt.png",
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "any"
     },
     {
-      "src": "https://i.postimg.cc/mDY7XpVF/apenas-12-vagas.png",
+      "src": "https://i.postimg.cc/LXt95dqk/rt.png",
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "maskable"

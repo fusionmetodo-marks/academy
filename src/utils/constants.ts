@@ -1,4 +1,4 @@
-export const DEFAULT_ACADEMY_LOGO = 'https://i.postimg.cc/mDY7XpVF/apenas-12-vagas.png';
+export const DEFAULT_ACADEMY_LOGO = 'https://i.postimg.cc/LXt95dqk/rt.png';
 export const DEFAULT_CFA_LOGO = DEFAULT_ACADEMY_LOGO;
 
 export const MASTER_ADMIN_EMAILS = [
@@ -19,10 +19,9 @@ export function getValidLogoUrl(url?: string): string {
     url.includes('googleusercontent.com') ||
     url.includes('aida-public') ||
     url.includes('SKLjyxVP') ||
-    (url.includes('postimg.cc') && !url.includes('mDY7XpVF'))
+    (url.includes('postimg.cc') && !url.includes('mDY7XpVF') && !url.includes('LXt95dqk'))
   ) {
     return DEFAULT_ACADEMY_LOGO;
   }
   return url;
 }
-
