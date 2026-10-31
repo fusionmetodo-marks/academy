@@ -333,7 +333,7 @@ export default function Login() {
             <span className="text-[10px] uppercase tracking-[0.2em] font-bold text-primary mb-2 block font-label">Acesso de Estudantes</span>
             <h2 className="text-3xl font-bold tracking-tight text-on-surface font-headline">{isRegistering ? 'Criar Conta de Estudante' : 'Login Seguro'}</h2>
             <p className="text-on-surface-variant text-sm mt-2 font-body">
-              {isRegistering ? 'Cadastre-se como estudante para acessar suas aulas de trading e estratégias.' : 'Acesse suas aulas de Trading, Retração, Leitura de Velas e Método Fusion.'}
+              {isRegistering ? 'Cadastre-se como estudante para acessar suas aulas de trading e estratégias.' : ''}
             </p>
           </div>
 
