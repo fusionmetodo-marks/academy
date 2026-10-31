@@ -563,7 +563,7 @@ export default function Settings() {
       await setDoc(doc(db, 'settings', 'coupons'), {
         list: sanitizedList,
         updatedAt: new Date().toISOString()
-      }, { merge: true });
+      });
 
       // 2. Grava individualmente na coleção coupons para redundância e consultas rápidas
       for (const cp of sanitizedList) {
@@ -672,22 +672,21 @@ export default function Settings() {
   };
 
   const handleDeleteCoupon = async (couponId: string, code: string) => {
-    if (window.confirm(`Tem certeza de que deseja eliminar o cupão "${code}"?`)) {
-      const updated = coupons.filter(c => c.id !== couponId);
-      setCoupons(updated);
-      try {
-        const sanitizedList = cleanUndefined(updated);
-        await setDoc(doc(db, 'settings', 'coupons'), {
-          list: sanitizedList,
-          updatedAt: new Date().toISOString()
-        }, { merge: true });
-        // Tenta remover também da collection se existir
-        const { deleteDoc } = await import('firebase/firestore');
-        await deleteDoc(doc(db, 'coupons', couponId)).catch(() => {});
-        showNotification(`Cupão "${code}" eliminado.`, 'info');
-      } catch (err) {
-        console.error("Error deleting coupon:", err);
-      }
+    const updated = coupons.filter(c => c.id !== couponId);
+    setCoupons(updated);
+    try {
+      const sanitizedList = cleanUndefined(updated);
+      await setDoc(doc(db, 'settings', 'coupons'), {
+        list: sanitizedList,
+        updatedAt: new Date().toISOString()
+      });
+      // Tenta remover também da collection se existir
+      const { deleteDoc } = await import('firebase/firestore');
+      await deleteDoc(doc(db, 'coupons', couponId)).catch(() => {});
+      showNotification(`Cupão "${code}" eliminado com sucesso!`, 'info');
+    } catch (err) {
+      console.error("Error deleting coupon:", err);
+      showNotification('Erro ao eliminar cupão.', 'error');
     }
   };
 

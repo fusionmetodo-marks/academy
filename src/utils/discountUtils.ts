@@ -34,12 +34,12 @@ export const DEFAULT_PLATFORM_COUPONS: Coupon[] = [
  * reflita o desconto vigente de 75% caso seja o cupom padrão inicial.
  */
 function normalizeCoupons(list: Coupon[]): Coupon[] {
-  if (!list || list.length === 0) {
+  if (!list) {
     return [...DEFAULT_PLATFORM_COUPONS];
   }
 
   // Substitui qualquer remanescente do antigo cupom de demonstração CFA10 (10%) para o desconto oficial da plataforma de 75%
-  const updated = list.map(c => {
+  return list.map(c => {
     if (c.id === 'cp_cfa10' || (c.code === 'CFA10' && Number(c.discountValue) === 10)) {
       return {
         ...c,
@@ -50,14 +50,6 @@ function normalizeCoupons(list: Coupon[]): Coupon[] {
     }
     return c;
   });
-
-  // Se nenhum cupom geral estiver cadastrado, inclui o cupom geral de 75%
-  const hasGeneral = updated.some(c => c && c.active !== false && (!c.scope || c.scope === 'general' || c.scope === 'all'));
-  if (!hasGeneral) {
-    return [...updated, ...DEFAULT_PLATFORM_COUPONS];
-  }
-
-  return updated;
 }
 
 /**
@@ -94,12 +86,8 @@ export function subscribeCoupons(onUpdate: (coupons: Coupon[]) => void): () => v
     const unsubscribe = onSnapshot(doc(db, 'settings', 'coupons'), (docSnap) => {
       if (docSnap.exists() && Array.isArray(docSnap.data().list)) {
         const list = docSnap.data().list;
-        if (list.length > 0) {
-          const activeList = list.filter((c: any) => c && c.active !== false);
-          onUpdate(normalizeCoupons(activeList));
-        } else {
-          onUpdate(DEFAULT_PLATFORM_COUPONS);
-        }
+        const activeList = list.filter((c: any) => c && c.active !== false);
+        onUpdate(normalizeCoupons(activeList));
       } else {
         // Fallback para coleção ou cupom padrão da plataforma
         getDocs(collection(db, 'coupons')).then(cSnap => {
@@ -171,7 +159,7 @@ export function getCourseDiscountInfo(
   }
 
   // Lista normalizada de cupons ativos (garantindo que se não houver cupons, assume o de 75% da plataforma)
-  const rawCoupons = (coupons && coupons.length > 0) ? coupons : DEFAULT_PLATFORM_COUPONS;
+  const rawCoupons = coupons !== undefined ? coupons : DEFAULT_PLATFORM_COUPONS;
   const activeCoupons = normalizeCoupons(rawCoupons.filter(c => c && c.active !== false));
 
   if (activeCoupons.length === 0) {
