@@ -38,6 +38,7 @@ interface Course {
   structureType?: 'modules' | 'single_lesson' | 'direct_link';
   authorId?: string;
   authorEmail?: string;
+  category?: 'course' | 'mentorship' | 'service';
 }
 
 export default function SalesPage() {
@@ -513,10 +514,10 @@ export default function SalesPage() {
                             <button
                               onClick={() => handleCourseAction(course)}
                               className="w-full py-3.5 rounded-xl font-bold text-xs md:text-sm transition-all flex items-center justify-center gap-2 cursor-pointer bg-[#e9c349] hover:bg-[#d8b33c] text-stone-900 shadow-lg shadow-[#e9c349]/10 group-hover:scale-[1.01]"
-                              title="Ver apresentação e adquirir curso"
+                              title="Ver apresentação e adquirir"
                             >
                               <ShoppingBag className="w-4 h-4" />
-                              <span>Comprar Curso</span>
+                              <span>{course.category === 'mentorship' ? 'Comprar Mentoria' : course.category === 'service' ? 'Contratar Serviço' : 'Comprar Curso'}</span>
                             </button>
                           );
                         })()}
@@ -535,9 +536,9 @@ export default function SalesPage() {
             <div className="relative">
               <div className="absolute -top-10 -left-10 w-40 h-40 bg-[#e9c349]/5 blur-[80px] rounded-full"></div>
               <img 
-                className="rounded-2xl grayscale hover:grayscale-0 transition-all duration-1000 border border-white/5 relative z-10 opacity-70" 
+                className="rounded-2xl transition-all duration-1000 border border-white/5 relative z-10" 
                 alt="Workspace and authority" 
-                src="https://images.unsplash.com/photo-1454165804606-c3d57bc86b40?auto=format&fit=crop&q=80&w=800" 
+                src="/src/assets/images/regenerated_image_1793468428320.jpg" 
               />
             </div>
             <div className="space-y-6">
@@ -609,7 +610,7 @@ export default function SalesPage() {
       {/* Footer Navigation (With Portuguese terms links and currency information) */}
       <footer className="w-full border-t border-white/5 bg-[#0a0a0a] text-xs uppercase tracking-widest relative z-10">
         <div className="flex flex-col md:flex-row justify-between items-center px-8 md:px-12 py-10 gap-6 max-w-7xl mx-auto">
-          <div className="text-[#e9c349] font-black tracking-tight text-base">Marks o Monstro - ACADEMY</div>
+          <div className="text-[#e9c349] font-black tracking-tight text-base">Money Building - Academia de Opções Binárias</div>
           
           <div className="flex gap-6 md:gap-8 text-[10px]">
             <Link className="text-stone-500 hover:text-[#e9c349] transition-colors" to="/privacidade">Política de Privacidade</Link>
@@ -617,7 +618,7 @@ export default function SalesPage() {
           </div>
           
           <div className="text-stone-500 normal-case tracking-normal text-right text-[10px] md:text-xs">
-            © 2026 Marks o Monstro - ACADEMY. Todos os direitos reservados. Faturamentos seguros em Kwanza (AOA).
+            © 2026 Money Building - Academia de Opções Binárias. Todos os direitos reservados. Faturamentos seguros em Kwanza (AOA).
           </div>
         </div>
       </footer>

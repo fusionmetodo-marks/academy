@@ -38,11 +38,11 @@ export const ECOSYSTEM_PLATFORMS: EcosystemPlatform[] = [
     description: 'Gestão e Automação de Negócios'
   },
   {
-    name: 'Marks o Monstro - ACADEMY',
-    shortName: 'MARKS ACADEMY',
+    name: 'Money Building - Academia de Opções Binárias',
+    shortName: 'MONEY BUILDING',
     url: '/',
     logo: 'https://i.postimg.cc/mDY7XpVF/apenas-12-vagas.png',
-    description: 'Aulas de Trading e Método Fusion'
+    description: 'Aulas de Trading e Opções Binárias'
   }
 ];
 
@@ -86,7 +86,7 @@ export const EcosystemFooter: React.FC = () => {
 
         {/* Bottom descriptive text */}
         <p className="text-[10px] text-stone-500/80 max-w-xl mx-auto leading-relaxed">
-          O terminal oficial para traders que buscam consistência, retração e leitura analítica com o Método Fusion na Marks o Monstro - ACADEMY.
+          O terminal oficial para traders que buscam consistência, retração e leitura analítica com o Método Fusion na Money Building - Academia de Opções Binárias.
         </p>
       </div>
     </div>

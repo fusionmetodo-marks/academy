@@ -95,6 +95,7 @@ export interface Course {
   producerHolderName?: string; // Titular da conta do produtor
   producerBankName?: string; // Nome do Banco do produtor
   producerExpressPhone?: string; // Express do produtor
+  category?: 'course' | 'mentorship' | 'service';
 }
 
 export interface UserProfile {

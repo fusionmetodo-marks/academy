@@ -21,6 +21,7 @@ export interface Course {
   instructor?: string;
   authorId?: string;
   authorEmail?: string;
+  category?: 'course' | 'mentorship' | 'service';
 }
 
 export interface StudentCatalogProps {
@@ -473,7 +474,7 @@ export default function StudentCatalog({ onSelectCourse }: StudentCatalogProps) 
                             </span>
                           ) : (
                             <span className="bg-[#e9c349] text-black px-2.5 py-1.5 sm:px-3.5 sm:py-2 rounded-lg sm:rounded-xl text-[11px] sm:text-xs font-bold hover:bg-[#d4b03f] transition-all">
-                              Ver Detalhes / Comprar
+                              {course.category === 'mentorship' ? 'Ver Detalhes / Comprar Mentoria' : course.category === 'service' ? 'Ver Detalhes / Contratar Serviço' : 'Ver Detalhes / Comprar'}
                             </span>
                           )}
                         </>

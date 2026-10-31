@@ -81,6 +81,7 @@ export default function CourseEditor({ courseId, onBack }: CourseEditorProps) {
   const [priceType, setPriceType] = useState<'free' | 'paid'>('paid');
   const [price, setPrice] = useState<number>(50000);
   const [isPublished, setIsPublished] = useState(false);
+  const [category, setCategory] = useState<'course' | 'mentorship' | 'service' | ''>('');
   const [modules, setModules] = useState<Module[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [authorId, setAuthorId] = useState<string>('');
@@ -135,6 +136,7 @@ export default function CourseEditor({ courseId, onBack }: CourseEditorProps) {
               setModules(data.modules);
             }
             
+            setCategory(data.category || '');
             // Carregar dados de estrutura personalizada
             setStructureType(data.structureType || 'modules');
             setDirectLinkUrl(data.directLinkUrl || '');
@@ -209,6 +211,7 @@ export default function CourseEditor({ courseId, onBack }: CourseEditorProps) {
           imageUrl: coverImage,
           price: Number(price),
           isPublished,
+          category,
           status: isPublished ? 'published' : 'draft',
           modules,
           structureType,
@@ -1059,6 +1062,20 @@ export default function CourseEditor({ courseId, onBack }: CourseEditorProps) {
                 placeholder="Ex: Formação de Traders Profissionais"
                 className="w-full bg-black border border-gray-700 text-white rounded-xl p-3.5 focus:border-[#e9c349] outline-none text-base font-semibold"
               />
+            </div>
+
+            <div>
+              <label className="block text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">Categoria</label>
+              <select
+                value={category}
+                onChange={(e) => setCategory(e.target.value as 'course' | 'mentorship' | 'service' | '')}
+                className="w-full bg-black border border-gray-700 text-white rounded-xl p-3.5 focus:border-[#e9c349] outline-none text-base font-semibold"
+              >
+                <option value="">Selecione uma categoria...</option>
+                <option value="course">Curso</option>
+                <option value="mentorship">Mentoria</option>
+                <option value="service">Serviço</option>
+              </select>
             </div>
 
             <div>
