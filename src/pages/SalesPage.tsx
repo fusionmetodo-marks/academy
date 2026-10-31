@@ -538,7 +538,8 @@ export default function SalesPage() {
               <img 
                 className="rounded-2xl transition-all duration-1000 border border-white/5 relative z-10" 
                 alt="Workspace and authority" 
-                src="/src/assets/images/regenerated_image_1793468428320.jpg" 
+                src="https://i.postimg.cc/dtGwscy4/Whats-App-Image-2026-10-31-at-18-02-52.jpg"
+                referrerPolicy="no-referrer"
               />
             </div>
             <div className="space-y-6">
