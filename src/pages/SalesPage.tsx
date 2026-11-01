@@ -596,11 +596,6 @@ export default function SalesPage() {
               <div className="flex flex-col lg:flex-row items-stretch justify-between gap-8 sm:gap-12">
                 {/* Left Info Column */}
                 <div className="space-y-4 max-w-2xl text-center lg:text-left flex-1">
-                  <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-xs font-bold uppercase tracking-widest">
-                    <Coins className="w-3.5 h-3.5" />
-                    <span>Mesa Oficial de Câmbio &middot; USDT Tether</span>
-                  </div>
-
                   <h2 className="font-headline text-2xl sm:text-3xl md:text-4xl font-extrabold text-white tracking-tight leading-tight">
                     Compre USDT de Forma 100% Segura na Money Building
                   </h2>
