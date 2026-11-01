@@ -15,42 +15,19 @@ export interface CourseDiscountInfo {
 }
 
 /**
- * Cupom padrão ativo da plataforma (CFA75 com 75% de desconto para todos os cursos)
+ * Lista de cupões padrão da plataforma (vazia por padrão para respeitar remoções do utilizador)
  */
-export const DEFAULT_PLATFORM_COUPONS: Coupon[] = [
-  {
-    id: 'cp_cfa75',
-    code: 'CFA75',
-    type: 'percentage',
-    discountValue: 75,
-    scope: 'general',
-    active: true,
-    createdAt: new Date().toISOString()
-  }
-];
+export const DEFAULT_PLATFORM_COUPONS: Coupon[] = [];
 
 /**
- * Normaliza lista de cupões, garantindo que o cupom geral da plataforma
- * reflita o desconto vigente de 75% caso seja o cupom padrão inicial.
+ * Normaliza lista de cupões removendo resquícios de cupões eliminados
  */
 function normalizeCoupons(list: Coupon[]): Coupon[] {
-  if (!list) {
-    return [...DEFAULT_PLATFORM_COUPONS];
+  if (!list || !Array.isArray(list)) {
+    return [];
   }
-
-  // Substitui qualquer remanescente do antigo cupom de demonstração CFA10 (10%) para o desconto oficial da plataforma de 75%
-  return list.map(c => {
-    if (c.id === 'cp_cfa10' || (c.code === 'CFA10' && Number(c.discountValue) === 10)) {
-      return {
-        ...c,
-        id: 'cp_cfa75',
-        code: 'CFA75',
-        discountValue: 75,
-        active: true // Ensure it stays active if explicitly migrated
-      };
-    }
-    return c;
-  });
+  // Exclui qualquer remanescente do cupom de teste cp_cfa75/CFA75 caso tenha sido excluído
+  return list.filter(c => c && typeof c === 'object');
 }
 
 /**
@@ -61,22 +38,28 @@ export async function getActiveCoupons(): Promise<Coupon[]> {
     const couponsDoc = await getDoc(doc(db, 'settings', 'coupons')).catch(() => null);
     if (couponsDoc?.exists() && Array.isArray(couponsDoc.data().list)) {
       const list = couponsDoc.data().list as Coupon[];
-      if (list.length > 0) {
-        return normalizeCoupons(list.filter(c => c && c.active !== false));
+      // Purga cupom cp_cfa75 eliminado pelo utilizador
+      const cleanList = list.filter(c => c && c.id !== 'cp_cfa75' && c.code !== 'CFA75');
+      if (cleanList.length !== list.length) {
+        setDoc(doc(db, 'settings', 'coupons'), {
+          list: cleanList,
+          updatedAt: new Date().toISOString()
+        }).catch(() => {});
       }
+      return cleanList.filter(c => c && c.active !== false);
     }
 
     const cSnap = await getDocs(collection(db, 'coupons')).catch(() => null);
     if (cSnap && !cSnap.empty) {
       const list = cSnap.docs
         .map(d => ({ id: d.id, ...d.data() } as Coupon))
-        .filter(c => c && c.active !== false);
-      return normalizeCoupons(list);
+        .filter(c => c && c.id !== 'cp_cfa75' && c.code !== 'CFA75' && c.active !== false);
+      return list;
     }
   } catch (err) {
     console.error("Erro ao carregar cupões ativos:", err);
   }
-  return DEFAULT_PLATFORM_COUPONS;
+  return [];
 }
 
 /**
@@ -86,34 +69,39 @@ export function subscribeCoupons(onUpdate: (coupons: Coupon[]) => void): () => v
   try {
     const unsubscribe = onSnapshot(doc(db, 'settings', 'coupons'), (docSnap) => {
       if (docSnap.exists() && Array.isArray(docSnap.data().list)) {
-        const list = docSnap.data().list;
-        const activeList = list.filter((c: any) => c && c.active !== false);
-        onUpdate(normalizeCoupons(activeList));
+        const list = docSnap.data().list as Coupon[];
+        // Remove cupom excluído caso reapareça
+        const cleanList = list.filter(c => c && c.id !== 'cp_cfa75' && c.code !== 'CFA75');
+        if (cleanList.length !== list.length) {
+          setDoc(doc(db, 'settings', 'coupons'), {
+            list: cleanList,
+            updatedAt: new Date().toISOString()
+          }).catch(() => {});
+        }
+        const activeList = cleanList.filter(c => c && c.active !== false);
+        onUpdate(activeList);
       } else {
-        // Fallback para coleção ou cupom padrão da plataforma
+        // Fallback para coleção
         getDocs(collection(db, 'coupons')).then(cSnap => {
           if (!cSnap.empty) {
-            const list = cSnap.docs.map(d => ({ id: d.id, ...d.data() } as Coupon)).filter(c => c && c.active !== false);
-            onUpdate(normalizeCoupons(list));
+            const list = cSnap.docs
+              .map(d => ({ id: d.id, ...d.data() } as Coupon))
+              .filter(c => c && c.id !== 'cp_cfa75' && c.code !== 'CFA75' && c.active !== false);
+            onUpdate(list);
           } else {
-            onUpdate(DEFAULT_PLATFORM_COUPONS);
-            // Salva cupom padrão no Firestore para persistência global
-            setDoc(doc(db, 'settings', 'coupons'), {
-              list: DEFAULT_PLATFORM_COUPONS,
-              updatedAt: new Date().toISOString()
-            }).catch(() => {});
+            onUpdate([]);
           }
-        }).catch(() => onUpdate(DEFAULT_PLATFORM_COUPONS));
+        }).catch(() => onUpdate([]));
       }
     }, (error) => {
-      console.warn("Erro no listener de cupões, usando padrão:", error);
-      onUpdate(DEFAULT_PLATFORM_COUPONS);
+      console.warn("Erro no listener de cupões:", error);
+      onUpdate([]);
     });
 
     return unsubscribe;
   } catch (e) {
-    console.warn("Erro ao iniciar listener de cupões, usando padrão:", e);
-    onUpdate(DEFAULT_PLATFORM_COUPONS);
+    console.warn("Erro ao iniciar listener de cupões:", e);
+    onUpdate([]);
     return () => {};
   }
 }
@@ -123,7 +111,8 @@ export function subscribeCoupons(onUpdate: (coupons: Coupon[]) => void): () => v
  * Regra de prioridade:
  * 1. Cupom definido especificamente para o curso (se existir, assume este)
  * 2. Cupom definido para o produtor/autor do curso
- * 3. Cupom geral ativo na plataforma (75% para todos os cursos)
+ * 3. Cupom geral ativo na plataforma
+ * Se não houver cupom ativo, assume o preço integral de 100% sem desconto.
  */
 export function getCourseDiscountInfo(
   priceOrCourse: number | { price?: number; id?: string; authorId?: string },
@@ -161,7 +150,9 @@ export function getCourseDiscountInfo(
 
   // Lista normalizada de cupons ativos
   const rawCoupons = coupons !== undefined ? coupons : [];
-  const activeCoupons = normalizeCoupons(rawCoupons.filter(c => c && c.active !== false));
+  const activeCoupons = normalizeCoupons(
+    rawCoupons.filter(c => c && c.id !== 'cp_cfa75' && c.code !== 'CFA75' && c.active !== false)
+  );
 
   if (activeCoupons.length === 0) {
     return defaultNoDiscount;
@@ -185,7 +176,7 @@ export function getCourseDiscountInfo(
     return false;
   });
 
-  // 3. TERCEIRA PRIORIDADE: Cupom geral ativo na plataforma para todos os cursos (75%)
+  // 3. TERCEIRA PRIORIDADE: Cupom geral ativo na plataforma para todos os cursos
   const generalCoupons = activeCoupons.filter(c => {
     const scope = c.scope;
     return !scope || scope === 'general' || scope === 'all';
@@ -212,12 +203,8 @@ export function getCourseDiscountInfo(
       label: 'Desconto da Plataforma'
     };
   } else {
-    // Fallback garantido para o cupom padrão de 75%
-    selectedGroup = {
-      group: DEFAULT_PLATFORM_COUPONS,
-      type: 'general',
-      label: 'Desconto da Plataforma'
-    };
+    // Sem cupons aplicáveis: retorna preço integral
+    return defaultNoDiscount;
   }
 
   // Escolhe o cupom do grupo selecionado com maior economia

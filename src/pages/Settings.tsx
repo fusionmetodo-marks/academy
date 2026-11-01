@@ -4,10 +4,10 @@ import { ProducerContractModal } from '../components/ProducerContractModal';
 import { doc, getDoc, setDoc, collection, getDocs, updateDoc, serverTimestamp, query, where } from 'firebase/firestore';
 import { db, auth } from '../firebase';
 import { PlatformSettings, Coupon } from '../types';
-import { DEFAULT_PLATFORM_COUPONS } from '../utils/discountUtils';
 import { DEFAULT_CFA_LOGO, getValidLogoUrl, isMasterEmail } from '../utils/constants';
 import { CertificateModal } from '../components/CertificateModal';
 import { compressImage, compressDataUrl } from '../utils/imageCompressor';
+import { DEFAULT_USDT_CONFIG, formatPublicationDateTime } from '../services/usdtExchangeService';
 import { 
   Award,
   Eye,
@@ -63,6 +63,16 @@ export default function Settings() {
   const [isCertificateModalOpen, setIsCertificateModalOpen] = useState(false);
   const [isTestCertOpen, setIsTestCertOpen] = useState(false);
   const [isProducerFeesModalOpen, setIsProducerFeesModalOpen] = useState(false);
+  const [isUsdtModalOpen, setIsUsdtModalOpen] = useState(false);
+
+  // USDT Exchange States (Configured by Admin, displayed for all students)
+  const [usdtRate, setUsdtRate] = useState<number | string>(1050);
+  const [usdtMinPurchase, setUsdtMinPurchase] = useState<number | string>(10);
+  const [usdtWhatsApp, setUsdtWhatsApp] = useState<string>('244923456789');
+  const [usdtIsActive, setUsdtIsActive] = useState<boolean>(true);
+  const [usdtSafetyInstructions, setUsdtSafetyInstructions] = useState<string>(DEFAULT_USDT_CONFIG.safetyInstructions);
+  const [usdtUpdatedAt, setUsdtUpdatedAt] = useState<string>(new Date().toISOString());
+  const [isSavingUsdt, setIsSavingUsdt] = useState<boolean>(false);
 
   // Producer Subscription Fees (Configured by Admin, charged in Kz)
   const [producerMonthlyFee, setProducerMonthlyFee] = useState<number>(3500);
@@ -77,7 +87,7 @@ export default function Settings() {
   const [isSavingProducerFees, setIsSavingProducerFees] = useState(false);
 
   // Coupons State
-  const [coupons, setCoupons] = useState<Coupon[]>(DEFAULT_PLATFORM_COUPONS);
+  const [coupons, setCoupons] = useState<Coupon[]>([]);
   const [availableCourses, setAvailableCourses] = useState<{ id: string; title: string }[]>([]);
 
   // Sub-modal for creating/editing a coupon
@@ -136,7 +146,7 @@ export default function Settings() {
   const [isUploadingCert, setIsUploadingCert] = useState(false);
 
   // Announcement Bar State
-  const [announcementText, setAnnouncementText] = useState('Aproveite desconto de 33% em todos os cursos!');
+  const [announcementText, setAnnouncementText] = useState('💎 COMPRE USDT COM 100% DE SEGURANÇA NA MONEY BUILDING: Cotações oficiais diárias em Kwanzas e envio rápido para a sua carteira digital! Cadastre-se na plataforma para aceder à Mesa de Câmbio.');
   const [announcementActive, setAnnouncementActive] = useState(true);
   const [announcementBgColor, setAnnouncementBgColor] = useState('#e9c349');
   const [announcementTextColor, setAnnouncementTextColor] = useState('#131313');
@@ -295,7 +305,7 @@ export default function Settings() {
       // 5. Coupons doc
       const couponsDoc = await getDoc(doc(db, 'settings', 'coupons'));
       let loadedCouponsList: Coupon[] = [];
-      if (couponsDoc.exists() && Array.isArray(couponsDoc.data().list) && couponsDoc.data().list.length > 0) {
+      if (couponsDoc.exists() && Array.isArray(couponsDoc.data().list)) {
         loadedCouponsList = couponsDoc.data().list;
       } else {
         const couponsSnap = await getDocs(collection(db, 'coupons'));
@@ -304,23 +314,17 @@ export default function Settings() {
         }
       }
 
-      if (loadedCouponsList.length === 0) {
-        setCoupons(DEFAULT_PLATFORM_COUPONS);
-      } else {
-        // Normaliza para atualizar o cupom inicial de demonstração para os 75% oficiais
-        const normalized = loadedCouponsList.map(c => {
-          if (c.id === 'cp_cfa10' || (c.code === 'CFA10' && Number(c.discountValue) === 10)) {
-            return {
-              ...c,
-              id: 'cp_cfa75',
-              code: 'CFA75',
-              discountValue: 75
-            };
-          }
-          return c;
-        });
-        setCoupons(normalized);
+      // Purga permanente do cupom cp_cfa75 / CFA75 eliminado pelo utilizador
+      const cleanedCoupons = loadedCouponsList.filter(c => c && c.id !== 'cp_cfa75' && c.code !== 'CFA75');
+      if (cleanedCoupons.length !== loadedCouponsList.length) {
+        await setDoc(doc(db, 'settings', 'coupons'), {
+          list: cleanedCoupons,
+          updatedAt: new Date().toISOString()
+        }).catch(() => {});
+        const { deleteDoc } = await import('firebase/firestore');
+        await deleteDoc(doc(db, 'coupons', 'cp_cfa75')).catch(() => {});
       }
+      setCoupons(cleanedCoupons);
 
       // 6. Fetch courses for coupon scope
       let coursesSnap;
@@ -341,8 +345,63 @@ export default function Settings() {
         }));
         setAvailableCourses(cList);
       }
+
+      // 7. USDT Exchange Settings
+      try {
+        const usdtDoc = await getDoc(doc(db, 'settings', 'usdt_exchange'));
+        if (usdtDoc.exists()) {
+          const uData = usdtDoc.data();
+          if (uData.rate !== undefined) setUsdtRate(uData.rate);
+          if (uData.minPurchaseUsdt !== undefined) setUsdtMinPurchase(uData.minPurchaseUsdt);
+          if (uData.whatsappNumber) setUsdtWhatsApp(uData.whatsappNumber);
+          if (uData.isActive !== undefined) setUsdtIsActive(Boolean(uData.isActive));
+          if (uData.safetyInstructions) setUsdtSafetyInstructions(uData.safetyInstructions);
+          if (uData.updatedAt) setUsdtUpdatedAt(uData.updatedAt);
+        }
+      } catch (err) {
+        console.warn('Could not load USDT exchange settings:', err);
+      }
     } catch (err) {
       console.error("Failed to load settings:", err);
+    }
+  };
+
+  const handleSaveUsdtConfig = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const rateNum = Number(usdtRate);
+    if (isNaN(rateNum) || rateNum <= 0) {
+      showNotification('Insira uma cotação válida para o USDT em Kwanzas.', 'error');
+      return;
+    }
+    const minNum = Number(usdtMinPurchase);
+    if (isNaN(minNum) || minNum < 1) {
+      showNotification('Insira uma compra mínima válida (pelo menos 1 USDT).', 'error');
+      return;
+    }
+
+    try {
+      setIsSavingUsdt(true);
+      const nowIso = new Date().toISOString();
+      const adminName = auth.currentUser?.displayName || auth.currentUser?.email || 'Administrador Master';
+
+      await setDoc(doc(db, 'settings', 'usdt_exchange'), {
+        rate: rateNum,
+        minPurchaseUsdt: minNum,
+        whatsappNumber: usdtWhatsApp.trim() || supportWhatsApp,
+        isActive: usdtIsActive,
+        safetyInstructions: usdtSafetyInstructions.trim(),
+        updatedAt: nowIso,
+        updatedBy: adminName
+      }, { merge: true });
+
+      setUsdtUpdatedAt(nowIso);
+      setIsUsdtModalOpen(false);
+      showNotification('✅ Cotação de USDT e SMS da página atualizados com sucesso com data e hora oficiais!', 'success');
+    } catch (err) {
+      console.error('Erro ao salvar câmbio de USDT:', err);
+      showNotification('Erro ao salvar as configurações de USDT no servidor.', 'error');
+    } finally {
+      setIsSavingUsdt(false);
     }
   };
 
@@ -1328,6 +1387,64 @@ export default function Settings() {
             <div className="mt-6 pt-4 border-t border-outline-variant/10">
               <div className="w-full py-2.5 px-4 bg-surface-container-highest group-hover:bg-[#e9c349] text-stone-300 group-hover:text-black font-bold text-xs rounded-xl transition-all flex items-center justify-center gap-2">
                 <span>Reajustar Taxas</span>
+                <ChevronRight className="w-4 h-4" />
+              </div>
+            </div>
+          </section>
+
+          {/* BUTTON 6: Câmbio & Venda de USDT */}
+          <section 
+            id="card-btn-usdt-exchange"
+            onClick={() => setIsUsdtModalOpen(true)}
+            className="group relative bg-surface-container-low hover:bg-surface-container rounded-2xl p-6 sm:p-7 border border-outline-variant/10 hover:border-emerald-500/50 shadow-lg hover:shadow-[0_8px_30px_rgba(16,185,129,0.15)] transition-all cursor-pointer flex flex-col justify-between"
+          >
+            <div>
+              <div className="flex items-center justify-between mb-5">
+                <div className="w-12 h-12 rounded-2xl bg-emerald-500/10 group-hover:bg-emerald-500 text-emerald-400 group-hover:text-black flex items-center justify-center border border-emerald-500/20 transition-all">
+                  <Coins className="w-6 h-6" />
+                </div>
+                <span className="p-2 rounded-xl bg-surface-container-highest group-hover:bg-emerald-500/20 text-stone-400 group-hover:text-emerald-400 transition-colors">
+                  <ArrowUpRight className="w-4 h-4" />
+                </span>
+              </div>
+
+              <div className="mb-4">
+                <span className="text-[10px] uppercase font-bold tracking-widest text-emerald-400 block mb-1">Módulo 6</span>
+                <h3 className="font-headline text-xl font-bold text-white group-hover:text-emerald-400 transition-colors">
+                  Câmbio &amp; Venda de USDT
+                </h3>
+                <p className="text-xs text-stone-400 mt-1.5 line-clamp-5 leading-relaxed">
+                  Defina a cotação diária do USDT em Kwanzas (Kz), configure a mensagem de segurança (SMS) e carimbo de data/hora oficial.
+                </p>
+              </div>
+
+              <div className="space-y-2 pt-2 border-t border-outline-variant/10 text-xs">
+                <div className="flex justify-between items-center text-stone-400">
+                  <span>Cotação Atual:</span>
+                  <span className="font-mono text-emerald-400 font-extrabold text-sm">
+                    1 USDT = {Number(usdtRate).toLocaleString('pt-AO')} Kz
+                  </span>
+                </div>
+                <div className="flex justify-between items-center text-stone-400">
+                  <span>Status do Serviço:</span>
+                  <span className={`font-bold px-2 py-0.5 rounded-full text-[10px] ${
+                    usdtIsActive ? 'text-emerald-400 bg-emerald-400/10' : 'text-amber-400 bg-amber-400/10'
+                  }`}>
+                    {usdtIsActive ? 'Ativo & Disponível' : 'Temporariamente Pausado'}
+                  </span>
+                </div>
+                <div className="flex justify-between items-center text-stone-400">
+                  <span>Última Publicação:</span>
+                  <span className="font-mono text-stone-300 text-[11px]">
+                    {formatPublicationDateTime(usdtUpdatedAt)}
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            <div className="mt-6 pt-4 border-t border-outline-variant/10">
+              <div className="w-full py-2.5 px-4 bg-surface-container-highest group-hover:bg-emerald-500 text-stone-300 group-hover:text-black font-bold text-xs rounded-xl transition-all flex items-center justify-center gap-2">
+                <span>Gerir Câmbio &amp; SMS</span>
                 <ChevronRight className="w-4 h-4" />
               </div>
             </div>
@@ -3164,6 +3281,204 @@ export default function Settings() {
                     <>
                       <Check className="w-4 h-4" />
                       Salvar Novas Taxas
+                    </>
+                  )}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: Gestão de Câmbio de USDT & SMS da Página */}
+      {isUsdtModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="relative w-full max-w-2xl bg-surface-container-low border border-outline-variant/20 rounded-3xl p-6 sm:p-8 shadow-2xl max-h-[92vh] overflow-y-auto">
+            
+            {/* Modal Header */}
+            <div className="flex items-center justify-between pb-5 border-b border-outline-variant/10 mb-6">
+              <div className="flex items-center gap-3">
+                <div className="w-11 h-11 rounded-2xl bg-emerald-500/15 text-emerald-400 flex items-center justify-center border border-emerald-500/20">
+                  <Coins className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="font-headline text-lg sm:text-xl font-bold text-white">
+                    Gestão de Câmbio &amp; Venda de USDT
+                  </h3>
+                  <p className="text-xs text-stone-400">
+                    Atualize a cotação oficial, regras de compra e carimbo de data/hora aos alunos.
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsUsdtModalOpen(false)}
+                className="w-8 h-8 rounded-full bg-white/5 hover:bg-white/10 text-stone-400 hover:text-white flex items-center justify-center transition-colors cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveUsdtConfig} className="space-y-6">
+              
+              {/* Live Publication Timestamp Notice */}
+              <div className="p-4 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 flex items-start gap-3">
+                <Clock className="w-5 h-5 text-emerald-400 shrink-0 mt-0.5" />
+                <div className="text-xs text-stone-300">
+                  <strong className="text-white block mb-0.5">Atualização com Carimbo de Data &amp; Hora:</strong>
+                  Ao clicar em salvar, a data e hora da cotação será atualizada em tempo real para:
+                  <span className="block mt-1 font-mono font-bold text-emerald-400">
+                    📅 {formatPublicationDateTime(new Date().toISOString())}
+                  </span>
+                  <p className="text-[11px] text-stone-400 mt-1">
+                    Última registrada no sistema: {formatPublicationDateTime(usdtUpdatedAt)}
+                  </p>
+                </div>
+              </div>
+
+              {/* Rate & Limits Grid */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                
+                {/* Cotação do 1 USDT em Kwanzas */}
+                <div>
+                  <label className="block text-xs font-bold text-stone-300 uppercase tracking-wider mb-2">
+                    Cotação Oficial (Kz por 1 USDT) *
+                  </label>
+                  <div className="relative">
+                    <input
+                      type="number"
+                      required
+                      min="1"
+                      step="any"
+                      value={usdtRate}
+                      onChange={(e) => setUsdtRate(e.target.value)}
+                      placeholder="Ex: 1050"
+                      className="w-full bg-surface-container-lowest border border-outline-variant/20 focus:border-emerald-500 rounded-xl py-3 pl-4 pr-14 text-white font-mono font-bold text-base outline-none transition-colors"
+                    />
+                    <div className="absolute inset-y-0 right-3 flex items-center pointer-events-none">
+                      <span className="text-xs font-bold text-stone-400 font-mono">Kz</span>
+                    </div>
+                  </div>
+                  <p className="text-[10px] text-stone-500 mt-1">
+                    Ex: Se digitar 1050, 100 USDT equivalerá a 105.000 Kz.
+                  </p>
+                </div>
+
+                {/* Compra Mínima */}
+                <div>
+                  <label className="block text-xs font-bold text-stone-300 uppercase tracking-wider mb-2">
+                    Compra Mínima (USDT) *
+                  </label>
+                  <div className="relative">
+                    <input
+                      type="number"
+                      required
+                      min="1"
+                      value={usdtMinPurchase}
+                      onChange={(e) => setUsdtMinPurchase(e.target.value)}
+                      placeholder="Ex: 10"
+                      className="w-full bg-surface-container-lowest border border-outline-variant/20 focus:border-emerald-500 rounded-xl py-3 pl-4 pr-16 text-white font-mono font-bold text-base outline-none transition-colors"
+                    />
+                    <div className="absolute inset-y-0 right-3 flex items-center pointer-events-none">
+                      <span className="text-xs font-bold text-stone-400 font-mono">USDT</span>
+                    </div>
+                  </div>
+                  <p className="text-[10px] text-stone-500 mt-1">
+                    Valor mínimo exigido no simulador dos estudantes.
+                  </p>
+                </div>
+              </div>
+
+              {/* Status & WhatsApp */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                
+                {/* WhatsApp Dedicado */}
+                <div>
+                  <label className="block text-xs font-bold text-stone-300 uppercase tracking-wider mb-2">
+                    WhatsApp para Pedidos de USDT
+                  </label>
+                  <input
+                    type="text"
+                    value={usdtWhatsApp}
+                    onChange={(e) => setUsdtWhatsApp(e.target.value)}
+                    placeholder="Ex: 244923456789"
+                    className="w-full bg-surface-container-lowest border border-outline-variant/20 focus:border-emerald-500 rounded-xl py-3 px-4 text-white font-mono text-sm outline-none transition-colors"
+                  />
+                  <p className="text-[10px] text-stone-500 mt-1">
+                    Número com DDI para onde os estudantes enviarão as cotações geradas.
+                  </p>
+                </div>
+
+                {/* Status Toggle */}
+                <div>
+                  <label className="block text-xs font-bold text-stone-300 uppercase tracking-wider mb-2">
+                    Status das Vendas
+                  </label>
+                  <select
+                    value={usdtIsActive ? 'active' : 'paused'}
+                    onChange={(e) => setUsdtIsActive(e.target.value === 'active')}
+                    className="w-full bg-surface-container-lowest border border-outline-variant/20 focus:border-emerald-500 rounded-xl py-3 px-4 text-white text-sm outline-none transition-colors cursor-pointer"
+                  >
+                    <option value="active">🟢 Ativo (Vendas Abertas aos Estudantes)</option>
+                    <option value="paused">🟡 Pausado Temporariamente (Sem Estoque/Manutenção)</option>
+                  </select>
+                  <p className="text-[10px] text-stone-500 mt-1">
+                    Exibido no badge superior da página de compra.
+                  </p>
+                </div>
+              </div>
+
+              {/* SMS da Página / Mensagem e Regras de Segurança */}
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <label className="text-xs font-bold text-stone-300 uppercase tracking-wider flex items-center gap-1.5">
+                    <ShieldCheck className="w-4 h-4 text-emerald-400" />
+                    SMS da Página &amp; Regras de Segurança (Exibida aos Alunos) *
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => setUsdtSafetyInstructions(DEFAULT_USDT_CONFIG.safetyInstructions)}
+                    className="text-[10px] text-[#e9c349] hover:underline cursor-pointer"
+                  >
+                    Restaurar Padrão Oficial
+                  </button>
+                </div>
+                <textarea
+                  rows={6}
+                  required
+                  value={usdtSafetyInstructions}
+                  onChange={(e) => setUsdtSafetyInstructions(e.target.value)}
+                  placeholder="Escreva aqui as instruções de segurança, métodos de pagamento aceitos (IBAN / Express) e regras para compra segura de USDT..."
+                  className="w-full bg-surface-container-lowest border border-outline-variant/20 focus:border-emerald-500 rounded-xl p-4 text-white text-xs sm:text-sm font-sans leading-relaxed outline-none transition-colors resize-y"
+                />
+                <p className="text-[10px] text-stone-500 mt-1">
+                  Esta mensagem é exibida em destaque no painel do aluno. Altere com segurança as regras e observações bancárias sempre que desejar.
+                </p>
+              </div>
+
+              {/* Modal Actions */}
+              <div className="pt-4 border-t border-outline-variant/10 flex items-center justify-end gap-3">
+                <button
+                  type="button"
+                  onClick={() => setIsUsdtModalOpen(false)}
+                  className="px-5 py-2.5 rounded-xl text-stone-300 hover:text-white hover:bg-stone-800 text-xs font-bold transition-colors cursor-pointer"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSavingUsdt}
+                  className="px-6 py-2.5 bg-emerald-500 hover:bg-emerald-400 text-black font-extrabold text-xs rounded-xl shadow-lg transition-all flex items-center gap-2 cursor-pointer disabled:opacity-50"
+                >
+                  {isSavingUsdt ? (
+                    <>
+                      <div className="w-3.5 h-3.5 border-2 border-black border-t-transparent rounded-full animate-spin"></div>
+                      A Salvar Câmbio...
+                    </>
+                  ) : (
+                    <>
+                      <Check className="w-4 h-4" />
+                      Salvar e Publicar Cotação Agora
                     </>
                   )}
                 </button>

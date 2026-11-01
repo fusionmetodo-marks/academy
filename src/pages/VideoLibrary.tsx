@@ -610,9 +610,9 @@ export default function VideoLibrary({ courseId }: VideoLibraryProps = {}) {
               <div>
                 <h1 className="text-lg font-extrabold text-[#e9c349] tracking-tighter font-headline flex items-center gap-2">
                   <span className="material-symbols-outlined">candlestick_chart</span>
-                  Marks o Monstro
+                  Money Building
                 </h1>
-                <p className="text-[9px] text-[#bccabe]/60 uppercase tracking-widest mt-1 font-mono font-bold">ACADEMY &middot; TRADING</p>
+                <p className="text-[9px] text-[#bccabe]/60 uppercase tracking-widest mt-1 font-mono font-bold">Academia de Opções Binárias</p>
               </div>
               <button
                 onClick={() => setIsSidebarCollapsed(true)}
@@ -631,6 +631,13 @@ export default function VideoLibrary({ courseId }: VideoLibraryProps = {}) {
               >
                 <span className="material-symbols-outlined text-sm">grid_view</span>
                 <span>Meus Cursos</span>
+              </Link>
+              <Link
+                to="/library/comprar-usdt"
+                className="flex items-center gap-2 px-3 py-2 text-xs font-bold text-emerald-400 bg-emerald-500/10 hover:bg-emerald-500/20 rounded-xl border border-emerald-500/30 transition-all shadow-sm"
+              >
+                <span className="material-symbols-outlined text-sm">currency_exchange</span>
+                <span>Comprar USDT</span>
               </Link>
               <Link
                 to="/library"
@@ -810,10 +817,10 @@ export default function VideoLibrary({ courseId }: VideoLibraryProps = {}) {
               <div className="p-5 border-b border-[#353534]/30 flex items-center justify-between">
                 <div>
                   <h1 className="text-lg font-extrabold text-[#e9c349] font-headline flex items-center gap-2">
-                    <span className="material-symbols-outlined">school</span>
-                    CFA Class
+                    <span className="material-symbols-outlined">candlestick_chart</span>
+                    Money Building
                   </h1>
-                  <p className="text-[9px] text-gray-500 font-mono uppercase">Módulos & Aulas</p>
+                  <p className="text-[9px] text-[#bccabe]/60 font-mono uppercase font-bold">Academia de Opções Binárias</p>
                 </div>
                 <button 
                   onClick={() => setIsMobileDrawerOpen(false)}
@@ -831,6 +838,14 @@ export default function VideoLibrary({ courseId }: VideoLibraryProps = {}) {
                 >
                   <span className="material-symbols-outlined text-sm">grid_view</span>
                   <span>Voltar para Meus Cursos</span>
+                </Link>
+                <Link
+                  to="/library/comprar-usdt"
+                  onClick={() => setIsMobileDrawerOpen(false)}
+                  className="flex items-center justify-center gap-2 w-full py-2.5 text-xs font-bold text-emerald-400 bg-emerald-500/10 rounded-xl border border-emerald-500/20"
+                >
+                  <span className="material-symbols-outlined text-sm">currency_exchange</span>
+                  <span>Comprar USDT</span>
                 </Link>
                 <Link
                   to="/library"

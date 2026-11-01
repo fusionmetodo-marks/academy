@@ -96,6 +96,12 @@ export interface Course {
   producerBankName?: string; // Nome do Banco do produtor
   producerExpressPhone?: string; // Express do produtor
   category?: 'course' | 'mentorship' | 'service';
+  serviceType?: string; // Ex: 'alavancagem' | 'capitacao' | 'mentoria' | 'outro'
+  serviceRules?: string; // Regras, termos e condições específicas para contratação do serviço
+  minBank?: string; // Banca mínima sugerida (Ex: "$50 ou 50.000 Kz")
+  profitShare?: string; // Divisão de lucros (Ex: "50% / 50%")
+  deliveryTime?: string; // Prazo estimado ou duração da operação
+  serviceWhatsApp?: string; // WhatsApp de suporte específico do serviço
 }
 
 export interface UserProfile {

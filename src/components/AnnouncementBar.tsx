@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { doc, onSnapshot, getDoc } from 'firebase/firestore';
-import { db } from '../firebase';
-import { Sparkles, Tag, Percent } from 'lucide-react';
+import { doc, onSnapshot } from 'firebase/firestore';
+import { db, auth } from '../firebase';
+import { Sparkles, Coins, ArrowRight, ShieldCheck } from 'lucide-react';
+import { Link, useNavigate } from 'react-router-dom';
 
 interface AnnouncementSettings {
   announcementText?: string;
@@ -15,8 +16,9 @@ interface AnnouncementBarProps {
 }
 
 export default function AnnouncementBar({ onHeightChange }: AnnouncementBarProps) {
+  const navigate = useNavigate();
   const [settings, setSettings] = useState<AnnouncementSettings>({
-    announcementText: 'Aproveite desconto de 33% em todos os cursos!',
+    announcementText: '💎 COMPRE USDT COM 100% DE SEGURANÇA NA MONEY BUILDING: Cotações oficiais diárias em Kwanzas e envio rápido para a sua carteira digital! Cadastre-se na plataforma para aceder à Mesa de Câmbio.',
     announcementActive: true,
     announcementBgColor: '#e9c349',
     announcementTextColor: '#131313'
@@ -29,7 +31,9 @@ export default function AnnouncementBar({ onHeightChange }: AnnouncementBarProps
       if (docSnap.exists()) {
         const data = docSnap.data();
         setSettings({
-          announcementText: data.announcementText !== undefined ? data.announcementText : 'Aproveite desconto de 33% em todos os cursos!',
+          announcementText: data.announcementText !== undefined && data.announcementText.trim() !== '' 
+            ? data.announcementText 
+            : '💎 COMPRE USDT COM 100% DE SEGURANÇA NA MONEY BUILDING: Cotações oficiais diárias em Kwanzas e envio rápido para a sua carteira digital! Cadastre-se na plataforma para aceder à Mesa de Câmbio.',
           announcementActive: data.announcementActive !== undefined ? data.announcementActive : true,
           announcementBgColor: data.announcementBgColor || '#e9c349',
           announcementTextColor: data.announcementTextColor || '#131313'
@@ -55,22 +59,34 @@ export default function AnnouncementBar({ onHeightChange }: AnnouncementBarProps
   if (!isActive || loading) return null;
 
   const text = settings.announcementText?.trim() || '';
-  // Repete o texto para garantir scroll contínuo e sem falhas
-  const repeatedText = Array(6).fill(text);
+  const repeatedText = Array(4).fill(text);
+
+  const handleClickBar = () => {
+    if (auth.currentUser) {
+      navigate('/library/comprar-usdt');
+    } else {
+      navigate('/criar-conta');
+    }
+  };
 
   return (
     <div 
-      className="w-full h-[38px] overflow-hidden flex items-center shadow-md relative z-[60] select-none border-b border-black/10 transition-all"
+      onClick={handleClickBar}
+      className="w-full h-[38px] overflow-hidden flex items-center shadow-md relative z-[60] select-none border-b border-black/10 transition-all cursor-pointer group"
       style={{
         backgroundColor: settings.announcementBgColor || '#e9c349',
         color: settings.announcementTextColor || '#131313'
       }}
+      title="Clique para acessar a Mesa de Câmbio de USDT"
     >
-      <div className="animate-marquee items-center py-1.5 font-headline font-bold text-xs sm:text-sm tracking-wide">
+      <div className="animate-marquee items-center py-1.5 font-headline font-bold text-xs sm:text-sm tracking-wide flex">
         {repeatedText.map((t, idx) => (
           <div key={idx} className="flex items-center gap-3 px-6 shrink-0 whitespace-nowrap">
-            <Sparkles className="w-3.5 h-3.5 shrink-0 opacity-80 animate-pulse" />
+            <Coins className="w-3.5 h-3.5 shrink-0 text-emerald-800 animate-pulse" />
             <span>{t}</span>
+            <span className="inline-flex items-center gap-1 text-[10px] font-extrabold uppercase px-2 py-0.5 rounded-full bg-black/15 group-hover:bg-black/25 transition-colors">
+              Aceder Câmbio <ArrowRight className="w-3 h-3" />
+            </span>
             <span className="inline-block w-1.5 h-1.5 rounded-full bg-current opacity-40 mx-2"></span>
           </div>
         ))}

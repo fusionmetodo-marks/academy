@@ -5,7 +5,6 @@ import { getAuth, onAuthStateChanged, User } from 'firebase/auth';
 import { db } from '../firebase';
 import { sendSystemNotification } from '../services/notificationService';
 import { PlatformSettings, Transaction, Coupon } from '../types';
-import { DEFAULT_PLATFORM_COUPONS } from '../utils/discountUtils';
 import { DEFAULT_CFA_LOGO, getValidLogoUrl } from '../utils/constants';
 
 export default function Checkout() {
@@ -23,7 +22,7 @@ export default function Checkout() {
   const [logoUrl, setLogoUrl] = useState(DEFAULT_CFA_LOGO);
 
   // Coupon States
-  const [couponsList, setCouponsList] = useState<Coupon[]>(DEFAULT_PLATFORM_COUPONS);
+  const [couponsList, setCouponsList] = useState<Coupon[]>([]);
   const [showCouponInput, setShowCouponInput] = useState(false);
   const [couponCodeInput, setCouponCodeInput] = useState('');
   const [appliedCoupon, setAppliedCoupon] = useState<Coupon | null>(null);
@@ -60,7 +59,7 @@ export default function Checkout() {
             let pHolder = data.producerHolderName;
             let pBank = data.producerBankName;
             let pExpress = data.producerExpressPhone || data.producerPhone;
-            let pName = data.producerName || data.instructor || 'Produtor do Curso';
+            let pName = data.producerName || data.instructor || 'Marks o Monstro';
 
             if ((!pIban || !pHolder) && data.authorId) {
               const authorSnap = await getDoc(doc(db, 'users', data.authorId)).catch(() => null);
@@ -166,7 +165,7 @@ export default function Checkout() {
 
         // Load Coupons
         let loadedCoupons: Coupon[] = [];
-        if (couponsSnap?.exists() && Array.isArray(couponsSnap.data().list) && couponsSnap.data().list.length > 0) {
+        if (couponsSnap?.exists() && Array.isArray(couponsSnap.data().list)) {
           loadedCoupons = couponsSnap.data().list;
         } else {
           const cSnap = await getDocs(collection(db, 'coupons')).catch(() => null);
@@ -175,17 +174,9 @@ export default function Checkout() {
           }
         }
 
-        if (loadedCoupons.length === 0) {
-          loadedCoupons = DEFAULT_PLATFORM_COUPONS;
-        } else {
-          loadedCoupons = loadedCoupons.map(c => {
-            if (c.id === 'cp_cfa10' || (c.code === 'CFA10' && Number(c.discountValue) === 10)) {
-              return { ...c, id: 'cp_cfa75', code: 'CFA75', discountValue: 75 };
-            }
-            return c;
-          });
-        }
-        setCouponsList(loadedCoupons);
+        // Purga de cupom cp_cfa75 / CFA75 eliminado pelo utilizador
+        const cleanCoupons = loadedCoupons.filter(c => c && c.id !== 'cp_cfa75' && c.code !== 'CFA75');
+        setCouponsList(cleanCoupons);
 
         // Auto apply coupon will happen in a separate useEffect
       } catch (err) {
@@ -399,7 +390,7 @@ export default function Checkout() {
                 referrerPolicy="no-referrer"
               />
             ) : (
-              <span className="text-xl font-black tracking-tighter text-[#e9c349] font-headline">Marks o Monstro <span className="text-[10px] text-white uppercase block font-mono font-bold">ACADEMY</span></span>
+              <span className="text-xl font-black tracking-tighter text-[#e9c349] font-headline">Money Building <span className="text-[10px] text-white uppercase block font-mono font-bold">Academia de Opções Binárias</span></span>
             )}
           </Link>
           <div className="flex items-center gap-3">
@@ -414,9 +405,11 @@ export default function Checkout() {
         <div className="mb-12">
           <div className="flex items-center gap-2 text-secondary mb-2">
             <span className="material-symbols-outlined" style={{ fontVariationSettings: "'FILL' 1" }}>verified_user</span>
-            <span className="text-xs font-bold uppercase tracking-widest font-label">Checkout Seguro &middot; Marks o Monstro - ACADEMY</span>
+            <span className="text-xs font-bold uppercase tracking-widest font-label">Checkout Seguro &middot; Money Building - Academia de Opções Binárias</span>
           </div>
-          <h1 className="text-4xl md:text-5xl font-extrabold tracking-tighter font-headline text-on-surface">Finalize sua Inscrição</h1>
+          <h1 className="text-4xl md:text-5xl font-extrabold tracking-tighter font-headline text-on-surface">
+            {selectedCourse?.category === 'service' ? 'Contratação Segura do Serviço' : 'Finalize sua Inscrição'}
+          </h1>
         </div>
 
         <form onSubmit={handleCheckout} className="grid grid-cols-1 lg:grid-cols-12 gap-12">
@@ -792,7 +785,7 @@ export default function Checkout() {
                     <span className="material-symbols-outlined absolute left-3.5 top-3.5 text-stone-400 text-lg">tag</span>
                   </div>
                   <p className="text-[11px] text-stone-500 mt-2">
-                    Este código é registado na transação para conferência e validação da inscrição pelo suporte da Marks o Monstro - ACADEMY.
+                    Este código é registado na transação para conferência e validação da inscrição pelo suporte da Money Building - Academia de Opções Binárias.
                   </p>
                 </div>
               </div>
@@ -933,12 +926,12 @@ export default function Checkout() {
                   {isSubmitting ? (
                     <>
                       <div className="w-5 h-5 border-2 border-black border-t-transparent rounded-full animate-spin"></div>
-                      <span>Processando Inscrição...</span>
+                      <span>{selectedCourse?.category === 'service' ? 'Processando Contratação...' : 'Processando Inscrição...'}</span>
                     </>
                   ) : (
                     <>
                       <span className="material-symbols-outlined" style={{ fontVariationSettings: "'FILL' 1" }}>lock</span>
-                      <span>Finalizar Inscrição Segura</span>
+                      <span>{selectedCourse?.category === 'service' ? 'Finalizar Contratação Segura' : 'Finalizar Inscrição Segura'}</span>
                     </>
                   )}
                 </button>
@@ -964,9 +957,9 @@ export default function Checkout() {
       {/* Footer */}
       <footer className="w-full border-t border-stone-800/30 bg-[#0e0e0e] relative z-10">
         <div className="flex flex-col md:flex-row justify-between items-center px-12 py-10 gap-6 max-w-7xl mx-auto">
-          <div className="text-[#e9c349] font-black tracking-tighter text-xl">Marks o Monstro - ACADEMY</div>
+          <div className="text-[#e9c349] font-black tracking-tighter text-xl">Money Building - Academia de Opções Binárias</div>
           <div className="text-stone-500 font-label text-[10px] md:text-sm uppercase tracking-widest text-center md:text-left">
-            © 2026 Marks o Monstro - ACADEMY. Pagamentos seguros em Kwanza (Kz).
+            © 2026 Money Building - Academia de Opções Binárias. Pagamentos seguros em Kwanza (Kz).
           </div>
           <div className="flex gap-6">
             <Link className="text-stone-500 hover:text-[#93d6a0] transition-colors font-label text-sm uppercase tracking-widest" to="/privacidade">Privacidade</Link>

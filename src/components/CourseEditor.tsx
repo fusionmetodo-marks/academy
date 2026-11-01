@@ -43,7 +43,7 @@ import {
 import LessonModal from './LessonModal';
 
 import { LessonLink, Coupon } from '../types';
-import { subscribeCoupons, getCourseDiscountInfo, DEFAULT_PLATFORM_COUPONS } from '../utils/discountUtils';
+import { subscribeCoupons, getCourseDiscountInfo } from '../utils/discountUtils';
 
 interface Lesson {
   id: string;
@@ -85,7 +85,7 @@ export default function CourseEditor({ courseId, onBack }: CourseEditorProps) {
   const [modules, setModules] = useState<Module[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [authorId, setAuthorId] = useState<string>('');
-  const [coupons, setCoupons] = useState<Coupon[]>(DEFAULT_PLATFORM_COUPONS);
+  const [coupons, setCoupons] = useState<Coupon[]>([]);
 
   // NOVOS ESTADOS DE ESTRUTURA DO CURSO
   const [structureType, setStructureType] = useState<'modules' | 'single_lesson' | 'direct_link'>('modules');
@@ -190,7 +190,7 @@ export default function CourseEditor({ courseId, onBack }: CourseEditorProps) {
   // Carregar e sincronizar cupons ativos da plataforma
   useEffect(() => {
     const unsubCoupons = subscribeCoupons((loadedCoupons) => {
-      setCoupons(loadedCoupons && loadedCoupons.length > 0 ? loadedCoupons : DEFAULT_PLATFORM_COUPONS);
+      setCoupons(loadedCoupons || []);
     });
     return () => unsubCoupons();
   }, []);

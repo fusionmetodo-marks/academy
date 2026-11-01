@@ -23,7 +23,9 @@ import {
   HelpCircle,
   Users,
   Smartphone,
-  ExternalLink
+  ExternalLink,
+  Coins,
+  GraduationCap
 } from 'lucide-react';
 import { subscribeUserEnrollments, addCourseToUser } from '../services/enrollmentService';
 import { slugify } from '../utils/slugify';
@@ -39,6 +41,11 @@ interface Course {
   authorId?: string;
   authorEmail?: string;
   category?: 'course' | 'mentorship' | 'service';
+  serviceType?: string;
+  producerName?: string;
+  instructor?: string;
+  producerPhone?: string;
+  producerWhatsApp?: string;
 }
 
 export default function SalesPage() {
@@ -50,6 +57,9 @@ export default function SalesPage() {
   const [isAdmin, setIsAdmin] = useState(false);
   const [coupons, setCoupons] = useState<Coupon[]>([]);
   const [isAndroidModalOpen, setIsAndroidModalOpen] = useState(false);
+  const [isWhatsAppMenuOpen, setIsWhatsAppMenuOpen] = useState(false);
+  const [supportWhatsApp, setSupportWhatsApp] = useState('244923456789');
+  const [usdtWhatsApp, setUsdtWhatsApp] = useState('244923456789');
 
   const getCourseDiscountInfo = (course: Course) => {
     if (!course.price || course.price === 0) return { isFree: true, hasDiscount: false, discountedPrice: 0, couponCode: null, discountValue: 0, discountType: 'percentage' };
@@ -179,12 +189,20 @@ export default function SalesPage() {
     const fetchLogo = async () => {
       try {
         const generalDoc = await getDoc(doc(db, 'settings', 'general')).catch(() => null);
-        if (generalDoc && generalDoc.exists() && generalDoc.data().logoUrl) {
-          setLogoUrl(getValidLogoUrl(generalDoc.data().logoUrl));
+        if (generalDoc && generalDoc.exists()) {
+          const gData = generalDoc.data();
+          if (gData.logoUrl) setLogoUrl(getValidLogoUrl(gData.logoUrl));
+          if (gData.supportWhatsApp) setSupportWhatsApp(gData.supportWhatsApp);
         }
         const platformDoc = await getDoc(doc(db, 'settings', 'platform')).catch(() => null);
-        if (platformDoc && platformDoc.exists() && platformDoc.data().logoUrl) {
-          setLogoUrl(getValidLogoUrl(platformDoc.data().logoUrl));
+        if (platformDoc && platformDoc.exists()) {
+          const pData = platformDoc.data();
+          if (pData.logoUrl) setLogoUrl(getValidLogoUrl(pData.logoUrl));
+          if (pData.supportWhatsApp) setSupportWhatsApp(pData.supportWhatsApp);
+        }
+        const usdtDoc = await getDoc(doc(db, 'settings', 'usdt_exchange')).catch(() => null);
+        if (usdtDoc && usdtDoc.exists() && usdtDoc.data().whatsappNumber) {
+          setUsdtWhatsApp(usdtDoc.data().whatsappNumber);
         }
       } catch (err) {
         console.warn("Could not load logo in Sales page:", err);
@@ -209,7 +227,9 @@ export default function SalesPage() {
               loadedCoupons = directCouponsSnap.docs.map(d => ({ id: d.id, ...d.data() } as Coupon));
             }
           }
-          const activeCoupons = loadedCoupons.filter(c => c && c.active !== false);
+          const activeCoupons = loadedCoupons.filter(
+            c => c && c.id !== 'cp_cfa75' && c.code !== 'CFA75' && c.active !== false
+          );
           setCoupons(activeCoupons);
         } catch (couponErr) {
           console.error("Erro ao carregar cupões na Landing Page:", couponErr);
@@ -295,10 +315,10 @@ export default function SalesPage() {
                 />
               ) : (
                 <div className="flex items-center gap-2 sm:gap-3">
-                  <div className="w-8 h-8 sm:w-11 sm:h-11 rounded-lg sm:rounded-xl bg-[#e9c349] flex items-center justify-center font-black text-black text-xs sm:text-sm">MM</div>
+                  <div className="w-8 h-8 sm:w-11 sm:h-11 rounded-lg sm:rounded-xl bg-[#e9c349] flex items-center justify-center font-black text-black text-xs sm:text-sm">MB</div>
                   <div className="flex flex-col">
-                    <span className="text-sm sm:text-xl font-black tracking-tighter text-[#e9c349] leading-tight">Marks o Monstro</span>
-                    <span className="text-[9px] sm:text-[10px] text-white tracking-widest uppercase font-bold font-mono">ACADEMY &middot; TRADING</span>
+                    <span className="text-sm sm:text-xl font-black tracking-tighter text-[#e9c349] leading-tight">Money Building</span>
+                    <span className="text-[9px] sm:text-[10px] text-white tracking-widest uppercase font-bold font-mono">Academia de Opções Binárias</span>
                   </div>
                 </div>
               )}
@@ -347,7 +367,7 @@ export default function SalesPage() {
             <span className="text-[#e9c349] font-bold uppercase tracking-[0.2em] sm:tracking-[0.3em] text-[10px] sm:text-xs">Aulas de Trading & Método Fusion</span>
             <h2 className="font-headline text-xl sm:text-3xl md:text-5xl font-black text-white">Treinamentos e Aulas Disponíveis</h2>
             <p className="text-stone-400 text-xs sm:text-sm md:text-base max-w-2xl leading-relaxed">
-              Inicie agora mesmo a sua formação com Marks o Monstro. Selecione abaixo a aula ou treinamento prático de retração e análise de mercado:
+              Inicie agora mesmo a sua formação na Money Building. Selecione abaixo a aula ou treinamento prático de retração e análise de mercado:
             </p>
           </div>
 
@@ -405,22 +425,34 @@ export default function SalesPage() {
                     {/* Course Body */}
                     <div className="p-6 flex-1 flex flex-col justify-between space-y-6">
                       <div className="space-y-2">
-                        <div className="flex items-center justify-between text-[11px] text-stone-400 font-medium">
+                        <div className="flex items-center justify-between gap-2 text-[11px] text-stone-400 font-medium">
                           <span className="truncate max-w-[180px]">
-                            Por: <strong className="text-stone-300 font-semibold">{course.producerName || course.instructor || "CFA Academy"}</strong>
+                            Por: <strong className="text-stone-300 font-semibold">{course.producerName || course.instructor || "Marks o Monstro"}</strong>
                           </span>
-                          {(course.producerPhone || course.producerWhatsApp) && (
-                            <a
-                              href={`https://wa.me/${(course.producerPhone || course.producerWhatsApp).replace(/[^0-9]/g, '')}?text=${encodeURIComponent(`Olá, gostaria de tirar dúvidas sobre o curso "${course.title}".`)}`}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              onClick={(e) => e.stopPropagation()}
-                              className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-400 hover:text-emerald-300 bg-emerald-950/40 border border-emerald-500/30 px-2 py-0.5 rounded-md transition-all shrink-0"
-                            >
-                              <MessageCircle className="w-3 h-3" />
-                              <span>Contactar Produtor</span>
-                            </a>
-                          )}
+                          <div className="flex items-center gap-1.5 shrink-0">
+                            {course.category === 'service' && (
+                              <span className="px-2 py-0.5 rounded-md text-[9px] font-black uppercase tracking-wider bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
+                                {course.serviceType ? course.serviceType.toUpperCase() : 'SERVIÇO'}
+                              </span>
+                            )}
+                            {course.category === 'mentorship' && (
+                              <span className="px-2 py-0.5 rounded-md text-[9px] font-black uppercase tracking-wider bg-purple-500/15 text-purple-400 border border-purple-500/30">
+                                MENTORIA VIP
+                              </span>
+                            )}
+                            {(course.producerPhone || course.producerWhatsApp) && (
+                              <a
+                                href={`https://wa.me/${(course.producerPhone || course.producerWhatsApp).replace(/[^0-9]/g, '')}?text=${encodeURIComponent(`Olá, gostaria de tirar dúvidas sobre o curso "${course.title}".`)}`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                onClick={(e) => e.stopPropagation()}
+                                className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-400 hover:text-emerald-300 bg-emerald-950/40 border border-emerald-500/30 px-2 py-0.5 rounded-md transition-all"
+                              >
+                                <MessageCircle className="w-3 h-3" />
+                                <span>Contactar</span>
+                              </a>
+                            )}
+                          </div>
                         </div>
                         <h3 className="font-headline font-bold text-lg md:text-xl text-white group-hover:text-[#e9c349] transition-colors line-clamp-2">
                           {course.title}
@@ -530,6 +562,106 @@ export default function SalesPage() {
           )}
         </section>
 
+        {/* Safe USDT Exchange Showcase Section */}
+        <section id="comprar-usdt" className="relative py-16 sm:py-20 border-t border-white/5 bg-gradient-to-b from-[#121212] via-[#151515] to-[#121212] overflow-hidden">
+          {/* Subtle background glow */}
+          <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[300px] bg-emerald-500/5 blur-[120px] rounded-full pointer-events-none" />
+
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-12 relative z-10">
+            <div className="bg-gradient-to-br from-[#1a1915] via-[#161616] to-[#111111] rounded-3xl p-6 sm:p-10 md:p-12 border border-emerald-500/30 shadow-2xl shadow-black/80">
+              
+              <div className="flex flex-col lg:flex-row items-center justify-between gap-8 sm:gap-12">
+                {/* Left Info Column */}
+                <div className="space-y-4 max-w-2xl text-center lg:text-left">
+                  <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-xs font-bold uppercase tracking-widest">
+                    <Coins className="w-3.5 h-3.5" />
+                    <span>Câmbio Oficial &middot; USDT Tether</span>
+                  </div>
+
+                  <h2 className="font-headline text-2xl sm:text-3xl md:text-4xl font-extrabold text-white tracking-tight leading-tight">
+                    Compre USDT de Forma 100% Segura Diretamente Dentro da Plataforma
+                  </h2>
+
+                  <p className="text-stone-300 text-xs sm:text-sm md:text-base leading-relaxed">
+                    Evite intermediários desconhecidos e riscos desnecessários. Na <strong>Money Building</strong>, qualquer estudante cadastrado tem acesso exclusivo à nossa Mesa Oficial de Câmbio de USDT com cotações diárias transparentes em Kwanzas (Kz) e envio imediato para a sua carteira digital.
+                  </p>
+
+                  {/* 3 Pillars */}
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-4 text-left">
+                    <div className="p-3.5 rounded-2xl bg-black/40 border border-white/5">
+                      <div className="w-7 h-7 rounded-lg bg-emerald-500/15 text-emerald-400 flex items-center justify-center mb-2 font-bold text-xs">
+                        1
+                      </div>
+                      <h4 className="text-xs font-bold text-white mb-1">Cotação Diária</h4>
+                      <p className="text-[11px] text-stone-400">Preços oficiais atualizados em Kwanzas com data e hora exatas.</p>
+                    </div>
+
+                    <div className="p-3.5 rounded-2xl bg-black/40 border border-white/5">
+                      <div className="w-7 h-7 rounded-lg bg-[#e9c349]/15 text-[#e9c349] flex items-center justify-center mb-2 font-bold text-xs">
+                        2
+                      </div>
+                      <h4 className="text-xs font-bold text-white mb-1">Basta se Cadastrar</h4>
+                      <p className="text-[11px] text-stone-400">Crie sua conta gratuita para acessar o simulador e a cotação do dia.</p>
+                    </div>
+
+                    <div className="p-3.5 rounded-2xl bg-black/40 border border-white/5">
+                      <div className="w-7 h-7 rounded-lg bg-cyan-500/15 text-cyan-400 flex items-center justify-center mb-2 font-bold text-xs">
+                        3
+                      </div>
+                      <h4 className="text-xs font-bold text-white mb-1">Transferência Rápida</h4>
+                      <p className="text-[11px] text-stone-400">Pague via IBAN ou Express e receba USDT em TRC-20 ou BEP-20.</p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Right Action Box */}
+                <div className="w-full lg:w-auto shrink-0 flex flex-col items-center gap-3 bg-black/60 p-6 sm:p-8 rounded-2xl border border-white/10 text-center min-w-[280px] sm:min-w-[340px]">
+                  <div className="w-14 h-14 rounded-2xl bg-emerald-500/15 text-emerald-400 flex items-center justify-center border border-emerald-500/30 mb-2">
+                    <Coins className="w-7 h-7" />
+                  </div>
+                  
+                  <span className="text-xs font-bold text-emerald-400 uppercase tracking-widest font-mono">
+                    Mesa de Câmbio Ativa
+                  </span>
+
+                  <p className="text-xs text-stone-300 font-medium max-w-xs">
+                    Simule valores em Kwanzas ou USDT e solicite atendimento com o seu pedido já formatado.
+                  </p>
+
+                  <div className="w-full pt-2">
+                    {currentUser ? (
+                      <Link
+                        to="/library/comprar-usdt"
+                        className="w-full py-3.5 px-6 rounded-xl font-bold text-xs sm:text-sm bg-emerald-500 hover:bg-emerald-400 text-black transition-all flex items-center justify-center gap-2 shadow-lg shadow-emerald-500/20 active:scale-95 cursor-pointer"
+                      >
+                        <Coins className="w-4 h-4" />
+                        <span>Acessar Mesa de Câmbio</span>
+                      </Link>
+                    ) : (
+                      <div className="space-y-2.5 w-full">
+                        <Link
+                          to="/criar-conta"
+                          className="w-full py-3.5 px-6 rounded-xl font-bold text-xs sm:text-sm bg-emerald-500 hover:bg-emerald-400 text-black transition-all flex items-center justify-center gap-2 shadow-lg shadow-emerald-500/20 active:scale-95 cursor-pointer"
+                        >
+                          <ShieldCheck className="w-4 h-4" />
+                          <span>Cadastre-se para Comprar USDT</span>
+                        </Link>
+                        <Link
+                          to="/entrar"
+                          className="block text-[11px] text-stone-400 hover:text-white transition-colors underline underline-offset-2"
+                        >
+                          Já tem conta? Fazer login e simular
+                        </Link>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+            </div>
+          </div>
+        </section>
+
         {/* Benefits & Authority Section */}
         <section className="bg-[#181818]/40 py-20 border-y border-white/5">
           <div className="max-w-7xl mx-auto px-6 lg:px-12 grid grid-cols-1 lg:grid-cols-2 gap-16 items-center">
@@ -588,7 +720,7 @@ export default function SalesPage() {
         <section className="max-w-4xl mx-auto px-6 py-20 text-center">
           <div className="bg-[#181818] p-8 md:p-12 rounded-[2rem] border border-white/5 relative overflow-hidden">
             <div className="absolute -bottom-24 -right-24 w-64 h-64 bg-[#e9c349]/5 blur-[100px] rounded-full"></div>
-            <h3 className="font-headline text-3xl md:text-4xl font-black text-white mb-3">Inicie sua Formação com Marks o Monstro</h3>
+            <h3 className="font-headline text-3xl md:text-4xl font-black text-white mb-3">Inicie sua Formação na Money Building</h3>
             <p className="text-stone-400 mb-8 max-w-lg mx-auto text-sm">Cadastre-se hoje mesmo para ter acesso instantâneo às aulas de trading e aprender a técnica de retração na prática.</p>
             
             <div className="flex flex-col sm:flex-row gap-4 max-w-md mx-auto justify-center mb-6">
@@ -627,26 +759,114 @@ export default function SalesPage() {
       {/* Ecosystem Platforms Footer Section (Discreet Sub-Footer) */}
       <EcosystemFooter />
 
-      {/* Floating Support WhatsApp Button - Collapsed by default, expands on hover/focus/click */}
-      <a 
-        href="https://wa.me/244923000000?text=Olá!%20Gostaria%20de%20tirar%20dúvidas%20sobre%20os%20cursos%20da%20CFA%20Academy." 
-        target="_blank" 
-        rel="noopener noreferrer"
-        className="fixed bottom-6 right-6 z-50 flex items-center bg-[#25D366] text-white p-3.5 hover:px-4 sm:hover:px-5 hover:py-3.5 rounded-full font-bold shadow-[0_4px_25px_rgba(37,211,102,0.4)] hover:bg-[#20ba5a] active:scale-95 transition-all duration-300 ease-out group cursor-pointer border border-white/20"
-        title="Dúvidas? Fale conosco no WhatsApp"
-      >
-        <MessageCircle className="w-6 h-6 fill-white shrink-0 group-hover:scale-110 transition-transform duration-200" />
-        
-        {/* Label only expands smoothly on hover or focus */}
-        <div className="max-w-0 opacity-0 overflow-hidden group-hover:max-w-xs group-hover:opacity-100 group-focus:max-w-xs group-focus:opacity-100 transition-all duration-300 ease-in-out whitespace-nowrap">
-          <span className="text-xs tracking-wide uppercase font-headline pl-2 font-black">
-            Dúvidas? WhatsApp
-          </span>
-        </div>
+      {/* Floating Support WhatsApp Menu Container */}
+      <div className="fixed bottom-6 right-6 z-50 flex flex-col items-end">
+        {/* Pop-up Card when user clicks WhatsApp button */}
+        {isWhatsAppMenuOpen && (
+          <>
+            {/* Click-outside backdrop */}
+            <div 
+              className="fixed inset-0 z-40" 
+              onClick={() => setIsWhatsAppMenuOpen(false)}
+            />
 
-        {/* Glow pulsing ring */}
-        <span className="absolute -inset-1 rounded-full border-2 border-[#25D366]/40 animate-ping pointer-events-none group-hover:opacity-0 transition-opacity"></span>
-      </a>
+            <div className="relative z-50 mb-3 w-80 max-w-[calc(100vw-2rem)] rounded-2xl bg-[#181818] border border-white/15 p-4 sm:p-5 shadow-2xl shadow-black/90 animate-in fade-in slide-in-from-bottom-4 duration-200">
+              <div className="flex items-center justify-between pb-3 border-b border-white/10 mb-3">
+                <div className="flex items-center gap-2">
+                  <span className="w-2.5 h-2.5 rounded-full bg-[#25D366] animate-pulse"></span>
+                  <span className="text-xs font-bold text-white uppercase tracking-wider font-headline">Atendimento WhatsApp</span>
+                </div>
+                <button 
+                  type="button"
+                  onClick={() => setIsWhatsAppMenuOpen(false)}
+                  className="w-6 h-6 rounded-full bg-white/5 hover:bg-white/15 text-stone-400 hover:text-white flex items-center justify-center transition-colors cursor-pointer"
+                  title="Fechar"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              </div>
+              
+              <p className="text-[11px] text-stone-400 mb-3 font-body">
+                Como deseja ser atendido? Escolha uma das opções abaixo:
+              </p>
+
+              <div className="space-y-2.5">
+                {/* Opção 1: Quero comprar USDT */}
+                <a
+                  href={`https://wa.me/${(usdtWhatsApp || supportWhatsApp || '244923456789').replace(/[^0-9]/g, '')}?text=${encodeURIComponent('Olá! Tenho interesse em comprar USDT na Money Building. Gostaria de saber as cotações do dia e disponibilidade.')}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  onClick={() => setIsWhatsAppMenuOpen(false)}
+                  className="w-full flex items-start gap-3 p-3 rounded-xl bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/30 text-left transition-all group cursor-pointer shadow-sm active:scale-[0.98]"
+                >
+                  <div className="p-2 rounded-lg bg-emerald-500/20 text-emerald-400 group-hover:scale-105 transition-transform shrink-0 border border-emerald-500/20">
+                    <Coins className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <h4 className="text-xs font-bold text-white group-hover:text-emerald-400 transition-colors font-headline">
+                      Quero comprar USDT
+                    </h4>
+                    <p className="text-[10px] text-stone-400 mt-0.5 leading-snug">
+                      Cotações diárias, transferência segura e recebimento na carteira digital.
+                    </p>
+                  </div>
+                </a>
+
+                {/* Opção 2: Dúvida acerca das mentorias */}
+                <a
+                  href={`https://wa.me/${(supportWhatsApp || '244923456789').replace(/[^0-9]/g, '')}?text=${encodeURIComponent('Olá! Tenho dúvidas acerca das mentorias e formações da Money Building.')}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  onClick={() => setIsWhatsAppMenuOpen(false)}
+                  className="w-full flex items-start gap-3 p-3 rounded-xl bg-[#e9c349]/10 hover:bg-[#e9c349]/20 border border-[#e9c349]/30 text-left transition-all group cursor-pointer shadow-sm active:scale-[0.98]"
+                >
+                  <div className="p-2 rounded-lg bg-[#e9c349]/20 text-[#e9c349] group-hover:scale-105 transition-transform shrink-0 border border-[#e9c349]/20">
+                    <GraduationCap className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <h4 className="text-xs font-bold text-white group-hover:text-[#e9c349] transition-colors font-headline">
+                      Dúvida acerca das mentorias
+                    </h4>
+                    <p className="text-[10px] text-stone-400 mt-0.5 leading-snug">
+                      Tire dúvidas sobre aulas práticas, método de retração e acompanhamento.
+                    </p>
+                  </div>
+                </a>
+              </div>
+
+              {/* Link direto para a mesa de câmbio no portal */}
+              <div className="mt-3 pt-2.5 border-t border-white/5 text-center">
+                <Link
+                  to="/library/comprar-usdt"
+                  onClick={() => setIsWhatsAppMenuOpen(false)}
+                  className="text-[10px] text-stone-400 hover:text-[#e9c349] font-medium transition-colors inline-flex items-center gap-1"
+                >
+                  <span>Simular cotação na Mesa de Câmbio &rarr;</span>
+                </Link>
+              </div>
+            </div>
+          </>
+        )}
+
+        {/* Floating Support WhatsApp Trigger Button */}
+        <button 
+          type="button"
+          onClick={() => setIsWhatsAppMenuOpen(prev => !prev)}
+          className="flex items-center bg-[#25D366] text-white p-3.5 hover:px-4 sm:hover:px-5 hover:py-3.5 rounded-full font-bold shadow-[0_4px_25px_rgba(37,211,102,0.4)] hover:bg-[#20ba5a] active:scale-95 transition-all duration-300 ease-out group cursor-pointer border border-white/20"
+          title="Dúvidas ou Comprar USDT? Fale conosco no WhatsApp"
+          aria-label="Atendimento WhatsApp"
+        >
+          <MessageCircle className="w-6 h-6 fill-white shrink-0 group-hover:scale-110 transition-transform duration-200" />
+          
+          <div className="max-w-0 opacity-0 overflow-hidden group-hover:max-w-xs group-hover:opacity-100 group-focus:max-w-xs group-focus:opacity-100 transition-all duration-300 ease-in-out whitespace-nowrap">
+            <span className="text-xs tracking-wide uppercase font-headline pl-2 font-black">
+              WhatsApp
+            </span>
+          </div>
+
+          <span className="absolute -inset-1 rounded-full border-2 border-[#25D366]/40 animate-ping pointer-events-none group-hover:opacity-0 transition-opacity"></span>
+        </button>
+      </div>
 
       {/* Authentic Auth Warning Modal */}
       {showAuthModal && (

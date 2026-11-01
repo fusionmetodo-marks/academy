@@ -226,7 +226,7 @@ export default function CourseCheckout({ courseId, courseTitle, coursePrice, cou
               let pBank = cData.producerBankName;
               let pExpress = cData.producerExpressPhone || cData.producerPhone;
               let pWhatsApp = cData.producerWhatsApp || cData.producerPhone;
-              let pName = cData.producerName || cData.instructor || 'Produtor do Curso';
+              let pName = cData.producerName || cData.instructor || 'Marks o Monstro';
 
               // Se não estiver salvo diretamente no curso, busca no perfil do autor
               if (cData.authorId) {

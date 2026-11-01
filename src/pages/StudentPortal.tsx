@@ -2,13 +2,14 @@ import React, { useState, useEffect } from 'react';
 import StudentCatalog from '../components/StudentCatalog';
 import StudentMyCourses from '../components/StudentMyCourses';
 import StudentProfile from '../components/StudentProfile';
+import StudentUsdtExchange from '../components/StudentUsdtExchange';
 import CoursePreview from '../components/CoursePreview';
 import CourseCheckout from '../components/CourseCheckout';
 import { AndroidInstallModal } from '../components/AndroidInstallModal';
 import { NotificationCenter } from '../components/NotificationCenter';
 import { PushSubscriptionBanner } from '../components/PushSubscriptionBanner';
 import { shouldShowInstallPopup } from '../utils/deviceDetection';
-import { BookOpen, Home, User, LogOut, Compass, Smartphone } from 'lucide-react';
+import { BookOpen, Home, User, LogOut, Compass, Smartphone, Coins } from 'lucide-react';
 import { doc, getDoc, collection, getDocs, query, where } from 'firebase/firestore';
 import { logout, auth, db } from '../firebase';
 import { useNavigate, useParams } from 'react-router-dom';
@@ -19,7 +20,7 @@ export default function StudentPortal() {
   const navigate = useNavigate();
   const { slug } = useParams<{ slug?: string }>();
   
-  const [currentView, setCurrentView] = useState<'catalog' | 'my-courses' | 'profile' | 'preview' | 'checkout'>('catalog');
+  const [currentView, setCurrentView] = useState<'catalog' | 'my-courses' | 'profile' | 'preview' | 'checkout' | 'usdt'>('catalog');
   const [selectedCourse, setSelectedCourse] = useState<any>(null);
   const [preAppliedCoupon, setPreAppliedCoupon] = useState<any>(null);
   const [isAdmin, setIsAdmin] = useState(false);
@@ -49,6 +50,12 @@ export default function StudentPortal() {
     const syncStateFromUrl = async () => {
       if (!slug) {
         setCurrentView('catalog');
+        setIsInitializing(false);
+        return;
+      }
+
+      if (slug === 'comprar-usdt' || slug === 'usdt') {
+        setCurrentView('usdt');
         setIsInitializing(false);
         return;
       }
@@ -140,6 +147,10 @@ export default function StudentPortal() {
     if (view === 'catalog') {
       setCurrentView('catalog');
       navigate('/library');
+    }
+    else if (view === 'usdt') {
+      setCurrentView('usdt');
+      navigate('/library/comprar-usdt');
     }
     else if (view === 'my-courses') {
       const activeUser = auth.currentUser || user;
@@ -283,6 +294,19 @@ export default function StudentPortal() {
           </button>
 
           <button
+            id="nav-usdt-btn"
+            onClick={() => handleSetView('usdt')}
+            className={`px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2 cursor-pointer ${
+              currentView === 'usdt'
+                ? 'bg-[#e9c349] text-black shadow-md'
+                : 'text-gray-300 hover:text-white hover:bg-white/10'
+            }`}
+          >
+            <Coins className="w-4 h-4 text-emerald-400" />
+            <span>Comprar USDT</span>
+          </button>
+
+          <button
             id="nav-profile-btn"
             onClick={() => handleSetView('profile')}
             className={`px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2 cursor-pointer whitespace-nowrap ${
@@ -354,7 +378,20 @@ export default function StudentPortal() {
           }`}
         >
           <BookOpen className="w-4 h-4" />
-          <span className="text-[10px] mt-0.5">Meus Cursos</span>
+          <span className="text-[10px] mt-0.5 whitespace-nowrap">Meus Cursos</span>
+        </button>
+
+        <button
+          id="mobile-nav-usdt-btn"
+          onClick={() => handleSetView('usdt')}
+          className={`flex-1 flex flex-col items-center justify-center py-1.5 rounded-xl transition-all cursor-pointer ${
+            currentView === 'usdt'
+              ? 'bg-[#e9c349]/20 text-[#e9c349] font-extrabold border border-[#e9c349]/30'
+              : 'text-gray-400 font-medium'
+          }`}
+        >
+          <Coins className="w-4 h-4 text-emerald-400" />
+          <span className="text-[10px] mt-0.5 whitespace-nowrap">Comprar USDT</span>
         </button>
 
         <button
@@ -366,7 +403,7 @@ export default function StudentPortal() {
           }`}
         >
           <User className="w-4 h-4" />
-          <span className="text-[10px] mt-0.5">Minha Conta</span>
+          <span className="text-[10px] mt-0.5 whitespace-nowrap">Minha Conta</span>
         </button>
       </div>
 
@@ -378,6 +415,10 @@ export default function StudentPortal() {
 
         {currentView === 'catalog' && (
           <StudentCatalog onSelectCourse={handleSelectCourse} />
+        )}
+
+        {currentView === 'usdt' && (
+          <StudentUsdtExchange studentName={user?.displayName} studentEmail={user?.email} />
         )}
 
         {currentView === 'my-courses' && (

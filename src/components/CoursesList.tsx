@@ -1,11 +1,11 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, Edit, Trash2, MoreVertical, Copy, BookOpen, Layers, X, Check, Globe, Lock, AlertTriangle, ExternalLink, Image as ImageIcon, DollarSign, ClipboardPaste, Tag } from 'lucide-react';
+import { Plus, Edit, Trash2, MoreVertical, Copy, BookOpen, Layers, X, Check, Globe, Lock, AlertTriangle, ExternalLink, Image as ImageIcon, DollarSign, ClipboardPaste, Tag, Briefcase, TrendingUp, GraduationCap, ShieldCheck, FileText, ArrowRight } from 'lucide-react';
 import { collection, onSnapshot, doc, deleteDoc, setDoc, updateDoc, getDoc, serverTimestamp } from 'firebase/firestore';
 import { db, auth } from '../firebase';
 import { isMasterEmail } from '../utils/constants';
 import { notifyNewCourse } from '../services/notificationService';
 import { Coupon } from '../types';
-import { subscribeCoupons, getCourseDiscountInfo, DEFAULT_PLATFORM_COUPONS } from '../utils/discountUtils';
+import { subscribeCoupons, getCourseDiscountInfo } from '../utils/discountUtils';
 
 interface CourseItem {
   id: string;
@@ -18,6 +18,13 @@ interface CourseItem {
   producerName?: string;
   instructor?: string;
   authorId?: string;
+  category?: 'course' | 'mentorship' | 'service';
+  serviceType?: string;
+  serviceRules?: string;
+  minBank?: string;
+  profitShare?: string;
+  deliveryTime?: string;
+  serviceWhatsApp?: string;
 }
 
 interface CoursesListProps {
@@ -26,13 +33,18 @@ interface CoursesListProps {
 
 export default function CoursesList({ onSelectCourse }: CoursesListProps) {
   const [courses, setCourses] = useState<CourseItem[]>([]);
-  const [coupons, setCoupons] = useState<Coupon[]>(DEFAULT_PLATFORM_COUPONS);
+  const [coupons, setCoupons] = useState<Coupon[]>([]);
   const [loading, setLoading] = useState(true);
+  const [activeTab, setActiveTab] = useState<'all' | 'courses' | 'services'>('all');
 
   // Estados dos Modais
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
   const [deletingCourse, setDeletingCourse] = useState<CourseItem | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
+
+  // Modal 0: Questionar Tipo de Criação (Novo Curso vs Novo Serviço)
+  const [isTypeSelectModalOpen, setIsTypeSelectModalOpen] = useState(false);
+  const [creationType, setCreationType] = useState<'course' | 'service'>('course');
 
   const [editingCourse, setEditingCourse] = useState<CourseItem | null>(null);
   const [editForm, setEditForm] = useState({
@@ -41,7 +53,14 @@ export default function CoursesList({ onSelectCourse }: CoursesListProps) {
     description: '',
     coverImage: '',
     isPublished: false,
-    producerName: ''
+    producerName: '',
+    category: 'course' as 'course' | 'service',
+    serviceType: 'Alavancagem de Banca',
+    serviceRules: '',
+    minBank: '$50 (ou 50.000 Kz)',
+    profitShare: '50% Trader / 50% Cliente',
+    deliveryTime: '7 a 15 dias úteis',
+    serviceWhatsApp: ''
   });
   const [isSavingEdit, setIsSavingEdit] = useState(false);
 
@@ -52,7 +71,14 @@ export default function CoursesList({ onSelectCourse }: CoursesListProps) {
     description: '',
     coverImage: '',
     isPublished: false,
-    producerName: ''
+    producerName: '',
+    category: 'course' as 'course' | 'service',
+    serviceType: 'Alavancagem de Banca',
+    serviceRules: '',
+    minBank: '$50 (ou 50.000 Kz)',
+    profitShare: '50% Trader / 50% Cliente',
+    deliveryTime: '7 a 15 dias úteis',
+    serviceWhatsApp: ''
   });
   const [isCreating, setIsCreating] = useState(false);
 
@@ -229,7 +255,7 @@ export default function CoursesList({ onSelectCourse }: CoursesListProps) {
   // Escutar cupons ativos em tempo real
   useEffect(() => {
     const unsub = subscribeCoupons((loadedCoupons) => {
-      setCoupons(loadedCoupons && loadedCoupons.length > 0 ? loadedCoupons : DEFAULT_PLATFORM_COUPONS);
+      setCoupons(loadedCoupons || []);
     });
     return () => unsub();
   }, []);
@@ -361,13 +387,20 @@ export default function CoursesList({ onSelectCourse }: CoursesListProps) {
     const newId = `c_${Date.now()}`;
     const newCourseData = {
       title: newCourseForm.title.trim(),
-      description: newCourseForm.description.trim() || 'Descrição da formação e estrutura prática.',
+      description: newCourseForm.description.trim() || (creationType === 'service' ? 'Serviço profissional de negociação e gestão de capital.' : 'Descrição da formação e estrutura prática.'),
       price: Number(newCourseForm.price) || 0,
       coverImage: newCourseForm.coverImage.trim(),
       image: newCourseForm.coverImage.trim(),
       imageUrl: newCourseForm.coverImage.trim(),
       isPublished: newCourseForm.isPublished,
       status: newCourseForm.isPublished ? 'published' : 'draft',
+      category: creationType, // 'course' ou 'service'
+      serviceType: newCourseForm.serviceType || 'Alavancagem de Banca',
+      serviceRules: newCourseForm.serviceRules || '',
+      minBank: newCourseForm.minBank || '$50 (ou 50.000 Kz)',
+      profitShare: newCourseForm.profitShare || '50% Trader / 50% Cliente',
+      deliveryTime: newCourseForm.deliveryTime || '7 a 15 dias úteis',
+      serviceWhatsApp: newCourseForm.serviceWhatsApp.trim() || producerPhone,
       instructor: finalSignature,
       authorId,
       authorEmail: currentUser?.email,
@@ -377,7 +410,7 @@ export default function CoursesList({ onSelectCourse }: CoursesListProps) {
       producerHolderName,
       producerBankName,
       producerExpressPhone,
-      modules: [
+      modules: creationType === 'service' ? [] : [
         {
           id: `m_${Date.now()}`,
           title: 'Módulo 1: Introdução e Fundamentos',
@@ -391,7 +424,7 @@ export default function CoursesList({ onSelectCourse }: CoursesListProps) {
 
     try {
       await setDoc(doc(db, 'courses', newId), newCourseData);
-      showToast(`Novo curso "${newCourseForm.title.trim()}" criado com sucesso!`, 'success');
+      showToast(`${creationType === 'service' ? 'Novo Serviço' : 'Novo Curso'} "${newCourseForm.title.trim()}" criado com sucesso!`, 'success');
 
       if (newCourseForm.isPublished) {
         notifyNewCourse({
@@ -399,7 +432,7 @@ export default function CoursesList({ onSelectCourse }: CoursesListProps) {
           title: newCourseForm.title.trim(),
           instructor: finalSignature,
           price: Number(newCourseForm.price) || 0
-        }).catch(err => console.warn('Erro ao notificar novo curso:', err));
+        }).catch(err => console.warn('Erro ao notificar lançamento:', err));
       }
 
       setIsNewCourseModalOpen(false);
@@ -408,13 +441,23 @@ export default function CoursesList({ onSelectCourse }: CoursesListProps) {
         price: 50000,
         description: '',
         coverImage: '',
-        isPublished: false
+        isPublished: false,
+        producerName: '',
+        category: 'course',
+        serviceType: 'Alavancagem de Banca',
+        serviceRules: '',
+        minBank: '$50 (ou 50.000 Kz)',
+        profitShare: '50% Trader / 50% Cliente',
+        deliveryTime: '7 a 15 dias úteis',
+        serviceWhatsApp: ''
       });
-      // Abrir direto o editor para o criador adicionar aulas
-      onSelectCourse(newId);
+      // Se for curso, abre direto o editor de aulas
+      if (creationType === 'course') {
+        onSelectCourse(newId);
+      }
     } catch (error: any) {
-      console.error("Erro ao criar curso:", error);
-      showToast('Erro ao criar curso no banco de dados.', 'error');
+      console.error("Erro ao criar:", error);
+      showToast('Erro ao criar no banco de dados.', 'error');
     } finally {
       setIsCreating(false);
     }
@@ -439,46 +482,88 @@ export default function CoursesList({ onSelectCourse }: CoursesListProps) {
         <div>
           <div className="flex items-center gap-2 text-[#e9c349] mb-1">
             <Layers className="w-4 h-4" />
-            <span className="text-xs font-bold uppercase tracking-widest font-label">Catálogo de Formações</span>
+            <span className="text-xs font-bold uppercase tracking-widest font-label">Catálogo & Serviços</span>
           </div>
-          <h1 className="text-3xl font-extrabold tracking-tight font-headline">Gestão de Conteúdo</h1>
-          <p className="text-xs text-gray-400 mt-1">Gerencie os cursos, módulos, aulas em vídeo (Wistia/YouTube) e preços da academia.</p>
+          <h1 className="text-3xl font-extrabold tracking-tight font-headline">Gestão de Conteúdo e Serviços</h1>
+          <p className="text-xs text-gray-400 mt-1">Gerencie os seus Cursos, Módulos, Serviços de Alavancagem e Mentorias da academia.</p>
         </div>
         <button 
           id="btn-new-course-header"
-          onClick={() => setIsNewCourseModalOpen(true)}
+          onClick={() => setIsTypeSelectModalOpen(true)}
           className="bg-[#e9c349] text-black px-6 py-3 rounded-xl font-bold text-sm flex items-center justify-center gap-2 hover:bg-[#d4b03f] transition-all cursor-pointer shadow-lg active:scale-95 self-start sm:self-auto"
         >
           <Plus className="w-5 h-5" />
-          Novo Curso
+          Novo Curso ou Serviço
         </button>
       </div>
 
+      {/* Filter Tabs */}
+      {!loading && courses.length > 0 && (
+        <div className="flex flex-wrap items-center gap-2 mb-6">
+          <button
+            onClick={() => setActiveTab('all')}
+            className={`px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+              activeTab === 'all'
+                ? 'bg-[#e9c349] text-black shadow-md'
+                : 'bg-[#181818] text-stone-400 hover:text-white border border-gray-800'
+            }`}
+          >
+            Todos os Conteúdos ({courses.length})
+          </button>
+          <button
+            onClick={() => setActiveTab('courses')}
+            className={`px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+              activeTab === 'courses'
+                ? 'bg-[#e9c349] text-black shadow-md'
+                : 'bg-[#181818] text-stone-400 hover:text-white border border-gray-800'
+            }`}
+          >
+            Cursos ({courses.filter(c => c.category !== 'service' && c.category !== 'mentorship').length})
+          </button>
+          <button
+            onClick={() => setActiveTab('services')}
+            className={`px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+              activeTab === 'services'
+                ? 'bg-[#e9c349] text-black shadow-md'
+                : 'bg-[#181818] text-stone-400 hover:text-white border border-gray-800'
+            }`}
+          >
+            Serviços e Mentorias ({courses.filter(c => c.category === 'service' || c.category === 'mentorship').length})
+          </button>
+        </div>
+      )}
+
       {loading ? (
         <div className="py-20 text-center text-gray-500">
-          <p className="text-sm animate-pulse">Carregando cursos cadastrados...</p>
+          <p className="text-sm animate-pulse">Carregando cursos e serviços cadastrados...</p>
         </div>
       ) : courses.length === 0 ? (
         <div className="bg-[#131313] border border-dashed border-gray-800 rounded-3xl p-12 text-center max-w-xl mx-auto my-8">
           <div className="w-16 h-16 rounded-full bg-[#e9c349]/10 text-[#e9c349] flex items-center justify-center mx-auto mb-4">
             <BookOpen className="w-8 h-8" />
           </div>
-          <h3 className="text-xl font-bold text-white mb-2">Nenhum Curso Cadastrado</h3>
+          <h3 className="text-xl font-bold text-white mb-2">Nenhum Curso ou Serviço Cadastrado</h3>
           <p className="text-sm text-gray-400 mb-6">
-            Você ainda não possui cursos cadastrados. Clique no botão abaixo para adicionar sua primeira formação.
+            Você ainda não possui cursos ou serviços cadastrados. Clique no botão abaixo para adicionar sua primeira oferta.
           </p>
           <button
             id="btn-new-course-empty"
-            onClick={() => setIsNewCourseModalOpen(true)}
+            onClick={() => setIsTypeSelectModalOpen(true)}
             className="bg-[#e9c349] text-black px-6 py-3 rounded-xl font-bold text-sm inline-flex items-center gap-2 hover:bg-[#d4b03f] transition-all cursor-pointer shadow-lg active:scale-95"
           >
             <Plus className="w-5 h-5" />
-            Cadastrar Primeiro Curso
+            Cadastrar Primeiro Curso ou Serviço
           </button>
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {courses.map((course, idx) => (
+          {courses
+            .filter(course => {
+              if (activeTab === 'courses') return course.category !== 'service' && course.category !== 'mentorship';
+              if (activeTab === 'services') return course.category === 'service' || course.category === 'mentorship';
+              return true;
+            })
+            .map((course, idx) => (
             <div 
               key={course.id} 
               id={`course-card-${course.id}`}
@@ -486,13 +571,28 @@ export default function CoursesList({ onSelectCourse }: CoursesListProps) {
             >
               <div>
                 <div className="flex justify-between items-start mb-4">
-                  <span className={`text-[10px] font-bold px-2.5 py-1 rounded-md tracking-wider uppercase ${
-                    course.status === 'published' 
-                      ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30' 
-                      : 'bg-yellow-500/15 text-yellow-400 border border-yellow-500/30'
-                  }`}>
-                    {course.status === 'published' ? 'PUBLICADO' : 'RASCUNHO'}
-                  </span>
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <span className={`text-[10px] font-bold px-2.5 py-1 rounded-md tracking-wider uppercase ${
+                      course.status === 'published' 
+                        ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30' 
+                        : 'bg-yellow-500/15 text-yellow-400 border border-yellow-500/30'
+                    }`}>
+                      {course.status === 'published' ? 'PUBLICADO' : 'RASCUNHO'}
+                    </span>
+                    <span className={`text-[10px] font-bold px-2.5 py-1 rounded-md tracking-wider uppercase ${
+                      course.category === 'service'
+                        ? 'bg-cyan-500/15 text-cyan-400 border border-cyan-500/30'
+                        : course.category === 'mentorship'
+                        ? 'bg-purple-500/15 text-purple-400 border border-purple-500/30'
+                        : 'bg-[#e9c349]/15 text-[#e9c349] border border-[#e9c349]/30'
+                    }`}>
+                      {course.category === 'service'
+                        ? (course.serviceType ? course.serviceType.toUpperCase() : 'SERVIÇO')
+                        : course.category === 'mentorship'
+                        ? 'MENTORIA'
+                        : 'CURSO'}
+                    </span>
+                  </div>
                   
                   {/* Menu de Ações (Copiar, Editar, Eliminar) */}
                   <div className="relative">
@@ -890,19 +990,144 @@ export default function CoursesList({ onSelectCourse }: CoursesListProps) {
       )}
 
       {/* ======================================================== */}
-      {/* MODAL 3: CADASTRO DE NOVO CURSO */}
+      {/* MODAL 0: SELEÇÃO DE TIPO DE CONTEÚDO (CURSO VS SERVIÇO) */}
+      {/* ======================================================== */}
+      {isTypeSelectModalOpen && (
+        <div className="fixed inset-0 z-50 bg-black/85 backdrop-blur-md flex items-center justify-center p-4">
+          <div className="bg-[#181818] border border-[#e9c349]/30 rounded-3xl max-w-xl w-full p-6 sm:p-8 shadow-2xl animate-in fade-in zoom-in-95 duration-200">
+            <div className="flex justify-between items-center pb-4 border-b border-gray-800 mb-6">
+              <div>
+                <span className="text-[10px] font-bold uppercase tracking-widest text-[#e9c349] font-label">
+                  Nova Oferta no Sistema
+                </span>
+                <h3 className="text-2xl font-extrabold text-white font-headline mt-0.5">
+                  O que deseja cadastrar?
+                </h3>
+              </div>
+              <button
+                onClick={() => setIsTypeSelectModalOpen(false)}
+                className="p-2 text-gray-400 hover:text-white rounded-xl hover:bg-gray-800 transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <p className="text-xs text-gray-300 mb-6 leading-relaxed">
+              Escolha o tipo de produto que pretende disponibilizar para os seus alunos e clientes na plataforma:
+            </p>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-8">
+              {/* OPÇÃO 1: NOVO CURSO */}
+              <div 
+                onClick={() => {
+                  setCreationType('course');
+                  setNewCourseForm(prev => ({
+                    ...prev,
+                    category: 'course',
+                    title: '',
+                    price: 50000,
+                    description: '',
+                    coverImage: ''
+                  }));
+                  setIsTypeSelectModalOpen(false);
+                  setIsNewCourseModalOpen(true);
+                }}
+                className="group relative bg-[#121212] hover:bg-[#1f1f1f] border border-gray-800 hover:border-[#e9c349] p-6 rounded-2xl transition-all cursor-pointer shadow-lg flex flex-col justify-between"
+              >
+                <div>
+                  <div className="w-12 h-12 rounded-2xl bg-[#e9c349]/10 text-[#e9c349] flex items-center justify-center mb-4 border border-[#e9c349]/20 group-hover:scale-110 transition-transform">
+                    <BookOpen className="w-6 h-6" />
+                  </div>
+                  <h4 className="text-lg font-bold text-white mb-2 group-hover:text-[#e9c349] transition-colors font-headline">
+                    Novo Curso / Formação
+                  </h4>
+                  <p className="text-xs text-gray-400 leading-relaxed">
+                    Treinamentos em vídeo (Wistia/YouTube), estruturados por módulos, aulas, PDFs e certificados digitais.
+                  </p>
+                </div>
+                <div className="mt-6 pt-4 border-t border-gray-800/80 flex items-center justify-between text-xs font-bold text-[#e9c349]">
+                  <span>Cadastrar Curso</span>
+                  <span>→</span>
+                </div>
+              </div>
+
+              {/* OPÇÃO 2: NOVO SERVIÇO DE ALAVANCAGEM / CAPTAÇÃO */}
+              <div 
+                onClick={() => {
+                  setCreationType('service');
+                  setNewCourseForm(prev => ({
+                    ...prev,
+                    category: 'service',
+                    title: '',
+                    price: 0,
+                    description: '',
+                    coverImage: '',
+                    serviceType: 'Alavancagem de Banca',
+                    serviceRules: '1. O cliente fornece a sua banca na corretora.\n2. O trader efetua as operações de gestão e alavancagem.\n3. Os lucros são repartidos de acordo com a porcentagem combinada.',
+                    minBank: '$50 (ou 50.000 Kz)',
+                    profitShare: '50% Trader / 50% Cliente',
+                    deliveryTime: '7 a 15 dias úteis',
+                    serviceWhatsApp: ''
+                  }));
+                  setIsTypeSelectModalOpen(false);
+                  setIsNewCourseModalOpen(true);
+                }}
+                className="group relative bg-[#121212] hover:bg-[#1f1f1f] border border-gray-800 hover:border-emerald-500 p-6 rounded-2xl transition-all cursor-pointer shadow-lg flex flex-col justify-between"
+              >
+                <div>
+                  <div className="w-12 h-12 rounded-2xl bg-emerald-500/10 text-emerald-400 flex items-center justify-center mb-4 border border-emerald-500/20 group-hover:scale-110 transition-transform">
+                    <DollarSign className="w-6 h-6" />
+                  </div>
+                  <h4 className="text-lg font-bold text-white mb-2 group-hover:text-emerald-400 transition-colors font-headline">
+                    Novo Serviço / Mentoria
+                  </h4>
+                  <p className="text-xs text-gray-400 leading-relaxed">
+                    Serviços de Alavancagem de Banca, Captação de Capital e Mentorias com regras, banca mínima e divisão de lucros.
+                  </p>
+                </div>
+                <div className="mt-6 pt-4 border-t border-gray-800/80 flex items-center justify-between text-xs font-bold text-emerald-400">
+                  <span>Cadastrar Serviço</span>
+                  <span>→</span>
+                </div>
+              </div>
+            </div>
+
+            <div className="text-center">
+              <button
+                onClick={() => setIsTypeSelectModalOpen(false)}
+                className="text-xs text-gray-400 hover:text-white transition-colors"
+              >
+                Cancelar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ======================================================== */}
+      {/* MODAL 3: CADASTRO DE NOVO CURSO OU NOVO SERVIÇO */}
       {/* ======================================================== */}
       {isNewCourseModalOpen && (
         <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-[#181818] border border-gray-700 rounded-2xl max-w-lg w-full p-6 sm:p-8 shadow-2xl animate-in fade-in zoom-in-95 duration-200">
+          <div className="bg-[#181818] border border-gray-700 rounded-2xl max-w-lg w-full p-6 sm:p-8 shadow-2xl animate-in fade-in zoom-in-95 duration-200 max-h-[90vh] overflow-y-auto">
             <div className="flex justify-between items-center pb-4 border-b border-gray-800 mb-6">
               <div className="flex items-center gap-2.5">
-                <div className="w-9 h-9 rounded-xl bg-[#e9c349]/10 text-[#e9c349] flex items-center justify-center border border-[#e9c349]/20">
-                  <Plus className="w-5 h-5" />
+                <div className={`w-9 h-9 rounded-xl flex items-center justify-center border ${
+                  creationType === 'service' 
+                    ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' 
+                    : 'bg-[#e9c349]/10 text-[#e9c349] border-[#e9c349]/20'
+                }`}>
+                  {creationType === 'service' ? <DollarSign className="w-5 h-5" /> : <Plus className="w-5 h-5" />}
                 </div>
                 <div>
-                  <h3 className="text-xl font-bold text-white font-headline">Novo Curso / Formação</h3>
-                  <p className="text-xs text-gray-400">Cadastre uma nova capacitação prática para os alunos</p>
+                  <h3 className="text-xl font-bold text-white font-headline">
+                    {creationType === 'service' ? 'Novo Serviço / Mentoria' : 'Novo Curso / Formação'}
+                  </h3>
+                  <p className="text-xs text-gray-400">
+                    {creationType === 'service' 
+                      ? 'Cadastre um serviço de alavancagem, captação ou mentoria com regras' 
+                      : 'Cadastre uma nova capacitação prática para os alunos'}
+                  </p>
                 </div>
               </div>
               <button
@@ -915,20 +1140,98 @@ export default function CoursesList({ onSelectCourse }: CoursesListProps) {
 
             <form onSubmit={handleCreateNewCourse} className="space-y-4">
               <div>
-                <label className="block text-xs font-bold text-gray-300 uppercase tracking-wider mb-1.5">Título da Formação *</label>
+                <label className="block text-xs font-bold text-gray-300 uppercase tracking-wider mb-1.5">
+                  {creationType === 'service' ? 'Título do Serviço / Oferta *' : 'Título da Formação *'}
+                </label>
                 <input
                   type="text"
                   required
                   value={newCourseForm.title}
                   onChange={(e) => setNewCourseForm({ ...newCourseForm, title: e.target.value })}
-                  placeholder="Ex: Formação de Traders Profissionais"
+                  placeholder={creationType === 'service' ? 'Ex: Serviço de Alavancagem Profissional de Banca' : 'Ex: Formação de Traders Profissionais'}
                   className="w-full bg-black border border-gray-700 rounded-xl p-3 text-white text-sm focus:border-[#e9c349] outline-none"
                 />
               </div>
 
+              {creationType === 'service' && (
+                <>
+                  <div>
+                    <label className="block text-xs font-bold text-gray-300 uppercase tracking-wider mb-1.5">Tipo do Serviço</label>
+                    <select
+                      value={newCourseForm.serviceType}
+                      onChange={(e) => setNewCourseForm({ ...newCourseForm, serviceType: e.target.value })}
+                      className="w-full bg-black border border-gray-700 rounded-xl p-3 text-white text-sm focus:border-emerald-500 outline-none"
+                    >
+                      <option value="Alavancagem de Banca">Alavancagem de Banca</option>
+                      <option value="Captação de Capital">Captação de Capital</option>
+                      <option value="Mentoria Individual VIP">Mentoria Individual VIP</option>
+                      <option value="Sala de Sinais / Operações Ao Vivo">Sala de Sinais / Operações Ao Vivo</option>
+                      <option value="Outro Serviço">Outro Serviço Personalizado</option>
+                    </select>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs font-bold text-gray-300 uppercase tracking-wider mb-1.5">Banca Mínima Exigida</label>
+                      <input
+                        type="text"
+                        value={newCourseForm.minBank}
+                        onChange={(e) => setNewCourseForm({ ...newCourseForm, minBank: e.target.value })}
+                        placeholder="Ex: $50 ou 50.000 Kz"
+                        className="w-full bg-black border border-gray-700 rounded-xl p-3 text-white text-sm focus:border-emerald-500 outline-none"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-bold text-gray-300 uppercase tracking-wider mb-1.5">Divisão de Lucros</label>
+                      <input
+                        type="text"
+                        value={newCourseForm.profitShare}
+                        onChange={(e) => setNewCourseForm({ ...newCourseForm, profitShare: e.target.value })}
+                        placeholder="Ex: 50% Trader / 50% Cliente"
+                        className="w-full bg-black border border-gray-700 rounded-xl p-3 text-white text-sm focus:border-emerald-500 outline-none"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs font-bold text-gray-300 uppercase tracking-wider mb-1.5">Prazo de Execução</label>
+                      <input
+                        type="text"
+                        value={newCourseForm.deliveryTime}
+                        onChange={(e) => setNewCourseForm({ ...newCourseForm, deliveryTime: e.target.value })}
+                        placeholder="Ex: 7 a 15 dias úteis"
+                        className="w-full bg-black border border-gray-700 rounded-xl p-3 text-white text-sm focus:border-emerald-500 outline-none"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-bold text-gray-300 uppercase tracking-wider mb-1.5">WhatsApp do Serviço</label>
+                      <input
+                        type="text"
+                        value={newCourseForm.serviceWhatsApp}
+                        onChange={(e) => setNewCourseForm({ ...newCourseForm, serviceWhatsApp: e.target.value })}
+                        placeholder="Ex: 244923456789"
+                        className="w-full bg-black border border-gray-700 rounded-xl p-3 text-white text-sm focus:border-emerald-500 outline-none font-mono"
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-gray-300 uppercase tracking-wider mb-1.5">Regras, Termos & Condições do Serviço</label>
+                    <textarea
+                      rows={4}
+                      value={newCourseForm.serviceRules}
+                      onChange={(e) => setNewCourseForm({ ...newCourseForm, serviceRules: e.target.value })}
+                      placeholder="Descreva as regras do serviço (ex: limites de perdas, rebaixamento, como funciona o resgate)..."
+                      className="w-full bg-black border border-gray-700 rounded-xl p-3 text-white text-sm focus:border-emerald-500 outline-none resize-y"
+                    />
+                  </div>
+                </>
+              )}
+
               <div>
-                <label className="block text-xs font-bold text-gray-300 uppercase tracking-wider mb-0.5">Assinatura / Nome do Produtor no Curso</label>
-                <p className="text-[11px] text-gray-400 mb-1.5">Assinatura visível aos alunos. Por padrão assume o seu nome de registro, mas pode personalizar para este curso.</p>
+                <label className="block text-xs font-bold text-gray-300 uppercase tracking-wider mb-0.5">Assinatura / Nome do Produtor no Serviço</label>
+                <p className="text-[11px] text-gray-400 mb-1.5">Assinatura visível aos alunos. Por padrão assume o seu nome de registro.</p>
                 <input
                   type="text"
                   value={newCourseForm.producerName}
@@ -940,7 +1243,9 @@ export default function CoursesList({ onSelectCourse }: CoursesListProps) {
 
               <div>
                 <div className="flex items-center justify-between mb-1.5">
-                  <label className="block text-xs font-bold text-gray-300 uppercase tracking-wider">Preço da Matrícula</label>
+                  <label className="block text-xs font-bold text-gray-300 uppercase tracking-wider">
+                    {creationType === 'service' ? 'Taxa de Contratação / Matrícula' : 'Preço da Matrícula'}
+                  </label>
                   <div className="flex items-center gap-1.5">
                     <button
                       type="button"
@@ -953,11 +1258,6 @@ export default function CoursesList({ onSelectCourse }: CoursesListProps) {
                     >
                       🎁 Definir como Grátis
                     </button>
-                    {newCourseForm.price > 0 && (
-                      <span className="px-2.5 py-1 rounded-lg text-xs font-bold bg-[#e9c349]/20 text-[#e9c349] border border-[#e9c349]/40">
-                        Curso Pago
-                      </span>
-                    )}
                   </div>
                 </div>
                 <div className="relative">
@@ -973,44 +1273,17 @@ export default function CoursesList({ onSelectCourse }: CoursesListProps) {
                     Kz
                   </span>
                 </div>
-                {newCourseForm.price === 0 && (
-                  <p className="text-[11px] text-emerald-400 mt-1 font-semibold flex items-center gap-1">
-                    ✓ Este curso será disponibilizado gratuitamente para todos os alunos.
-                  </p>
-                )}
-                {newCourseForm.price > 0 && (() => {
-                  const newDInfo = getCourseDiscountInfo(newCourseForm.price, coupons);
-                  if (!newDInfo.hasDiscount) return null;
-                  return (
-                    <div className="mt-2.5 p-3 rounded-xl bg-gradient-to-br from-[#1a1710] to-[#111111] border border-[#e9c349]/40 text-xs space-y-1.5 shadow-md">
-                      <div className="flex items-center justify-between text-stone-300">
-                        <span className="flex items-center gap-1.5 font-bold text-[#e9c349]">
-                          <Tag className="w-3.5 h-3.5" />
-                          <span>{newDInfo.scopeLabel}: <strong className="font-mono text-white">{newDInfo.couponCode}</strong> ({newDInfo.discountBadge})</span>
-                        </span>
-                        <span className="text-stone-500 line-through font-mono text-[11px]">
-                          {Number(newDInfo.originalPrice).toLocaleString('pt-AO')} Kz
-                        </span>
-                      </div>
-                      <div className="flex items-baseline justify-between pt-1 border-t border-gray-800">
-                        <span className="text-[11px] text-gray-400">Preço com Desconto (a pagar):</span>
-                        <span className="text-emerald-400 font-extrabold font-mono text-base">
-                          {Number(newDInfo.discountedPrice).toLocaleString('pt-AO')} Kz
-                        </span>
-                      </div>
-                    </div>
-                  );
-                })()}
               </div>
 
               <div>
-                <label className="block text-xs font-bold text-gray-300 uppercase tracking-wider mb-0.5">Descrição do Curso (Vitrine)</label>
-                <p className="text-[11px] text-gray-400 mb-1.5">Esta descrição será exibida apenas na vitrine/catálogo, debaixo da imagem de propaganda do curso.</p>
+                <label className="block text-xs font-bold text-gray-300 uppercase tracking-wider mb-0.5">
+                  {creationType === 'service' ? 'Descrição Comercial do Serviço (Vitrine)' : 'Descrição do Curso (Vitrine)'}
+                </label>
                 <textarea
-                  rows={5}
+                  rows={4}
                   value={newCourseForm.description}
                   onChange={(e) => setNewCourseForm({ ...newCourseForm, description: e.target.value })}
-                  placeholder="Escreva a descrição comercial do curso que será exibida na vitrine..."
+                  placeholder="Escreva a descrição comercial que será exibida na vitrine..."
                   className="w-full bg-black border border-gray-700 rounded-xl p-3 text-white text-sm focus:border-[#e9c349] outline-none resize-y"
                 />
               </div>
@@ -1030,7 +1303,7 @@ export default function CoursesList({ onSelectCourse }: CoursesListProps) {
                 <div>
                   <p className="text-sm font-bold text-white">Publicar Imediatamente?</p>
                   <p className="text-xs text-gray-400">
-                    {newCourseForm.isPublished ? 'Sim, visível imediatamente no catálogo' : 'Não, salvar como rascunho enquanto monta as aulas'}
+                    {newCourseForm.isPublished ? 'Sim, visível imediatamente no catálogo' : 'Não, salvar como rascunho'}
                   </p>
                 </div>
                 <button
@@ -1059,9 +1332,13 @@ export default function CoursesList({ onSelectCourse }: CoursesListProps) {
                 <button
                   type="submit"
                   disabled={isCreating}
-                  className="bg-[#e9c349] hover:bg-[#d4b03f] text-black px-6 py-2.5 rounded-xl font-bold text-sm flex items-center gap-2 transition-all cursor-pointer shadow-lg disabled:opacity-50"
+                  className={`px-6 py-2.5 rounded-xl font-bold text-sm flex items-center gap-2 transition-all cursor-pointer shadow-lg disabled:opacity-50 ${
+                    creationType === 'service'
+                      ? 'bg-emerald-500 hover:bg-emerald-400 text-black'
+                      : 'bg-[#e9c349] hover:bg-[#d4b03f] text-black'
+                  }`}
                 >
-                  {isCreating ? 'Criando Curso...' : 'Criar e Gerenciar Aulas →'}
+                  {isCreating ? 'Cadastrando...' : creationType === 'service' ? 'Cadastrar Serviço' : 'Criar e Gerenciar Aulas →'}
                 </button>
               </div>
             </form>

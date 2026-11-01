@@ -27,6 +27,13 @@ interface CourseData {
   image?: string;
   producerPhone?: string;
   producerWhatsApp?: string;
+  category?: 'course' | 'mentorship' | 'service';
+  serviceType?: string;
+  serviceRules?: string;
+  minBank?: string;
+  profitShare?: string;
+  deliveryTime?: string;
+  serviceWhatsApp?: string;
   modules: CourseModule[];
 }
 
@@ -164,6 +171,13 @@ export default function CoursePreview({ courseId, onBack, onOpenCheckout }: Cour
             image: data.coverImage || data.imageUrl || data.image || 'https://images.unsplash.com/photo-1611974789855-9c2a0a7236a3?auto=format&fit=crop&q=80&w=800',
             producerPhone: data.producerPhone || '',
             producerWhatsApp: data.producerWhatsApp || '',
+            category: data.category || 'course',
+            serviceType: data.serviceType || 'Alavancagem de Banca',
+            serviceRules: data.serviceRules || '',
+            minBank: data.minBank || '',
+            profitShare: data.profitShare || '',
+            deliveryTime: data.deliveryTime || '',
+            serviceWhatsApp: data.serviceWhatsApp || data.producerPhone || data.producerWhatsApp || '',
             modules: formattedModules
           });
         } else {
@@ -234,7 +248,11 @@ export default function CoursePreview({ courseId, onBack, onOpenCheckout }: Cour
             <div className="bg-[#131313]/70 backdrop-blur-md p-4 sm:p-6 md:p-8 rounded-2xl sm:rounded-3xl border border-gray-800/80 shadow-xl">
               <div className="flex items-center gap-2 mb-2 sm:mb-3">
                 <span className="px-2.5 py-0.5 sm:px-3.5 sm:py-1 bg-[#e9c349]/20 text-[#e9c349] border border-[#e9c349]/30 rounded-full text-[10px] sm:text-xs font-bold font-mono uppercase tracking-widest shadow-sm">
-                  🌟 Programa Oficial Método Fusion
+                  {course.category === 'service'
+                    ? `🛠️ ${course.serviceType || 'Serviço Operacional'} · Marks o Monstro`
+                    : course.category === 'mentorship'
+                    ? '👥 Mentoria VIP · Marks o Monstro'
+                    : '🌟 Formação Oficial · Marks o Monstro'}
                 </span>
               </div>
               <h1 className="text-xl sm:text-3xl md:text-4xl font-extrabold text-white mb-2 sm:mb-4 font-headline leading-tight drop-shadow-md">
@@ -246,65 +264,110 @@ export default function CoursePreview({ courseId, onBack, onOpenCheckout }: Cour
               />
             </div>
 
-            <div>
-              <div className="flex items-center justify-between mb-4 sm:mb-6 px-1">
-                <h3 className="text-base sm:text-xl md:text-2xl font-bold text-white font-headline">Conteúdo Programático</h3>
-                <span className="text-[10px] sm:text-xs text-stone-400 font-mono bg-black/50 px-2.5 py-1 rounded-full border border-gray-800">
-                  {course.modules.reduce((acc, m) => acc + m.lessonCount, 0)} aulas no total
-                </span>
-              </div>
-              
-              <div className="space-y-3">
-                {course.modules.map((mod, idx) => {
-                  const isUnlocked = isAlreadyEnrolled;
-                  return (
-                    <div 
-                      key={idx} 
-                      onClick={() => {
-                        if (isUnlocked) {
-                          navigate(`/classroom?courseId=${courseId}&moduleId=${mod.id}`);
-                        }
-                      }}
-                      className={`bg-[#131313]/90 backdrop-blur-md border p-4 md:p-5 rounded-2xl flex items-center justify-between transition-all shadow-md ${
-                        isUnlocked 
-                          ? 'border-[#e9c349]/30 hover:border-[#e9c349] cursor-pointer group bg-gradient-to-r from-[#131313] to-[#181818]' 
-                          : 'border-gray-800/80 hover:border-gray-700'
-                      }`}
-                    >
-                      <div className="flex items-center gap-3.5 sm:gap-4">
-                        <div className={`w-10 h-10 rounded-xl border flex items-center justify-center shrink-0 shadow-inner ${
-                          isUnlocked 
-                            ? 'bg-[#e9c349]/15 border-[#e9c349]/40 text-[#e9c349]' 
-                            : 'bg-gray-800/90 border-gray-700 text-gray-400'
-                        }`}>
-                          {isUnlocked ? <Unlock className="w-4 h-4" /> : <Lock className="w-4 h-4" />}
-                        </div>
-                        <div>
-                          <h4 className={`font-semibold text-sm md:text-base font-headline ${isUnlocked ? 'text-white group-hover:text-[#e9c349] transition-colors' : 'text-white'}`}>
-                            {mod.title}
-                          </h4>
-                          <p className="text-xs text-gray-400 font-mono mt-0.5">{mod.lessonCount} aulas com material complementar</p>
-                        </div>
-                      </div>
+            {/* Se for Serviço de Alavancagem / Captação / Mentoria */}
+            {course.category === 'service' && (
+              <div className="bg-[#131313]/90 backdrop-blur-md border border-emerald-500/40 p-6 rounded-2xl shadow-xl space-y-5">
+                <div className="flex items-center gap-2">
+                  <span className="p-1.5 rounded-lg bg-emerald-500/20 text-emerald-400">
+                    <Shield className="w-5 h-5" />
+                  </span>
+                  <div>
+                    <h3 className="text-lg font-bold text-white font-headline">Especificações do Serviço</h3>
+                    <p className="text-xs text-gray-400">Dados técnicos para contratação deste serviço</p>
+                  </div>
+                </div>
 
-                      {isUnlocked ? (
-                        <button
-                          type="button"
-                          className="text-xs text-black font-bold bg-[#e9c349] hover:bg-[#d4b03f] px-3 py-1.5 rounded-lg flex items-center gap-1 shadow-sm transition-all active:scale-95 shrink-0"
-                        >
-                          <span>Entrar no Módulo</span>
-                          <ArrowRight className="w-3.5 h-3.5" />
-                        </button>
-                      ) : (
-                        <span className="text-xs text-gray-500 font-mono uppercase tracking-wider bg-gray-800/50 px-2.5 py-1 rounded-md border border-gray-700/50">
-                          Bloqueado
-                        </span>
-                      )}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+                  <div className="bg-black/60 p-3.5 rounded-xl border border-gray-800">
+                    <span className="text-gray-400 block mb-1">Tipo de Operação:</span>
+                    <span className="font-bold text-emerald-400 text-sm">{course.serviceType || 'Alavancagem de Banca'}</span>
+                  </div>
+                  <div className="bg-black/60 p-3.5 rounded-xl border border-gray-800">
+                    <span className="text-gray-400 block mb-1">Banca Mínima Sugerida:</span>
+                    <span className="font-bold text-white text-sm">{course.minBank || '$50 (ou 50.000 Kz)'}</span>
+                  </div>
+                  <div className="bg-black/60 p-3.5 rounded-xl border border-gray-800">
+                    <span className="text-gray-400 block mb-1">Divisão de Lucros (Profit Share):</span>
+                    <span className="font-bold text-[#e9c349] text-sm">{course.profitShare || '50% / 50%'}</span>
+                  </div>
+                  <div className="bg-black/60 p-3.5 rounded-xl border border-gray-800">
+                    <span className="text-gray-400 block mb-1">Prazo Estimado de Execução:</span>
+                    <span className="font-bold text-stone-300 text-sm">{course.deliveryTime || '7 a 15 dias úteis'}</span>
+                  </div>
+                </div>
+
+                {course.serviceRules && (
+                  <div className="pt-2 border-t border-gray-800">
+                    <h4 className="text-xs font-bold text-gray-300 uppercase tracking-wider mb-2">Regras e Termos de Operação:</h4>
+                    <div className="p-4 rounded-xl bg-black/80 border border-gray-800 text-xs text-stone-300 leading-relaxed whitespace-pre-line font-mono">
+                      {course.serviceRules}
                     </div>
-                  );
-                })}
+                  </div>
+                )}
               </div>
-            </div>
+            )}
+
+            {course.category !== 'service' && (
+              <div>
+                <div className="flex items-center justify-between mb-4 sm:mb-6 px-1">
+                  <h3 className="text-base sm:text-xl md:text-2xl font-bold text-white font-headline">Conteúdo Programático</h3>
+                  <span className="text-[10px] sm:text-xs text-stone-400 font-mono bg-black/50 px-2.5 py-1 rounded-full border border-gray-800">
+                    {course.modules.reduce((acc, m) => acc + m.lessonCount, 0)} aulas no total
+                  </span>
+                </div>
+                
+                <div className="space-y-3">
+                  {course.modules.map((mod, idx) => {
+                    const isUnlocked = isAlreadyEnrolled;
+                    return (
+                      <div 
+                        key={idx} 
+                        onClick={() => {
+                          if (isUnlocked) {
+                            navigate(`/classroom?courseId=${courseId}&moduleId=${mod.id}`);
+                          }
+                        }}
+                        className={`bg-[#131313]/90 backdrop-blur-md border p-4 md:p-5 rounded-2xl flex items-center justify-between transition-all shadow-md ${
+                          isUnlocked 
+                            ? 'border-[#e9c349]/30 hover:border-[#e9c349] cursor-pointer group bg-gradient-to-r from-[#131313] to-[#181818]' 
+                            : 'border-gray-800/80 hover:border-gray-700'
+                        }`}
+                      >
+                        <div className="flex items-center gap-3.5 sm:gap-4">
+                          <div className={`w-10 h-10 rounded-xl border flex items-center justify-center shrink-0 shadow-inner ${
+                            isUnlocked 
+                              ? 'bg-[#e9c349]/15 border-[#e9c349]/40 text-[#e9c349]' 
+                              : 'bg-gray-800/90 border-gray-700 text-gray-400'
+                          }`}>
+                            {isUnlocked ? <Unlock className="w-4 h-4" /> : <Lock className="w-4 h-4" />}
+                          </div>
+                          <div>
+                            <h4 className={`font-semibold text-sm md:text-base font-headline ${isUnlocked ? 'text-white group-hover:text-[#e9c349] transition-colors' : 'text-white'}`}>
+                              {mod.title}
+                            </h4>
+                            <p className="text-xs text-gray-400 font-mono mt-0.5">{mod.lessonCount} aulas com material complementar</p>
+                          </div>
+                        </div>
+
+                        {isUnlocked ? (
+                          <button
+                            type="button"
+                            className="text-xs text-black font-bold bg-[#e9c349] hover:bg-[#d4b03f] px-3 py-1.5 rounded-lg flex items-center gap-1 shadow-sm transition-all active:scale-95 shrink-0"
+                          >
+                            <span>Entrar no Módulo</span>
+                            <ArrowRight className="w-3.5 h-3.5" />
+                          </button>
+                        ) : (
+                          <span className="text-xs text-gray-500 font-mono uppercase tracking-wider bg-gray-800/50 px-2.5 py-1 rounded-md border border-gray-700/50">
+                            Bloqueado
+                          </span>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
 
             <div className="bg-[#131313]/90 backdrop-blur-md border border-gray-800/80 p-6 rounded-2xl shadow-lg">
               <h4 className="text-white font-bold text-base font-headline mb-4 flex items-center gap-2">
@@ -314,7 +377,7 @@ export default function CoursePreview({ courseId, onBack, onOpenCheckout }: Cour
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm text-gray-300">
                 <div className="flex items-center gap-2">
                   <CheckCircle2 className="w-4 h-4 text-[#e9c349]" />
-                  <span>Acesso vitalício aos vídeos</span>
+                  <span>Acompanhamento e Suporte Direto</span>
                 </div>
                 <div className="flex items-center gap-2">
                   <CheckCircle2 className="w-4 h-4 text-[#e9c349]" />
@@ -322,11 +385,11 @@ export default function CoursePreview({ courseId, onBack, onOpenCheckout }: Cour
                 </div>
                 <div className="flex items-center gap-2">
                   <CheckCircle2 className="w-4 h-4 text-[#e9c349]" />
-                  <span>Exercícios e materiais em PDF</span>
+                  <span>Garantia de Execução Segura</span>
                 </div>
                 <div className="flex items-center gap-2">
                   <CheckCircle2 className="w-4 h-4 text-[#e9c349]" />
-                  <span>Certificado digital de conclusão</span>
+                  <span>Relatórios de Operação</span>
                 </div>
               </div>
             </div>
@@ -367,7 +430,7 @@ export default function CoursePreview({ courseId, onBack, onOpenCheckout }: Cour
                         </div>
                         <div>
                           <h4 className="font-extrabold text-sm text-white font-headline">Acesso Ativo e Liberado</h4>
-                          <p className="text-xs text-emerald-400/90 font-medium">Você já possui matrícula confirmada neste treinamento.</p>
+                          <p className="text-xs text-emerald-400/90 font-medium">Você já possui contratação/matrícula confirmada neste item.</p>
                         </div>
                       </div>
                     </div>
@@ -449,10 +512,14 @@ export default function CoursePreview({ courseId, onBack, onOpenCheckout }: Cour
                     }
                     onOpenCheckout(detectedCoupon);
                   }}
-                  className="w-full bg-[#e9c349] text-black font-extrabold py-4 px-4 rounded-xl hover:bg-[#d4b03f] active:scale-95 transition-all transform cursor-pointer shadow-lg font-headline text-base flex items-center justify-center gap-2"
+                  className={`w-full text-black font-extrabold py-4 px-4 rounded-xl active:scale-95 transition-all transform cursor-pointer shadow-lg font-headline text-base flex items-center justify-center gap-2 ${
+                    course.category === 'service'
+                      ? 'bg-emerald-500 hover:bg-emerald-400'
+                      : 'bg-[#e9c349] hover:bg-[#d4b03f]'
+                  }`}
                 >
                   {detectedCoupon && <Sparkles className="w-5 h-5 fill-black" />}
-                  <span>{detectedCoupon ? 'Aproveitar Oferta' : 'Comprar Curso'}</span>
+                  <span>{course.category === 'service' ? 'Contratar Serviço' : (detectedCoupon ? 'Aproveitar Oferta' : 'Comprar Curso')}</span>
                 </button>
               )}
               

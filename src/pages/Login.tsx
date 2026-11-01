@@ -313,11 +313,11 @@ export default function Login() {
           ) : (
             <>
               <div className="w-10 h-10 rounded-xl bg-primary flex items-center justify-center font-black text-black text-base shadow-md">
-                MM
+                MB
               </div>
               <div className="flex flex-col">
-                <h1 className="text-xl font-black tracking-tighter text-primary font-headline leading-tight">Marks o Monstro</h1>
-                <span className="text-[9px] uppercase tracking-widest text-on-surface-variant font-mono font-bold">ACADEMY</span>
+                <h1 className="text-xl font-black tracking-tighter text-primary font-headline leading-tight">Money Building</h1>
+                <span className="text-[9px] uppercase tracking-widest text-on-surface-variant font-mono font-bold">Academia de Opções Binárias</span>
               </div>
             </>
           )}
@@ -599,7 +599,7 @@ export default function Login() {
               <a className="hover:text-on-surface transition-colors" href="#">POLÍTICA DE PRIVACIDADE</a>
             </div>
             <div className="mt-6 pt-6 border-t border-outline-variant/20">
-              <p className="text-xs text-on-surface-variant font-body">Plataforma Oficial <strong className="text-primary">Marks o Monstro - ACADEMY</strong></p>
+              <p className="text-xs text-on-surface-variant font-body">Plataforma Oficial <strong className="text-primary">Money Building</strong></p>
             </div>
           </div>
         </div>
