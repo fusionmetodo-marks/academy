@@ -25,10 +25,20 @@ import {
   Smartphone,
   ExternalLink,
   Coins,
-  GraduationCap
+  GraduationCap,
+  Clock,
+  ArrowRightLeft,
+  RefreshCw
 } from 'lucide-react';
 import { subscribeUserEnrollments, addCourseToUser } from '../services/enrollmentService';
 import { slugify } from '../utils/slugify';
+import { 
+  subscribeUsdtExchangeConfig, 
+  UsdtExchangeConfig, 
+  DEFAULT_USDT_CONFIG, 
+  formatKz, 
+  formatPublicationDateTime 
+} from '../services/usdtExchangeService';
 
 interface Course {
   id: string;
@@ -60,6 +70,19 @@ export default function SalesPage() {
   const [isWhatsAppMenuOpen, setIsWhatsAppMenuOpen] = useState(false);
   const [supportWhatsApp, setSupportWhatsApp] = useState('244923456789');
   const [usdtWhatsApp, setUsdtWhatsApp] = useState('244923456789');
+  const [usdtConfig, setUsdtConfig] = useState<UsdtExchangeConfig>(DEFAULT_USDT_CONFIG);
+  const [homeUsdtAmount, setHomeUsdtAmount] = useState<number | string>(50);
+
+  // Real-time listener for USDT Exchange Config
+  useEffect(() => {
+    const unsubUsdt = subscribeUsdtExchangeConfig((cfg) => {
+      setUsdtConfig(cfg);
+      if (cfg.whatsappNumber) {
+        setUsdtWhatsApp(cfg.whatsappNumber);
+      }
+    });
+    return () => unsubUsdt();
+  }, []);
 
   const getCourseDiscountInfo = (course: Course) => {
     if (!course.price || course.price === 0) return { isFree: true, hasDiscount: false, discountedPrice: 0, couponCode: null, discountValue: 0, discountType: 'percentage' };
@@ -570,38 +593,67 @@ export default function SalesPage() {
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-12 relative z-10">
             <div className="bg-gradient-to-br from-[#1a1915] via-[#161616] to-[#111111] rounded-3xl p-6 sm:p-10 md:p-12 border border-emerald-500/30 shadow-2xl shadow-black/80">
               
-              <div className="flex flex-col lg:flex-row items-center justify-between gap-8 sm:gap-12">
+              <div className="flex flex-col lg:flex-row items-stretch justify-between gap-8 sm:gap-12">
                 {/* Left Info Column */}
-                <div className="space-y-4 max-w-2xl text-center lg:text-left">
+                <div className="space-y-4 max-w-2xl text-center lg:text-left flex-1">
                   <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-xs font-bold uppercase tracking-widest">
                     <Coins className="w-3.5 h-3.5" />
-                    <span>Câmbio Oficial &middot; USDT Tether</span>
+                    <span>Mesa Oficial de Câmbio &middot; USDT Tether</span>
                   </div>
 
                   <h2 className="font-headline text-2xl sm:text-3xl md:text-4xl font-extrabold text-white tracking-tight leading-tight">
-                    Compre USDT de Forma 100% Segura Diretamente Dentro da Plataforma
+                    Compre USDT de Forma 100% Segura na Money Building
                   </h2>
 
                   <p className="text-stone-300 text-xs sm:text-sm md:text-base leading-relaxed">
-                    Evite intermediários desconhecidos e riscos desnecessários. Na <strong>Money Building</strong>, qualquer estudante cadastrado tem acesso exclusivo à nossa Mesa Oficial de Câmbio de USDT com cotações diárias transparentes em Kwanzas (Kz) e envio imediato para a sua carteira digital.
+                    Evite intermediários desconhecidos e riscos de fraudes. Na <strong>Money Building</strong>, a cotação oficial é atualizada diretamente pela administração com total transparência em Kwanzas (Kz).
                   </p>
 
+                  {/* PAINEL DE COTAÇÃO EM TEMPO REAL NA HOME PAGE */}
+                  <div className="p-4 sm:p-5 rounded-2xl bg-gradient-to-r from-emerald-950/60 via-black/80 to-emerald-950/40 border border-emerald-500/40 shadow-xl my-4 text-left">
+                    <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+                      <div>
+                        <div className="flex items-center gap-2 mb-1">
+                          <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse" />
+                          <span className="text-xs font-bold text-emerald-400 uppercase tracking-wider font-mono">
+                            Cotação Oficial do Dia (Ao Vivo)
+                          </span>
+                        </div>
+                        <div className="flex items-baseline gap-2">
+                          <span className="text-2xl sm:text-3xl font-black text-white font-mono drop-shadow">
+                            1 USDT = {formatKz(usdtConfig.rate || 1050)}
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className="text-left sm:text-right text-[11px] text-stone-300 border-t sm:border-t-0 sm:border-l border-white/10 pt-2 sm:pt-0 sm:pl-4">
+                        <p className="flex items-center gap-1 sm:justify-end text-stone-200 font-semibold">
+                          <Clock className="w-3.5 h-3.5 text-[#e9c349]" />
+                          <span>Publicação: {formatPublicationDateTime(usdtConfig.updatedAt)}</span>
+                        </p>
+                        <p className="text-[10px] text-stone-400 mt-0.5">
+                          Mínimo por pedido: <strong className="text-stone-200">{usdtConfig.minPurchaseUsdt || 10} USDT</strong>
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+
                   {/* 3 Pillars */}
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-4 text-left">
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-2 text-left">
                     <div className="p-3.5 rounded-2xl bg-black/40 border border-white/5">
                       <div className="w-7 h-7 rounded-lg bg-emerald-500/15 text-emerald-400 flex items-center justify-center mb-2 font-bold text-xs">
                         1
                       </div>
                       <h4 className="text-xs font-bold text-white mb-1">Cotação Diária</h4>
-                      <p className="text-[11px] text-stone-400">Preços oficiais atualizados em Kwanzas com data e hora exatas.</p>
+                      <p className="text-[11px] text-stone-400">Valores atualizados em Kwanzas com registro oficial de data e hora.</p>
                     </div>
 
                     <div className="p-3.5 rounded-2xl bg-black/40 border border-white/5">
                       <div className="w-7 h-7 rounded-lg bg-[#e9c349]/15 text-[#e9c349] flex items-center justify-center mb-2 font-bold text-xs">
                         2
                       </div>
-                      <h4 className="text-xs font-bold text-white mb-1">Basta se Cadastrar</h4>
-                      <p className="text-[11px] text-stone-400">Crie sua conta gratuita para acessar o simulador e a cotação do dia.</p>
+                      <h4 className="text-xs font-bold text-white mb-1">Sem Intermediários</h4>
+                      <p className="text-[11px] text-stone-400">Atendimento e envio direto via suporte verificado da plataforma.</p>
                     </div>
 
                     <div className="p-3.5 rounded-2xl bg-black/40 border border-white/5">
@@ -609,24 +661,52 @@ export default function SalesPage() {
                         3
                       </div>
                       <h4 className="text-xs font-bold text-white mb-1">Transferência Rápida</h4>
-                      <p className="text-[11px] text-stone-400">Pague via IBAN ou Express e receba USDT em TRC-20 ou BEP-20.</p>
+                      <p className="text-[11px] text-stone-400">Transferência para sua carteira TRC-20 ou BEP-20 em poucos minutos.</p>
                     </div>
                   </div>
                 </div>
 
-                {/* Right Action Box */}
-                <div className="w-full lg:w-auto shrink-0 flex flex-col items-center gap-3 bg-black/60 p-6 sm:p-8 rounded-2xl border border-white/10 text-center min-w-[280px] sm:min-w-[340px]">
-                  <div className="w-14 h-14 rounded-2xl bg-emerald-500/15 text-emerald-400 flex items-center justify-center border border-emerald-500/30 mb-2">
-                    <Coins className="w-7 h-7" />
-                  </div>
-                  
-                  <span className="text-xs font-bold text-emerald-400 uppercase tracking-widest font-mono">
-                    Mesa de Câmbio Ativa
-                  </span>
+                {/* Right Action Box & Quick Simulator */}
+                <div className="w-full lg:w-auto shrink-0 flex flex-col justify-between items-center gap-4 bg-black/70 p-6 sm:p-8 rounded-2xl border border-white/10 text-center min-w-[280px] sm:min-w-[340px]">
+                  <div className="w-full">
+                    <div className="w-14 h-14 rounded-2xl bg-emerald-500/15 text-emerald-400 flex items-center justify-center border border-emerald-500/30 mb-3 mx-auto">
+                      <Coins className="w-7 h-7" />
+                    </div>
+                    
+                    <span className="text-xs font-bold text-emerald-400 uppercase tracking-widest font-mono block mb-1">
+                      Simulador Rápido de Câmbio
+                    </span>
+                    <p className="text-[11px] text-stone-400 mb-4">
+                      Calcule quanto receberá ao comprar USDT hoje:
+                    </p>
 
-                  <p className="text-xs text-stone-300 font-medium max-w-xs">
-                    Simule valores em Kwanzas ou USDT e solicite atendimento com o seu pedido já formatado.
-                  </p>
+                    {/* Quick Calculator input */}
+                    <div className="space-y-3 bg-stone-900/80 p-4 rounded-xl border border-white/10 text-left">
+                      <div>
+                        <label className="text-[10px] text-stone-400 uppercase font-bold tracking-wider block mb-1">
+                          Quantidade a comprar (USDT):
+                        </label>
+                        <div className="relative">
+                          <input
+                            type="number"
+                            min={usdtConfig.minPurchaseUsdt || 10}
+                            value={homeUsdtAmount}
+                            onChange={(e) => setHomeUsdtAmount(e.target.value)}
+                            className="w-full bg-black border border-stone-700 focus:border-emerald-500 rounded-lg px-3 py-2 text-white font-mono font-bold text-sm outline-none"
+                            placeholder="50"
+                          />
+                          <span className="absolute right-3 top-2 text-xs font-bold text-emerald-400 font-mono">USDT</span>
+                        </div>
+                      </div>
+
+                      <div className="pt-2 border-t border-white/10 flex items-center justify-between">
+                        <span className="text-xs text-stone-300 font-medium">Total estimado (AOA):</span>
+                        <span className="text-sm font-black text-[#e9c349] font-mono">
+                          {formatKz((Number(homeUsdtAmount) || 0) * (usdtConfig.rate || 1050))}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
 
                   <div className="w-full pt-2">
                     {currentUser ? (
@@ -635,7 +715,7 @@ export default function SalesPage() {
                         className="w-full py-3.5 px-6 rounded-xl font-bold text-xs sm:text-sm bg-emerald-500 hover:bg-emerald-400 text-black transition-all flex items-center justify-center gap-2 shadow-lg shadow-emerald-500/20 active:scale-95 cursor-pointer"
                       >
                         <Coins className="w-4 h-4" />
-                        <span>Acessar Mesa de Câmbio</span>
+                        <span>Ir para a Mesa Completa de Câmbio</span>
                       </Link>
                     ) : (
                       <div className="space-y-2.5 w-full">
@@ -644,13 +724,13 @@ export default function SalesPage() {
                           className="w-full py-3.5 px-6 rounded-xl font-bold text-xs sm:text-sm bg-emerald-500 hover:bg-emerald-400 text-black transition-all flex items-center justify-center gap-2 shadow-lg shadow-emerald-500/20 active:scale-95 cursor-pointer"
                         >
                           <ShieldCheck className="w-4 h-4" />
-                          <span>Cadastre-se para Comprar USDT</span>
+                          <span>Cadastrar para Comprar USDT</span>
                         </Link>
                         <Link
                           to="/entrar"
                           className="block text-[11px] text-stone-400 hover:text-white transition-colors underline underline-offset-2"
                         >
-                          Já tem conta? Fazer login e simular
+                          Já tem conta? Entrar e solicitar câmbio
                         </Link>
                       </div>
                     )}

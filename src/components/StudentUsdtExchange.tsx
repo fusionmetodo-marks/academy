@@ -314,37 +314,47 @@ export default function StudentUsdtExchange({ studentName, studentEmail }: Stude
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                {/* Nome do Aluno */}
+                {/* Nome do Aluno (Inalterável - Padrão da Conta) */}
                 <div>
-                  <label className="block text-[11px] font-semibold text-stone-400 mb-1">
-                    Seu Nome Completo:
+                  <label className="block text-[11px] font-semibold text-stone-400 mb-1 flex items-center justify-between">
+                    <span>Seu Nome Completo:</span>
+                    <span className="text-[10px] text-stone-500 font-mono flex items-center gap-0.5">
+                      <Lock className="w-2.5 h-2.5 text-emerald-400" />
+                      Fixo
+                    </span>
                   </label>
                   <div className="relative">
                     <input
                       type="text"
-                      value={buyerName}
-                      onChange={(e) => setBuyerName(e.target.value)}
-                      placeholder="Nome do Aluno"
-                      className="w-full bg-[#111] border border-white/10 focus:border-emerald-500 rounded-xl py-2 pl-8 pr-3 text-white text-xs font-medium outline-none transition-colors"
+                      readOnly
+                      disabled
+                      value={buyerName || 'Estudante Cadastrado'}
+                      className="w-full bg-[#0e0e0e] border border-white/10 rounded-xl py-2 pl-8 pr-8 text-stone-200 text-xs font-semibold outline-none cursor-not-allowed select-none"
                     />
                     <User className="w-3.5 h-3.5 text-stone-500 absolute left-2.5 top-2.5" />
+                    <Lock className="w-3 h-3 text-stone-500 absolute right-2.5 top-2.5" />
                   </div>
                 </div>
 
-                {/* E-mail Cadastrado */}
+                {/* E-mail Cadastrado (Inalterável - Padrão da Conta) */}
                 <div>
-                  <label className="block text-[11px] font-semibold text-stone-400 mb-1">
-                    E-mail Usado no Cadastro:
+                  <label className="block text-[11px] font-semibold text-stone-400 mb-1 flex items-center justify-between">
+                    <span>E-mail Usado no Cadastro:</span>
+                    <span className="text-[10px] text-stone-500 font-mono flex items-center gap-0.5">
+                      <Lock className="w-2.5 h-2.5 text-emerald-400" />
+                      Fixo
+                    </span>
                   </label>
                   <div className="relative">
                     <input
                       type="email"
-                      value={buyerEmail}
-                      onChange={(e) => setBuyerEmail(e.target.value)}
-                      placeholder="email@exemplo.com"
-                      className="w-full bg-[#111] border border-white/10 focus:border-emerald-500 rounded-xl py-2 pl-8 pr-3 text-white text-xs font-mono outline-none transition-colors"
+                      readOnly
+                      disabled
+                      value={buyerEmail || 'email@plataforma.com'}
+                      className="w-full bg-[#0e0e0e] border border-white/10 rounded-xl py-2 pl-8 pr-8 text-stone-200 text-xs font-mono font-semibold outline-none cursor-not-allowed select-none truncate"
                     />
                     <Mail className="w-3.5 h-3.5 text-stone-500 absolute left-2.5 top-2.5" />
+                    <Lock className="w-3 h-3 text-stone-500 absolute right-2.5 top-2.5" />
                   </div>
                 </div>
               </div>
