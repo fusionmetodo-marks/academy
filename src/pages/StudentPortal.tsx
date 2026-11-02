@@ -9,12 +9,13 @@ import { AndroidInstallModal } from '../components/AndroidInstallModal';
 import { NotificationCenter } from '../components/NotificationCenter';
 import { PushSubscriptionBanner } from '../components/PushSubscriptionBanner';
 import { shouldShowInstallPopup } from '../utils/deviceDetection';
-import { BookOpen, Home, User, LogOut, Compass, Smartphone, Coins } from 'lucide-react';
+import { BookOpen, Home, User, LogOut, Compass, Smartphone, Coins, Lock, ShieldAlert } from 'lucide-react';
 import { doc, getDoc, collection, getDocs, query, where } from 'firebase/firestore';
 import { logout, auth, db } from '../firebase';
 import { useNavigate, useParams } from 'react-router-dom';
 import { DEFAULT_CFA_LOGO, getValidLogoUrl, isMasterEmail } from '../utils/constants';
 import { slugify } from '../utils/slugify';
+import { subscribeUserEnrollments } from '../services/enrollmentService';
 
 export default function StudentPortal() {
   const navigate = useNavigate();
@@ -28,12 +29,27 @@ export default function StudentPortal() {
   const [isInitializing, setIsInitializing] = useState(true);
   const [user, setUser] = useState<any>(auth.currentUser);
   const [isAndroidModalOpen, setIsAndroidModalOpen] = useState(false);
+  const [enrolledCourses, setEnrolledCourses] = useState<string[]>([]);
+  const [isLoadingEnrollments, setIsLoadingEnrollments] = useState<boolean>(true);
 
   useEffect(() => {
-    const unsub = auth.onAuthStateChanged((u) => {
+    let unsubEnroll = () => {};
+    const unsubAuth = auth.onAuthStateChanged((u) => {
       setUser(u);
+      if (u) {
+        unsubEnroll = subscribeUserEnrollments(u, (enrollData) => {
+          setEnrolledCourses(enrollData.enrolledCourses || []);
+          setIsLoadingEnrollments(false);
+        });
+      } else {
+        setEnrolledCourses([]);
+        setIsLoadingEnrollments(false);
+      }
     });
-    return () => unsub();
+    return () => {
+      unsubAuth();
+      unsubEnroll();
+    };
   }, []);
 
   // Auto popup para orientação de instalação do app no telemóvel para alunos (apenas mobile/tablet)
@@ -418,7 +434,87 @@ export default function StudentPortal() {
         )}
 
         {currentView === 'usdt' && (
-          <StudentUsdtExchange studentName={user?.displayName} studentEmail={user?.email} />
+          (() => {
+            const isMaster = isMasterEmail(user?.email);
+            const hasEnrollment = enrolledCourses && enrolledCourses.length > 0;
+            const isAuthorized = isMaster || isAdmin || hasEnrollment;
+
+            if (isLoadingEnrollments) {
+              return (
+                <div className="py-24 text-center">
+                  <div className="w-10 h-10 border-4 border-[#e9c349] border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+                  <p className="text-stone-400 text-sm font-mono">Verificando matrículas ativas na sua conta...</p>
+                </div>
+              );
+            }
+
+            if (!isAuthorized) {
+              return (
+                <div className="max-w-3xl mx-auto px-4 py-12 sm:py-16 text-center animate-in fade-in zoom-in-95 duration-200">
+                  <div className="bg-[#161616] border border-amber-500/30 rounded-3xl p-6 sm:p-10 md:p-12 shadow-2xl shadow-black relative overflow-hidden">
+                    {/* Background Glow */}
+                    <div className="absolute -top-20 -left-20 w-60 h-60 bg-amber-500/10 blur-[100px] rounded-full pointer-events-none"></div>
+                    <div className="absolute -bottom-20 -right-20 w-60 h-60 bg-emerald-500/10 blur-[100px] rounded-full pointer-events-none"></div>
+
+                    <div className="w-20 h-20 rounded-3xl bg-amber-500/15 text-amber-400 flex items-center justify-center mx-auto border border-amber-500/30 shadow-xl mb-6">
+                      <Lock className="w-10 h-10" />
+                    </div>
+
+                    <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-amber-500/10 border border-amber-500/30 text-amber-400 text-xs font-bold uppercase tracking-widest mb-4 font-mono">
+                      <ShieldAlert className="w-4 h-4" />
+                      <span>Regra de Acesso Rigorosa</span>
+                    </div>
+
+                    <h2 className="font-headline text-2xl sm:text-3xl md:text-4xl font-black text-white mb-4">
+                      Mesa de Câmbio Bloqueada
+                    </h2>
+
+                    <p className="text-stone-300 text-sm sm:text-base leading-relaxed max-w-xl mx-auto mb-6">
+                      A página de negociação e compra de <strong>USDT</strong> é estritamente exclusiva para alunos que possuem pelo menos <strong>uma matrícula ativa</strong> em um curso ou mentoria da <strong>Money Building</strong>.
+                    </p>
+
+                    <div className="p-4 sm:p-5 rounded-2xl bg-black/70 border border-white/10 max-w-lg mx-auto mb-8 text-left space-y-2">
+                      <div className="flex items-center justify-between text-xs font-mono">
+                        <span className="text-stone-400">Conta Conectada:</span>
+                        <strong className="text-stone-200 truncate max-w-[200px] sm:max-w-none">{user?.email || 'Visitante'}</strong>
+                      </div>
+                      <div className="flex items-center justify-between text-xs font-mono pt-2 border-t border-white/10">
+                        <span className="text-stone-400">Status da Matrícula:</span>
+                        <span className="text-red-400 font-bold bg-red-500/10 px-2 py-0.5 rounded border border-red-500/20">
+                          Nenhum curso ativo encontrado
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="flex flex-col sm:flex-row gap-3 sm:gap-4 justify-center items-center">
+                      <button
+                        type="button"
+                        onClick={() => handleSetView('catalog')}
+                        className="w-full sm:w-auto px-8 py-4 bg-[#e9c349] hover:bg-[#d8b33c] text-stone-950 font-black rounded-xl text-xs sm:text-sm transition-all shadow-lg shadow-[#e9c349]/20 cursor-pointer flex items-center justify-center gap-2"
+                      >
+                        <BookOpen className="w-4.5 h-4.5" />
+                        <span>Ver Cursos Disponíveis & Matricular-me</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => navigate('/')}
+                        className="w-full sm:w-auto px-6 py-4 bg-stone-800 hover:bg-stone-700 text-stone-300 font-bold rounded-xl text-xs sm:text-sm transition-all border border-stone-700 cursor-pointer"
+                      >
+                        Página Inicial
+                      </button>
+                    </div>
+
+                    <p className="text-stone-500 text-xs mt-6">
+                      Assim que concluir sua matrícula em qualquer aula ou curso (gratuito ou pago), o acesso a esta mesa de câmbio será desbloqueado automaticamente.
+                    </p>
+                  </div>
+                </div>
+              );
+            }
+
+            return <StudentUsdtExchange studentName={user?.displayName} studentEmail={user?.email} />;
+          })()
         )}
 
         {currentView === 'my-courses' && (

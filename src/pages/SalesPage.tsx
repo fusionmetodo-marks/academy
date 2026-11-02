@@ -163,6 +163,7 @@ export default function SalesPage() {
   
   // Modal State for authentication prompts
   const [showAuthModal, setShowAuthModal] = useState(false);
+  const [showUsdtAuthModal, setShowUsdtAuthModal] = useState(false);
   const [modalType, setModalType] = useState<'free' | 'paid'>('free');
   const [selectedCourseName, setSelectedCourseName] = useState('');
   const [selectedCourseForAuth, setSelectedCourseForAuth] = useState<Course | null>(null);
@@ -410,7 +411,7 @@ export default function SalesPage() {
             </div>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
-              {courses.map((course) => {
+              {courses.filter((_, idx) => idx >= 2).map((course) => {
                 const isFree = !course.price || course.price === 0;
                 const isAlreadyEnrolled = enrolledCourseIds.includes(course.id);
                 
@@ -714,19 +715,21 @@ export default function SalesPage() {
                       </Link>
                     ) : (
                       <div className="space-y-2.5 w-full">
-                        <Link
-                          to="/criar-conta"
-                          className="w-full py-3.5 px-6 rounded-xl font-bold text-xs sm:text-sm bg-emerald-500 hover:bg-emerald-400 text-black transition-all flex items-center justify-center gap-2 shadow-lg shadow-emerald-500/20 active:scale-95 cursor-pointer"
+                        <button
+                          type="button"
+                          onClick={() => setShowUsdtAuthModal(true)}
+                          className="w-full py-3.5 px-6 rounded-xl font-bold text-xs sm:text-sm bg-emerald-500 hover:bg-emerald-400 text-stone-950 transition-all flex items-center justify-center gap-2 shadow-lg shadow-emerald-500/20 active:scale-95 cursor-pointer"
                         >
                           <ShieldCheck className="w-4 h-4" />
-                          <span>Cadastrar para Comprar USDT</span>
-                        </Link>
-                        <Link
-                          to="/entrar"
-                          className="block text-[11px] text-stone-400 hover:text-white transition-colors underline underline-offset-2"
+                          <span>Comprar USDT / Solicitar Câmbio</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setShowUsdtAuthModal(true)}
+                          className="block w-full text-center text-[11px] text-stone-400 hover:text-white transition-colors underline underline-offset-2 cursor-pointer"
                         >
                           Já tem conta? Entrar e solicitar câmbio
-                        </Link>
+                        </button>
                       </div>
                     )}
                   </div>
@@ -874,7 +877,7 @@ export default function SalesPage() {
                     if (currentUser) {
                       navigate('/library/comprar-usdt');
                     } else {
-                      navigate('/criar-conta');
+                      setShowUsdtAuthModal(true);
                     }
                   }}
                   className="w-full flex items-start gap-3 p-3 rounded-xl bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/30 text-left transition-all group cursor-pointer shadow-sm active:scale-[0.98]"
@@ -921,13 +924,20 @@ export default function SalesPage() {
 
               {/* Link direto para a mesa de câmbio no portal */}
               <div className="mt-3 pt-2.5 border-t border-white/5 text-center">
-                <Link
-                  to="/library/comprar-usdt"
-                  onClick={() => setIsWhatsAppMenuOpen(false)}
-                  className="text-[10px] text-stone-400 hover:text-[#e9c349] font-medium transition-colors inline-flex items-center gap-1"
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsWhatsAppMenuOpen(false);
+                    if (currentUser) {
+                      navigate('/library/comprar-usdt');
+                    } else {
+                      setShowUsdtAuthModal(true);
+                    }
+                  }}
+                  className="text-[10px] text-stone-400 hover:text-[#e9c349] font-medium transition-colors inline-flex items-center gap-1 cursor-pointer"
                 >
                   <span>Simular cotação na Mesa de Câmbio &rarr;</span>
-                </Link>
+                </button>
               </div>
             </div>
           </>
@@ -1000,6 +1010,70 @@ export default function SalesPage() {
             </div>
 
             <p className="text-[10px] text-stone-500 font-medium">O cadastro leva menos de 1 minuto e é totalmente gratuito.</p>
+          </div>
+        </div>
+      )}
+
+      {/* Modal de Aviso para Comprar USDT (Sem Sessão Iniciada) */}
+      {showUsdtAuthModal && (
+        <div className="fixed inset-0 z-[999] flex items-center justify-center p-4">
+          {/* Backdrop */}
+          <div 
+            onClick={() => setShowUsdtAuthModal(false)}
+            className="absolute inset-0 bg-black/80 backdrop-blur-sm"
+          ></div>
+          
+          {/* Modal Container */}
+          <div className="relative bg-[#181818] border border-emerald-500/40 rounded-2xl p-6 md:p-8 max-w-md w-full shadow-2xl text-center space-y-6 z-10 animate-in fade-in zoom-in-95 duration-200">
+            <button 
+              type="button"
+              onClick={() => setShowUsdtAuthModal(false)}
+              className="absolute top-4 right-4 text-stone-500 hover:text-white transition-colors cursor-pointer"
+              title="Fechar"
+            >
+              <X className="w-5 h-5" />
+            </button>
+
+            <div className="w-14 h-14 rounded-full bg-emerald-500/15 text-emerald-400 flex items-center justify-center mx-auto border border-emerald-500/30 shadow-lg">
+              <Coins className="w-7 h-7 text-emerald-400" />
+            </div>
+
+            <div className="space-y-2">
+              <h3 className="font-headline font-black text-xl text-white">🔒 Acesso Restrito a Alunos Matriculados</h3>
+              <p className="text-stone-300 text-xs sm:text-sm leading-relaxed">
+                O serviço de câmbio e compra de USDT é <strong>estritamente exclusivo para alunos com pelo menos uma matrícula ativa</strong> na Money Building.
+              </p>
+              <p className="text-stone-400 text-xs leading-relaxed">
+                Entre na sua conta ou crie um cadastro gratuito e matricule-se em qualquer curso para liberar o acesso instantâneo à mesa de câmbio.
+              </p>
+            </div>
+
+            <div className="space-y-3 pt-2">
+              <button 
+                type="button"
+                onClick={() => {
+                  sessionStorage.setItem('post_register_slug', 'comprar-usdt');
+                  setShowUsdtAuthModal(false);
+                  navigate('/entrar');
+                }} 
+                className="w-full py-3.5 bg-emerald-500 hover:bg-emerald-400 text-stone-950 rounded-xl font-bold text-sm block transition-all shadow-lg shadow-emerald-500/20 cursor-pointer text-center"
+              >
+                Entrar na Minha Conta
+              </button>
+              <button 
+                type="button"
+                onClick={() => {
+                  sessionStorage.setItem('post_register_slug', 'comprar-usdt');
+                  setShowUsdtAuthModal(false);
+                  navigate('/criar-conta');
+                }} 
+                className="w-full py-3.5 bg-[#e9c349]/15 hover:bg-[#e9c349]/25 text-[#e9c349] border border-[#e9c349]/30 rounded-xl font-bold text-sm block transition-all cursor-pointer text-center"
+              >
+                Criar Conta Gratuita
+              </button>
+            </div>
+
+            <p className="text-[10px] text-stone-500 font-medium">O cadastro é 100% gratuito e leva menos de 1 minuto.</p>
           </div>
         </div>
       )}
