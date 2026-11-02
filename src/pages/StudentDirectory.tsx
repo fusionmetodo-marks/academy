@@ -91,10 +91,12 @@ export default function StudentDirectory() {
   // Modal de Contrato Digital do Produtor
   const [selectedProducerForContract, setSelectedProducerForContract] = useState<any | null>(null);
 
-  // Menu de Opções e Eliminar Conta
+  // Menu de Opções, Aprovar Produtor e Eliminar Conta
   const [activeMenuUserId, setActiveMenuUserId] = useState<string | null>(null);
   const [confirmDeleteUser, setConfirmDeleteUser] = useState<any | null>(null);
   const [isDeletingUser, setIsDeletingUser] = useState(false);
+  const [confirmApproveProducerUser, setConfirmApproveProducerUser] = useState<any | null>(null);
+  const [isApprovingProducer, setIsApprovingProducer] = useState(false);
 
   // Função para Eliminar Conta do Banco de Dados
   const handleDeleteUser = async (userToDelete: any) => {
@@ -253,10 +255,12 @@ export default function StudentDirectory() {
     }
   };
 
-  // Aprovar Produtor / Administrador Pendente
-  const handleApproveProducer = async (userId: string, userEmail: string) => {
+  // Aprovar / Promover Usuário a Produtor
+  const handleApproveProducer = async (userToApprove: any) => {
+    if (!userToApprove?.id) return;
+    setIsApprovingProducer(true);
     try {
-      await updateDoc(doc(db, 'users', userId), {
+      await updateDoc(doc(db, 'users', userToApprove.id), {
         role: 'producer',
         roleType: 'producer',
         subscriptionStatus: 'active',
@@ -264,10 +268,13 @@ export default function StudentDirectory() {
         approvedAt: new Date().toISOString(),
         approvedBy: auth.currentUser?.email || 'admin'
       });
-      showNotification(`Produtor ${userEmail} aprovado com sucesso! Acesso liberado ao painel.`, 'success');
+      showNotification(`Usuário ${userToApprove.firstName || userToApprove.email} promovido a Produtor com sucesso!`, 'success');
+      setConfirmApproveProducerUser(null);
     } catch (error) {
       console.error("Erro ao aprovar produtor:", error);
-      showNotification('Erro ao aprovar produtor.', 'error');
+      showNotification('Erro ao promover usuário a produtor.', 'error');
+    } finally {
+      setIsApprovingProducer(false);
     }
   };
 
@@ -871,7 +878,7 @@ export default function StudentDirectory() {
                                   </>
                                 ) : !isMaster && (
                                   <button
-                                    onClick={() => { handleApproveProducer(userItem.id, userItem.email); setActiveMenuUserId(null); }}
+                                    onClick={() => { setConfirmApproveProducerUser(userItem); setActiveMenuUserId(null); }}
                                     className="w-full px-3.5 py-2 text-xs text-amber-300 hover:bg-white/10 flex items-center gap-2 cursor-pointer"
                                   >
                                     <ShieldCheck className="w-3.5 h-3.5" />
@@ -954,7 +961,7 @@ export default function StudentDirectory() {
                     {isPendingApproval ? (
                       <div className="pt-2 border-t border-gray-800/80 flex items-center gap-2">
                         <button
-                          onClick={() => handleApproveProducer(userItem.id, userItem.email)}
+                          onClick={() => setConfirmApproveProducerUser(userItem)}
                           className="flex-1 py-2 bg-[#e9c349] hover:bg-[#d4b03f] text-black font-bold text-xs rounded-xl shadow-md transition-all flex items-center justify-center gap-1 cursor-pointer"
                         >
                           <CheckCircle className="w-3.5 h-3.5" />
@@ -988,7 +995,7 @@ export default function StudentDirectory() {
                           </>
                         ) : (
                           <button
-                            onClick={() => handleApproveProducer(userItem.id, userItem.email)}
+                            onClick={() => setConfirmApproveProducerUser(userItem)}
                             className="px-3 py-1.5 bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 rounded-xl text-xs font-semibold border border-amber-500/30 transition-all cursor-pointer flex items-center gap-1"
                           >
                             <ShieldCheck className="w-3.5 h-3.5" />
@@ -1198,7 +1205,7 @@ export default function StudentDirectory() {
                                     {isPendingApproval ? (
                                       <>
                                         <button
-                                          onClick={() => { handleApproveProducer(userItem.id, userItem.email); setActiveMenuUserId(null); }}
+                                          onClick={() => { setConfirmApproveProducerUser(userItem); setActiveMenuUserId(null); }}
                                           className="w-full px-4 py-2.5 text-xs text-[#e9c349] hover:bg-white/5 flex items-center gap-2.5 cursor-pointer font-bold"
                                         >
                                           <CheckCircle className="w-4 h-4" />
@@ -1254,7 +1261,7 @@ export default function StudentDirectory() {
                                           </>
                                         ) : !isMaster && (
                                           <button
-                                            onClick={() => { handleApproveProducer(userItem.id, userItem.email); setActiveMenuUserId(null); }}
+                                            onClick={() => { setConfirmApproveProducerUser(userItem); setActiveMenuUserId(null); }}
                                             className="w-full px-4 py-2.5 text-xs text-amber-300 hover:bg-white/5 flex items-center gap-2.5 cursor-pointer"
                                           >
                                             <ShieldCheck className="w-4 h-4" />
@@ -1886,6 +1893,67 @@ export default function StudentDirectory() {
                 className="px-5 py-2.5 rounded-xl text-xs font-bold bg-[#e9c349] text-black hover:bg-[#d4b03f] transition-all cursor-pointer"
               >
                 Fechar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL DE CONFIRMAÇÃO PARA PROMOVER A PRODUTOR */}
+      {confirmApproveProducerUser && (
+        <div className="fixed inset-0 bg-black/85 backdrop-blur-md z-[250] flex items-center justify-center p-4">
+          <div className="bg-[#131313] border border-[#e9c349]/40 rounded-2xl p-6 md:p-8 w-full max-w-md shadow-2xl animate-in fade-in zoom-in-95">
+            <div className="flex items-center gap-3.5 mb-5">
+              <div className="w-12 h-12 rounded-2xl bg-[#e9c349]/15 text-[#e9c349] border border-[#e9c349]/30 flex items-center justify-center shrink-0">
+                <ShieldCheck className="w-6 h-6 text-[#e9c349]" />
+              </div>
+              <div>
+                <h3 className="text-lg font-bold text-white font-headline">Confirmar Promoção a Produtor</h3>
+                <p className="text-xs text-[#e9c349] font-semibold">Liberar permissões de criador de conteúdos</p>
+              </div>
+            </div>
+
+            <div className="p-4 bg-[#0e0e0e] border border-gray-800/80 rounded-xl space-y-2 mb-6">
+              <p className="text-xs text-gray-300">
+                Tem certeza de que deseja promover o seguinte usuário a <strong>Produtor</strong>?
+              </p>
+              <div className="pl-3 border-l-2 border-[#e9c349] py-1">
+                <p className="text-sm font-bold text-white">
+                  {confirmApproveProducerUser.firstName ? `${confirmApproveProducerUser.firstName} ${confirmApproveProducerUser.lastName || ''}` : 'Usuário'}
+                </p>
+                <p className="text-xs text-gray-400 font-mono">{confirmApproveProducerUser.email}</p>
+              </div>
+              <p className="text-[11px] text-stone-400 leading-relaxed pt-1">
+                Isto concederá permissões para gerenciar seus próprios cursos, mentorias e serviços na plataforma Money Building.
+              </p>
+            </div>
+
+            <div className="flex items-center justify-end gap-3">
+              <button
+                type="button"
+                disabled={isApprovingProducer}
+                onClick={() => setConfirmApproveProducerUser(null)}
+                className="px-4 py-2.5 rounded-xl text-xs font-bold text-gray-300 hover:bg-gray-800 transition-all cursor-pointer"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                disabled={isApprovingProducer}
+                onClick={() => handleApproveProducer(confirmApproveProducerUser)}
+                className="px-5 py-2.5 rounded-xl text-xs font-bold bg-[#e9c349] hover:bg-[#d4b03f] text-stone-950 shadow-lg shadow-[#e9c349]/20 transition-all flex items-center gap-2 cursor-pointer disabled:opacity-50 font-headline"
+              >
+                {isApprovingProducer ? (
+                  <>
+                    <div className="w-3.5 h-3.5 border-2 border-stone-950 border-t-transparent rounded-full animate-spin" />
+                    <span>Promovendo...</span>
+                  </>
+                ) : (
+                  <>
+                    <ShieldCheck className="w-4 h-4" />
+                    <span>Sim, Tornar Produtor</span>
+                  </>
+                )}
               </button>
             </div>
           </div>
