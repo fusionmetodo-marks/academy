@@ -866,26 +866,36 @@ export default function SalesPage() {
               </p>
 
               <div className="space-y-2.5">
-                {/* Opção 1: Quero comprar USDT */}
-                <a
-                  href={`https://wa.me/${(usdtWhatsApp || supportWhatsApp || '244923456789').replace(/[^0-9]/g, '')}?text=${encodeURIComponent('Olá! Tenho interesse em comprar USDT na Money Building. Gostaria de saber as cotações do dia e disponibilidade.')}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  onClick={() => setIsWhatsAppMenuOpen(false)}
+                {/* Opção 1: Quero comprar USDT (Obriga a criar conta / entrar para negociar de forma segura) */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsWhatsAppMenuOpen(false);
+                    if (currentUser) {
+                      navigate('/library/comprar-usdt');
+                    } else {
+                      navigate('/criar-conta');
+                    }
+                  }}
                   className="w-full flex items-start gap-3 p-3 rounded-xl bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/30 text-left transition-all group cursor-pointer shadow-sm active:scale-[0.98]"
                 >
                   <div className="p-2 rounded-lg bg-emerald-500/20 text-emerald-400 group-hover:scale-105 transition-transform shrink-0 border border-emerald-500/20">
                     <Coins className="w-4 h-4" />
                   </div>
                   <div>
-                    <h4 className="text-xs font-bold text-white group-hover:text-emerald-400 transition-colors font-headline">
-                      Quero comprar USDT
+                    <h4 className="text-xs font-bold text-white group-hover:text-emerald-400 transition-colors font-headline flex items-center justify-between gap-1">
+                      <span>Quero comprar USDT</span>
+                      <span className="text-[9px] font-extrabold px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 font-mono">
+                        {currentUser ? 'Acessar' : 'Cadastre-se'}
+                      </span>
                     </h4>
-                    <p className="text-[10px] text-stone-400 mt-0.5 leading-snug">
-                      Cotações diárias, transferência segura e recebimento na carteira digital.
+                    <p className="text-[10px] text-stone-300 mt-0.5 leading-snug">
+                      {currentUser 
+                        ? 'Ir para a Mesa Oficial de Câmbio com sua conta vinculada.' 
+                        : 'Cadastre sua conta gratuita para cotar e comprar de forma 100% segura.'}
                     </p>
                   </div>
-                </a>
+                </button>
 
                 {/* Opção 2: Dúvida acerca das mentorias */}
                 <a

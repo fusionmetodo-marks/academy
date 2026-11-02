@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { User, Mail, Shield, CheckCircle2, Key, Phone, BookOpen, Lock, AlertCircle, Hash, RefreshCw, Send, Edit2, Save, X, MessageCircle } from 'lucide-react';
 import { auth, db } from '../firebase';
 import { doc, getDoc, updateDoc, setDoc } from 'firebase/firestore';
-import { sendPasswordResetEmail } from 'firebase/auth';
+import { sendPasswordResetEmail, updateProfile } from 'firebase/auth';
 
 export default function StudentProfile() {
   const navigate = useNavigate();
@@ -20,9 +20,117 @@ export default function StudentProfile() {
   const [phoneError, setPhoneError] = useState('');
   const [phoneSuccess, setPhoneSuccess] = useState('');
 
+  // Estados para edição do nome com trava de 60 dias
+  const [isEditingName, setIsEditingName] = useState(false);
+  const [firstNameInput, setFirstNameInput] = useState('');
+  const [lastNameInput, setLastNameInput] = useState('');
+  const [savingName, setSavingName] = useState(false);
+  const [nameError, setNameError] = useState('');
+  const [nameSuccess, setNameSuccess] = useState('');
+
   const [isActivatingProducer, setIsActivatingProducer] = useState(false);
   const [selectedPlan, setSelectedPlan] = useState<'monthly' | 'quarterly'>('quarterly');
   const [isProducerModalOpen, setIsProducerModalOpen] = useState(false);
+
+  // Calcula quantos dias faltam para poder alterar o nome novamente (máx 1 troca a cada 60 dias)
+  const getDaysRemainingForNameChange = (lastChangeDate?: string) => {
+    if (!lastChangeDate) return 0; // Se nunca alterou (conta nova/sem registro), está liberado!
+    const lastTime = new Date(lastChangeDate).getTime();
+    if (isNaN(lastTime)) return 0;
+    
+    const sixtyDaysMs = 60 * 24 * 60 * 60 * 1000;
+    const nextChangeTime = lastTime + sixtyDaysMs;
+    const now = Date.now();
+    
+    if (now >= nextChangeTime) return 0; // Já passaram 60 dias -> Liberado!
+    
+    const diffMs = nextChangeTime - now;
+    return Math.ceil(diffMs / (1000 * 60 * 60 * 24));
+  };
+
+  const getUnlockDateString = (lastChangeDate?: string) => {
+    if (!lastChangeDate) return '';
+    const lastTime = new Date(lastChangeDate).getTime();
+    if (isNaN(lastTime)) return '';
+    const nextChangeDate = new Date(lastTime + 60 * 24 * 60 * 60 * 1000);
+    return new Intl.DateTimeFormat('pt-PT', { day: '2-digit', month: '2-digit', year: 'numeric' }).format(nextChangeDate);
+  };
+
+  const formatDateOnly = (isoString?: string) => {
+    if (!isoString) return '';
+    try {
+      const d = new Date(isoString);
+      if (isNaN(d.getTime())) return isoString;
+      return new Intl.DateTimeFormat('pt-PT', { day: '2-digit', month: '2-digit', year: 'numeric' }).format(d);
+    } catch {
+      return isoString;
+    }
+  };
+
+  const handleSaveName = async () => {
+    const user = auth.currentUser;
+    if (!user) return;
+
+    const daysLeft = getDaysRemainingForNameChange(profile?.lastNameChangeDate);
+    if (daysLeft > 0) {
+      setNameError(`Alteração de nome bloqueada. Você só poderá alterar novamente em ${daysLeft} dias (${getUnlockDateString(profile?.lastNameChangeDate)}).`);
+      return;
+    }
+
+    const cleanFirst = firstNameInput.trim();
+    const cleanLast = lastNameInput.trim();
+
+    if (!cleanFirst) {
+      setNameError('Por favor, informe ao menos o Primeiro Nome.');
+      return;
+    }
+
+    const newFullName = `${cleanFirst} ${cleanLast}`.trim();
+
+    try {
+      setSavingName(true);
+      setNameError('');
+      setNameSuccess('');
+
+      const nowIso = new Date().toISOString();
+      const docRef = doc(db, 'users', user.uid);
+
+      await setDoc(docRef, {
+        firstName: cleanFirst,
+        lastName: cleanLast,
+        name: newFullName,
+        displayName: newFullName,
+        producerName: newFullName,
+        lastNameChangeDate: nowIso,
+        updatedAt: new Date()
+      }, { merge: true });
+
+      try {
+        await updateProfile(user, { displayName: newFullName });
+      } catch (authErr) {
+        console.warn("Could not update auth profile displayName:", authErr);
+      }
+
+      setProfile((prev: any) => ({
+        ...prev,
+        firstName: cleanFirst,
+        lastName: cleanLast,
+        name: newFullName,
+        displayName: newFullName,
+        producerName: newFullName,
+        lastNameChangeDate: nowIso
+      }));
+
+      setNameSuccess('Nome alterado com sucesso! A edição do nome foi bloqueada por 60 dias.');
+      setIsEditingName(false);
+      setTimeout(() => setNameSuccess(''), 6000);
+    } catch (err: any) {
+      console.error("Erro ao salvar nome:", err);
+      setNameError('Erro ao atualizar o nome. Tente novamente.');
+    } finally {
+      setSavingName(false);
+    }
+  };
 
   const handlePasswordReset = async () => {
     const email = profile?.email || auth.currentUser?.email;
@@ -210,12 +318,145 @@ export default function StudentProfile() {
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <div className="bg-black/50 p-4 rounded-xl border border-gray-800">
-              <span className="text-[11px] text-gray-500 uppercase font-mono block mb-1">Nome Completo do Aluno</span>
-              <p className="text-white text-sm font-bold flex items-center gap-2">
-                <User className="w-4 h-4 text-[#e9c349]" />
-                {fullName}
-              </p>
+            {/* Nome Completo com Edição com Trava de 60 Dias */}
+            <div className="bg-black/50 p-4 rounded-xl border border-gray-800 md:col-span-2">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-[11px] text-gray-500 uppercase font-mono">
+                  Nome Completo do Aluno
+                </span>
+
+                {(() => {
+                  const daysRemaining = getDaysRemainingForNameChange(profile?.lastNameChangeDate);
+                  if (daysRemaining > 0) {
+                    return (
+                      <span className="text-[11px] text-amber-400 bg-amber-500/10 border border-amber-500/20 px-2.5 py-0.5 rounded-full flex items-center gap-1 font-mono">
+                        <Lock className="w-3 h-3 text-amber-400" />
+                        Bloqueado por {daysRemaining} {daysRemaining === 1 ? 'dia' : 'dias'}
+                      </span>
+                    );
+                  }
+
+                  return !isEditingName ? (
+                    <button
+                      onClick={() => {
+                        setFirstNameInput(profile?.firstName || fullName.split(' ')[0] || '');
+                        setLastNameInput(profile?.lastName || fullName.split(' ').slice(1).join(' ') || '');
+                        setIsEditingName(true);
+                      }}
+                      className="text-xs text-[#e9c349] hover:underline flex items-center gap-1 cursor-pointer font-bold"
+                    >
+                      <Edit2 className="w-3.5 h-3.5" />
+                      <span>Alterar Nome</span>
+                    </button>
+                  ) : (
+                    <button
+                      onClick={() => setIsEditingName(false)}
+                      className="text-xs text-gray-400 hover:text-white flex items-center gap-0.5 cursor-pointer"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                      <span>Cancelar</span>
+                    </button>
+                  );
+                })()}
+              </div>
+
+              {!isEditingName ? (
+                <div>
+                  <p className="text-white text-base font-bold flex items-center gap-2">
+                    <User className="w-4 h-4 text-[#e9c349]" />
+                    {fullName}
+                  </p>
+
+                  {getDaysRemainingForNameChange(profile?.lastNameChangeDate) > 0 ? (
+                    <p className="text-[11px] text-stone-300 mt-2.5 flex items-center gap-1.5 bg-stone-900/80 p-2.5 rounded-lg border border-stone-800 leading-relaxed">
+                      <Lock className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                      <span>
+                        Nome alterado em {formatDateOnly(profile?.lastNameChangeDate)}. A próxima edição estará disponível em <strong className="text-amber-300">{getUnlockDateString(profile?.lastNameChangeDate)}</strong> (regra de 60 dias).
+                      </span>
+                    </p>
+                  ) : (
+                    <p className="text-[11px] text-emerald-400/90 mt-1 flex items-center gap-1">
+                      <CheckCircle2 className="w-3 h-3 text-emerald-400" />
+                      <span>Alteração de nome liberada. Você pode editar seu nome agora.</span>
+                    </p>
+                  )}
+                </div>
+              ) : (
+                <div className="mt-2 space-y-3">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-[10px] text-gray-400 uppercase font-bold mb-1">
+                        Primeiro Nome *
+                      </label>
+                      <input
+                        type="text"
+                        value={firstNameInput}
+                        onChange={(e) => setFirstNameInput(e.target.value)}
+                        placeholder="Ex: Marks"
+                        className="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-[#e9c349]"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] text-gray-400 uppercase font-bold mb-1">
+                        Sobrenome / Apelido
+                      </label>
+                      <input
+                        type="text"
+                        value={lastNameInput}
+                        onChange={(e) => setLastNameInput(e.target.value)}
+                        placeholder="Ex: o Monstro"
+                        className="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-[#e9c349]"
+                      />
+                    </div>
+                  </div>
+
+                  {/* OBSERVAÇÃO OBRIGATÓRIA SOLICITADA */}
+                  <div className="p-3.5 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs leading-relaxed space-y-1">
+                    <div className="flex items-center gap-1.5 font-bold text-amber-400">
+                      <AlertCircle className="w-4 h-4 shrink-0" />
+                      <span>Observação Importante sobre Alteração de Nome:</span>
+                    </div>
+                    <p className="text-[11px] text-amber-200/90">
+                      Por regras de integridade dos certificados e segurança da conta, o seu nome só pode ser alterado no máximo <strong>uma vez a cada 60 dias</strong>.
+                    </p>
+                    <p className="text-[10px] text-amber-300/80 font-mono">
+                      * Ao salvar a alteração agora, este campo ficará automaticamente bloqueado por 60 dias até a próxima liberação.
+                    </p>
+                  </div>
+
+                  <div className="flex justify-end gap-2 pt-1">
+                    <button
+                      type="button"
+                      onClick={() => setIsEditingName(false)}
+                      className="px-4 py-2 rounded-lg text-xs font-semibold text-gray-400 hover:text-white bg-gray-800 hover:bg-gray-700 transition-colors cursor-pointer"
+                    >
+                      Cancelar
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleSaveName}
+                      disabled={savingName}
+                      className="px-5 py-2 rounded-lg text-xs font-bold text-black bg-[#e9c349] hover:bg-[#d4b03f] transition-all flex items-center gap-1.5 cursor-pointer disabled:opacity-50 shadow-md"
+                    >
+                      <Save className="w-3.5 h-3.5" />
+                      <span>{savingName ? 'Salvando...' : 'Salvar Nome (Bloquear por 60 dias)'}</span>
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {nameSuccess && (
+                <p className="text-[11px] text-emerald-400 mt-2 flex items-center gap-1 font-semibold">
+                  <CheckCircle2 className="w-3.5 h-3.5" />
+                  {nameSuccess}
+                </p>
+              )}
+              {nameError && (
+                <p className="text-[11px] text-red-400 mt-2 flex items-center gap-1 font-semibold">
+                  <AlertCircle className="w-3.5 h-3.5" />
+                  {nameError}
+                </p>
+              )}
             </div>
 
             <div className="bg-black/50 p-4 rounded-xl border border-gray-800">
