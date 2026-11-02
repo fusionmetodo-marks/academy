@@ -7,41 +7,59 @@ export default function PushNotificationPrompt() {
   const [isVisible, setIsVisible] = useState(false);
   
   useEffect(() => {
-    // Check if permission is already granted or denied
     const checkPermission = async () => {
-      // Only run in browser environment where Notification exists
       if (!('Notification' in window)) return;
-      
+
+      // Do NOT show floating bottom prompt if top banner is active or dismissed in session
+      if (
+        sessionStorage.getItem('push_prompt_dismissed') === 'true' ||
+        sessionStorage.getItem('push_banner_dismissed') === 'true' ||
+        sessionStorage.getItem('push_banner_active') === 'true'
+      ) {
+        return;
+      }
+
       if (Notification.permission === 'default') {
-        // Wait a few seconds before showing to not overwhelm the user on first render
         const timer = setTimeout(() => {
-          setIsVisible(true);
-        }, 3000);
+          // Double check before showing
+          if (
+            sessionStorage.getItem('push_prompt_dismissed') !== 'true' &&
+            sessionStorage.getItem('push_banner_dismissed') !== 'true' &&
+            sessionStorage.getItem('push_banner_active') !== 'true'
+          ) {
+            setIsVisible(true);
+          }
+        }, 4000);
         return () => clearTimeout(timer);
       }
     };
-    
+
     checkPermission();
   }, []);
 
   const handleActivate = async () => {
     const userId = auth.currentUser?.uid;
-    const granted = await requestPushPermission(userId);
-    
-    // Sempre fecha o popup, mesmo se falhar (ex: bloqueado por iFrame ou Safari)
-    // para que o botão não pareça "quebrado" ao usuário
+    await requestPushPermission(userId);
     setIsVisible(false);
     sessionStorage.setItem('push_prompt_dismissed', 'true');
+    sessionStorage.setItem('push_banner_dismissed', 'true');
+    sessionStorage.removeItem('push_banner_active');
   };
 
   const handleDismiss = () => {
     setIsVisible(false);
-    // Optionally, we could save to sessionStorage so it doesn't appear again during THIS session
     sessionStorage.setItem('push_prompt_dismissed', 'true');
+    sessionStorage.setItem('push_banner_dismissed', 'true');
+    sessionStorage.removeItem('push_banner_active');
   };
 
-  // If dismissed in this session, don't show again
-  if (!isVisible || sessionStorage.getItem('push_prompt_dismissed') === 'true') {
+  // If dismissed or top banner is present, do NOT render floating bottom popup
+  if (
+    !isVisible ||
+    sessionStorage.getItem('push_prompt_dismissed') === 'true' ||
+    sessionStorage.getItem('push_banner_dismissed') === 'true' ||
+    sessionStorage.getItem('push_banner_active') === 'true'
+  ) {
     return null;
   }
 

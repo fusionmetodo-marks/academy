@@ -21,10 +21,16 @@ export function PushSubscriptionBanner({ userRole = 'student' }: PushSubscriptio
       return;
     }
     setPermissionState(Notification.permission);
+    if (Notification.permission === 'default') {
+      sessionStorage.setItem('push_banner_active', 'true');
+    }
   }, []);
 
   const handleEnablePush = async () => {
     setIsActivating(true);
+    sessionStorage.setItem('push_prompt_dismissed', 'true');
+    sessionStorage.setItem('push_banner_dismissed', 'true');
+    sessionStorage.removeItem('push_banner_active');
     try {
       const granted = await requestPushPermission();
       if (auth.currentUser) {
@@ -49,7 +55,14 @@ export function PushSubscriptionBanner({ userRole = 'student' }: PushSubscriptio
     }
   };
 
-  if (permissionState === 'unsupported' || permissionState === 'granted' || dismissed) {
+  const handleDismiss = () => {
+    setDismissed(true);
+    sessionStorage.setItem('push_prompt_dismissed', 'true');
+    sessionStorage.setItem('push_banner_dismissed', 'true');
+    sessionStorage.removeItem('push_banner_active');
+  };
+
+  if (permissionState === 'unsupported' || permissionState === 'granted' || dismissed || sessionStorage.getItem('push_banner_dismissed') === 'true') {
     return null;
   }
 
@@ -83,7 +96,7 @@ export function PushSubscriptionBanner({ userRole = 'student' }: PushSubscriptio
 
         <div className="flex items-center gap-2 w-full sm:w-auto justify-end shrink-0 pt-2 sm:pt-0 border-t sm:border-t-0 border-[#353534]">
           <button
-            onClick={() => setDismissed(true)}
+            onClick={handleDismiss}
             className="px-3 py-2 text-xs text-stone-400 hover:text-white rounded-lg hover:bg-stone-800 transition-colors cursor-pointer"
           >
             Depois
