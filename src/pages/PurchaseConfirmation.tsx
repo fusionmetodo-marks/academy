@@ -5,6 +5,8 @@ import { getAuth, onAuthStateChanged, User } from 'firebase/auth';
 import { db } from '../firebase';
 import { Transaction } from '../types';
 
+import { DEFAULT_SUPPORT_WHATSAPP, buildPaymentProofWhatsAppUrl } from '../utils/constants';
+
 export default function PurchaseConfirmation() {
   const navigate = useNavigate();
   const [currentUser, setCurrentUser] = useState<User | null>(null);
@@ -82,28 +84,27 @@ export default function PurchaseConfirmation() {
     }
   };
 
-  const whatsappNumber = transaction?.supportWhatsApp?.replace(/[^0-9]/g, '') || '244923456789';
-  const refNum = transaction?.referenceNumber || 'REF-CFA-2024';
-  const studentName = transaction?.userName || 'Estudante Marks ACADEMY';
-  const courseTitle = transaction?.courseTitle || 'Marks o Monstro - ACADEMY';
+  const whatsappNumber = transaction?.supportWhatsApp?.replace(/[^0-9]/g, '') || DEFAULT_SUPPORT_WHATSAPP;
+  const refNum = transaction?.referenceNumber || 'REF-CFA-2026';
+  const studentName = transaction?.userName || currentUser?.displayName || 'Estudante';
+  const studentEmail = transaction?.userEmail || currentUser?.email || 'Não informado';
+  const studentPhone = transaction?.userPhone || 'Não informado';
+  const courseTitle = transaction?.courseTitle || 'Formação Money Building';
   const paymentMethod = transaction?.paymentMethod || 'Transferência';
   const formattedAmount = transaction?.amount && Number(transaction.amount) > 0
     ? new Intl.NumberFormat('pt-AO', { style: 'currency', currency: 'AOA', maximumFractionDigits: 0 }).format(Number(transaction.amount))
     : 'A confirmar';
 
-  const whatsappMessage = encodeURIComponent(
-    `Olá! O meu nome é *${studentName}*.\n` +
-    `Acabei de efetuar a inscrição e o pagamento do curso *"${courseTitle}"*.\n\n` +
-    `📋 *Detalhes da Inscrição:*\n` +
-    `• *Curso:* ${courseTitle}\n` +
-    `• *Estudante:* ${studentName}\n` +
-    `• *Valor:* ${formattedAmount}\n` +
-    `• *Código de Referência:* ${refNum}\n` +
-    `• *Método:* ${paymentMethod}\n\n` +
-    `📎 Segue em anexo o meu comprovativo de pagamento para validação e liberação do acesso. Gostaria que confirmassem. Obrigado!`
-  );
-
-  const whatsappUrl = `https://wa.me/${whatsappNumber}?text=${whatsappMessage}`;
+  const whatsappUrl = buildPaymentProofWhatsAppUrl({
+    studentName,
+    studentEmail,
+    studentPhone,
+    courseTitle,
+    formattedPrice: formattedAmount,
+    paymentMethod,
+    referenceNumber: refNum,
+    whatsappNumber
+  });
 
   return (
     <div className="bg-background text-on-surface font-body min-h-screen flex flex-col items-center justify-center p-6 relative">

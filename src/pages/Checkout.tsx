@@ -5,7 +5,7 @@ import { getAuth, onAuthStateChanged, User } from 'firebase/auth';
 import { db } from '../firebase';
 import { sendSystemNotification } from '../services/notificationService';
 import { PlatformSettings, Transaction, Coupon } from '../types';
-import { DEFAULT_CFA_LOGO, getValidLogoUrl } from '../utils/constants';
+import { DEFAULT_CFA_LOGO, getValidLogoUrl, DEFAULT_SUPPORT_WHATSAPP } from '../utils/constants';
 
 export default function Checkout() {
   const navigate = useNavigate();
@@ -18,7 +18,7 @@ export default function Checkout() {
   const [referenceNumber, setReferenceNumber] = useState('');
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [supportWhatsApp, setSupportWhatsApp] = useState('244923456789');
+  const [supportWhatsApp, setSupportWhatsApp] = useState(DEFAULT_SUPPORT_WHATSAPP);
   const [logoUrl, setLogoUrl] = useState(DEFAULT_CFA_LOGO);
 
   // Coupon States

@@ -4,7 +4,7 @@ import { collection, getDocs, query, where, doc, getDoc } from 'firebase/firesto
 import { Coupon } from '../types';
 import { auth, db } from '../firebase';
 import { onAuthStateChanged } from 'firebase/auth';
-import { DEFAULT_CFA_LOGO, getValidLogoUrl, isMasterEmail } from '../utils/constants';
+import { DEFAULT_CFA_LOGO, getValidLogoUrl, isMasterEmail, DEFAULT_SUPPORT_WHATSAPP } from '../utils/constants';
 import HeroSection from '../components/HeroSection';
 import AnnouncementBar from '../components/AnnouncementBar';
 import { EcosystemFooter } from '../components/EcosystemFooter';
@@ -68,8 +68,8 @@ export default function SalesPage() {
   const [coupons, setCoupons] = useState<Coupon[]>([]);
   const [isAndroidModalOpen, setIsAndroidModalOpen] = useState(false);
   const [isWhatsAppMenuOpen, setIsWhatsAppMenuOpen] = useState(false);
-  const [supportWhatsApp, setSupportWhatsApp] = useState('244923456789');
-  const [usdtWhatsApp, setUsdtWhatsApp] = useState('244923456789');
+  const [supportWhatsApp, setSupportWhatsApp] = useState(DEFAULT_SUPPORT_WHATSAPP);
+  const [usdtWhatsApp, setUsdtWhatsApp] = useState(DEFAULT_SUPPORT_WHATSAPP);
   const [usdtConfig, setUsdtConfig] = useState<UsdtExchangeConfig>(DEFAULT_USDT_CONFIG);
   const [homeUsdtAmount, setHomeUsdtAmount] = useState<number | string>(50);
 

@@ -6,6 +6,8 @@ import { ArrowLeft, Copy, Check, MessageCircle, ShieldCheck, Building2, Smartpho
 import { useNavigate } from 'react-router-dom';
 import { Coupon } from '../types';
 
+import { DEFAULT_SUPPORT_WHATSAPP, buildPaymentProofWhatsAppUrl } from '../utils/constants';
+
 interface CheckoutProps {
   courseId: string;
   courseTitle: string;
@@ -35,7 +37,7 @@ export default function CourseCheckout({ courseId, courseTitle, coursePrice, cou
   // Inicializa com métodos padrão imediatamente para renderização instantânea (0ms de atraso)
   const [paymentMethods, setPaymentMethods] = useState<any[]>(DEFAULT_PAYMENT_METHODS);
   const [activeMethodIndex, setActiveMethodIndex] = useState<number>(0);
-  const [supportNumber, setSupportNumber] = useState('244923456789');
+  const [supportNumber, setSupportNumber] = useState(DEFAULT_SUPPORT_WHATSAPP);
   const [producerWhatsApp, setProducerWhatsApp] = useState<string | null>(null);
   const [producerName, setProducerName] = useState<string | null>(null);
   const [courseAuthorId, setCourseAuthorId] = useState<string | null>(null);
@@ -491,18 +493,17 @@ export default function CourseCheckout({ courseId, courseTitle, coursePrice, cou
       setExistingTxStatus('pending');
       setSubmissionSuccess(true);
 
-      // 4. Monta a mensagem completa e organizada para o WhatsApp do produtor/suporte
-      const messageText = `Olá! O meu nome é *${finalStudentName}*.\n` +
-        `Acabei de efetuar a inscrição e o pagamento do curso *"${safeTitle}"*.\n\n` +
-        `📋 *Detalhes da Inscrição:*\n` +
-        `• *Curso:* ${safeTitle}\n` +
-        `• *Aluno:* ${finalStudentName}\n` +
-        `• *Valor Pago:* ${formattedPrice}\n` +
-        `• *Código de Referência:* ${cleanRef}\n` +
-        `• *Método:* ${selectedMethod.shortName || selectedMethod.bankName}\n\n` +
-        `📎 Segue em anexo o meu comprovativo de pagamento para validação e liberação do acesso. Gostaria que confirmassem. Obrigado!`;
-
-      const whatsappUrl = `https://wa.me/${targetPhone}?text=${encodeURIComponent(messageText)}`;
+      // 4. Monta a mensagem completa e organizada para o WhatsApp do suporte (+244954890702)
+      const whatsappUrl = buildPaymentProofWhatsAppUrl({
+        studentName: finalStudentName,
+        studentEmail: finalUser.email || '',
+        studentPhone: studentPhoneInput.trim() || '',
+        courseTitle: safeTitle,
+        formattedPrice,
+        paymentMethod: selectedMethod.shortName || selectedMethod.bankName || 'Transferência',
+        referenceNumber: cleanRef,
+        whatsappNumber: targetPhone || DEFAULT_SUPPORT_WHATSAPP
+      });
       
       // Abre o WhatsApp imediatamente
       window.open(whatsappUrl, '_blank');

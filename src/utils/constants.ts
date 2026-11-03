@@ -1,5 +1,6 @@
 export const DEFAULT_ACADEMY_LOGO = 'https://i.postimg.cc/LXt95dqk/rt.png';
 export const DEFAULT_CFA_LOGO = DEFAULT_ACADEMY_LOGO;
+export const DEFAULT_SUPPORT_WHATSAPP = '244954890702';
 
 export const MASTER_ADMIN_EMAILS = [
   'fusionmetodo@gmail.com'
@@ -25,3 +26,50 @@ export function getValidLogoUrl(url?: string): string {
   }
   return url;
 }
+
+export interface PaymentProofData {
+  studentName: string;
+  studentEmail: string;
+  studentPhone: string;
+  courseTitle: string;
+  formattedPrice: string;
+  paymentMethod: string;
+  referenceNumber: string;
+  whatsappNumber?: string;
+}
+
+export function buildPaymentProofWhatsAppMessage(data: PaymentProofData): string {
+  const name = (data.studentName || '').trim() || 'Estudante';
+  const email = (data.studentEmail || '').trim() || 'Não informado';
+  const phone = (data.studentPhone || '').trim() || 'Não informado';
+  const course = (data.courseTitle || '').trim() || 'Curso / Mentoria';
+  const price = (data.formattedPrice || '').trim() || 'A confirmar';
+  const method = (data.paymentMethod || '').trim() || 'Transferência';
+  const ref = (data.referenceNumber || '').trim() || 'Sem código de ref.';
+
+  return `👋 *SOLICITAÇÃO DE VERIFICAÇÃO DE COMPROVATIVO*
+*Plataforma Money Building*
+
+Olá, equipe de Suporte! Acabei de realizar o pagamento para adesão e gostaria de solicitar a verificação do meu comprovativo em anexo para a liberação do acesso.
+
+👤 *DADOS DO ESTUDANTE:*
+• *Nome Completo:* ${name}
+• *E-mail do Cadastro:* ${email}
+• *Telefone Registrado:* ${phone}
+
+📚 *DETALHES DO PEDIDO:*
+• *Curso / Serviço:* ${course}
+• *Valor:* ${price}
+• *Método de Pagamento:* ${method}
+• *Nº / Ref. do Comprovativo:* ${ref}
+
+📎 *Ação Necessária:*
+Segue em anexo o meu comprovativo de pagamento para validação e liberação do acesso à minha conta na plataforma. Obrigado!`;
+}
+
+export function buildPaymentProofWhatsAppUrl(data: PaymentProofData): string {
+  const targetNumber = (data.whatsappNumber || DEFAULT_SUPPORT_WHATSAPP).replace(/[^0-9]/g, '') || DEFAULT_SUPPORT_WHATSAPP;
+  const message = buildPaymentProofWhatsAppMessage(data);
+  return `https://wa.me/${targetNumber}?text=${encodeURIComponent(message)}`;
+}
+
