@@ -10,7 +10,8 @@ import { NotificationCenter } from '../components/NotificationCenter';
 import { PushSubscriptionBanner } from '../components/PushSubscriptionBanner';
 import { shouldShowInstallPopup } from '../utils/deviceDetection';
 import { BookOpen, Home, User, LogOut, Compass, Smartphone, Coins, Lock, ShieldAlert } from 'lucide-react';
-import { doc, getDoc, collection, getDocs, query, where } from 'firebase/firestore';
+import { doc, getDoc, collection, getDocs, query, where, setDoc } from 'firebase/firestore';
+import { updateProfile } from 'firebase/auth';
 import { logout, auth, db } from '../firebase';
 import { useNavigate, useParams } from 'react-router-dom';
 import { DEFAULT_CFA_LOGO, getValidLogoUrl, isMasterEmail } from '../utils/constants';
@@ -28,21 +29,42 @@ export default function StudentPortal() {
   const [logoUrl, setLogoUrl] = useState<string>(DEFAULT_CFA_LOGO);
   const [isInitializing, setIsInitializing] = useState(true);
   const [user, setUser] = useState<any>(auth.currentUser);
+  const [userProfile, setUserProfile] = useState<any>(null);
   const [isAndroidModalOpen, setIsAndroidModalOpen] = useState(false);
   const [enrolledCourses, setEnrolledCourses] = useState<string[]>([]);
   const [isLoadingEnrollments, setIsLoadingEnrollments] = useState<boolean>(true);
+
+  // Estados do Modal Obrigatório de Perfil Incompleto
+  const [portalFullName, setPortalFullName] = useState('');
+  const [portalPhoneDdi, setPortalPhoneDdi] = useState('+244');
+  const [portalPhone, setPortalPhone] = useState('');
+  const [portalModalError, setPortalModalError] = useState<string | null>(null);
+  const [isSavingPortalProfile, setIsSavingPortalProfile] = useState(false);
 
   useEffect(() => {
     let unsubEnroll = () => {};
     const unsubAuth = auth.onAuthStateChanged((u) => {
       setUser(u);
       if (u) {
+        const isMaster = isMasterEmail(u.email);
+        setIsAdmin(isMaster);
         unsubEnroll = subscribeUserEnrollments(u, (enrollData) => {
           setEnrolledCourses(enrollData.enrolledCourses || []);
+          setUserProfile(enrollData.userProfile);
+          if (enrollData.userProfile?.role === 'admin' || isMaster) {
+            setIsAdmin(true);
+          }
+          if (enrollData.userProfile) {
+            setPortalFullName(enrollData.userProfile.fullName || enrollData.userProfile.firstName || u.displayName || '');
+            setPortalPhoneDdi(enrollData.userProfile.phoneCountryCode || '+244');
+            setPortalPhone(enrollData.userProfile.phoneNumber || '');
+          }
           setIsLoadingEnrollments(false);
         });
       } else {
         setEnrolledCourses([]);
+        setUserProfile(null);
+        setIsAdmin(false);
         setIsLoadingEnrollments(false);
       }
     });
@@ -51,6 +73,58 @@ export default function StudentPortal() {
       unsubEnroll();
     };
   }, []);
+
+  const isProfileIncomplete = Boolean(
+    user && 
+    !isAdmin && 
+    !isLoadingEnrollments && 
+    userProfile && 
+    ((!userProfile.fullName && !userProfile.firstName) || !userProfile.phoneNumber)
+  );
+
+  const handleSaveProfileCompletion = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!user) return;
+    const trimmedName = portalFullName.trim();
+    const trimmedPhone = portalPhone.trim();
+
+    if (!trimmedName || trimmedName.length < 2) {
+      setPortalModalError("Por favor, informe seu Nome Completo (obrigatório).");
+      return;
+    }
+    if (!trimmedPhone || trimmedPhone.length < 5) {
+      setPortalModalError("Por favor, insira o seu WhatsApp / Telefone válido (obrigatório).");
+      return;
+    }
+
+    setIsSavingPortalProfile(true);
+    setPortalModalError(null);
+    try {
+      const nameParts = trimmedName.split(' ').filter(Boolean);
+      const fName = nameParts[0] || trimmedName;
+      const lName = nameParts.slice(1).join(' ');
+
+      await setDoc(doc(db, 'users', user.uid), {
+        fullName: trimmedName,
+        firstName: fName,
+        lastName: lName,
+        name: trimmedName,
+        displayName: trimmedName,
+        phoneCountryCode: portalPhoneDdi,
+        phoneNumber: trimmedPhone,
+        profileCompleted: true
+      }, { merge: true });
+
+      try {
+        await updateProfile(user, { displayName: trimmedName });
+      } catch (_) {}
+    } catch (err: any) {
+      console.error("Erro ao salvar perfil no portal:", err);
+      setPortalModalError("Erro ao salvar dados. Tente novamente.");
+    } finally {
+      setIsSavingPortalProfile(false);
+    }
+  };
 
   // Auto popup para orientação de instalação do app no telemóvel para alunos (apenas mobile/tablet)
   useEffect(() => {
@@ -552,6 +626,107 @@ export default function StudentPortal() {
           </div>
         )}
       </main>
+
+      {/* Modal Obrigatório de Conclusão de Dados do Perfil */}
+      {isProfileIncomplete && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-md animate-in fade-in">
+          <div className="w-full max-w-md bg-[#181818] border border-[#e9c349]/40 rounded-2xl p-6 sm:p-8 shadow-2xl relative text-left">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="w-10 h-10 rounded-xl bg-[#e9c349]/20 border border-[#e9c349]/40 flex items-center justify-center text-[#e9c349]">
+                <User className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="text-lg font-bold text-white font-headline">Complete seus Dados de Cadastro</h3>
+                <p className="text-xs text-stone-400">Obrigatório para acesso e controle de aulas</p>
+              </div>
+            </div>
+
+            <p className="text-xs text-stone-300 leading-relaxed mb-5 bg-[#222] p-3 rounded-xl border border-white/5">
+              💡 Para que suas matrículas, acesso às salas de aula e suporte fiquem organizados em seu nome, confirme o seu <strong>Nome Completo</strong> e seu número de <strong>WhatsApp</strong>:
+            </p>
+
+            {portalModalError && (
+              <div className="mb-4 bg-rose-500/10 border border-rose-500/20 text-rose-200 text-xs p-3 rounded-xl flex items-center gap-2">
+                <span className="material-symbols-outlined text-sm">error</span>
+                <span>{portalModalError}</span>
+              </div>
+            )}
+
+            <form onSubmit={handleSaveProfileCompletion} className="space-y-4">
+              <div className="space-y-1.5">
+                <label className="block text-[11px] font-bold text-stone-300 uppercase tracking-wider">
+                  NOME COMPLETO (OBRIGATÓRIO)
+                </label>
+                <input
+                  type="text"
+                  value={portalFullName}
+                  onChange={(e) => setPortalFullName(e.target.value)}
+                  placeholder="Ex: João Manuel dos Santos"
+                  required
+                  className="w-full bg-[#121212] border border-white/10 rounded-xl py-3 px-4 text-white placeholder:text-stone-600 focus:border-[#e9c349] focus:outline-none text-sm"
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="block text-[11px] font-bold text-stone-300 uppercase tracking-wider">
+                  WHATSAPP / TELEFONE (OBRIGATÓRIO)
+                </label>
+                <div className="flex gap-2">
+                  <div className="relative w-[35%] min-w-[100px]">
+                    <select
+                      className="w-full bg-[#121212] border border-white/10 rounded-xl py-3 pl-3 pr-8 text-white text-xs focus:border-[#e9c349] focus:outline-none appearance-none cursor-pointer"
+                      value={portalPhoneDdi}
+                      onChange={(e) => setPortalPhoneDdi(e.target.value)}
+                    >
+                      <option value="+244">🇦🇴 +244</option>
+                      <option value="+351">🇵🇹 +351</option>
+                      <option value="+55">🇧🇷 +55</option>
+                      <option value="+258">🇲🇿 +258</option>
+                      <option value="+238">🇨🇻 +238</option>
+                      <option value="+245">🇬🇼 +245</option>
+                      <option value="+239">🇸🇹 +239</option>
+                      <option value="+1">🇺🇸 +1</option>
+                      <option value="+34">🇪🇸 +34</option>
+                      <option value="+44">🇬🇧 +44</option>
+                    </select>
+                    <div className="pointer-events-none absolute inset-y-0 right-2 flex items-center text-stone-400">
+                      <span className="material-symbols-outlined text-sm">keyboard_arrow_down</span>
+                    </div>
+                  </div>
+                  <input
+                    type="tel"
+                    value={portalPhone}
+                    onChange={(e) => setPortalPhone(e.target.value)}
+                    placeholder="923 456 789"
+                    required
+                    className="flex-grow w-[65%] bg-[#121212] border border-white/10 rounded-xl py-3 px-4 text-white placeholder:text-stone-600 focus:border-[#e9c349] focus:outline-none text-sm"
+                  />
+                </div>
+              </div>
+
+              <div className="pt-2">
+                <button
+                  type="submit"
+                  disabled={isSavingPortalProfile}
+                  className="w-full py-3.5 bg-[#e9c349] hover:bg-[#d8b33c] text-stone-900 font-black text-sm rounded-xl transition-all shadow-lg shadow-[#e9c349]/10 cursor-pointer flex items-center justify-center gap-2 disabled:opacity-50"
+                >
+                  {isSavingPortalProfile ? (
+                    <>
+                      <div className="w-4 h-4 border-2 border-stone-900 border-t-transparent rounded-full animate-spin"></div>
+                      <span>Salvando dados...</span>
+                    </>
+                  ) : (
+                    <>
+                      <span className="material-symbols-outlined text-base">check</span>
+                      <span>Salvar e Acessar Plataforma</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
 
       {/* Modal de Instalação e Testes Android */}
       <AndroidInstallModal

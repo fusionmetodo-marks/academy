@@ -48,6 +48,28 @@ interface CourseOption {
   isPublished?: boolean;
 }
 
+export const getDisplayFullName = (u: any): string => {
+  if (!u) return 'Estudante';
+  const explicitFullName = (u.fullName || '').trim();
+  if (explicitFullName) return explicitFullName;
+
+  const fName = (u.firstName || '').trim();
+  const lName = (u.lastName || '').trim();
+  if (fName || lName) return `${fName} ${lName}`.trim();
+
+  const nameField = (u.name || '').trim();
+  if (nameField) return nameField;
+
+  const displayName = (u.displayName || '').trim();
+  if (displayName) return displayName;
+
+  if (u.email) {
+    const prefix = u.email.split('@')[0];
+    return prefix || 'Estudante';
+  }
+  return 'Estudante';
+};
+
 export default function StudentDirectory() {
   const [users, setUsers] = useState<any[]>([]);
   const [availableCourses, setAvailableCourses] = useState<CourseOption[]>([]);
@@ -111,6 +133,59 @@ export default function StudentDirectory() {
       showNotification('Erro ao eliminar a conta do banco de dados.', 'error');
     } finally {
       setIsDeletingUser(false);
+    }
+  };
+
+  // Modal de Edição dos Dados do Aluno (Nome e Telefone)
+  const [editingStudent, setEditingStudent] = useState<any | null>(null);
+  const [editFullName, setEditFullName] = useState('');
+  const [editPhoneCountryCode, setEditPhoneCountryCode] = useState('+244');
+  const [editPhoneNumber, setEditPhoneNumber] = useState('');
+  const [isSavingEditStudent, setIsSavingEditStudent] = useState(false);
+
+  const handleOpenEditStudent = (userItem: any) => {
+    setEditingStudent(userItem);
+    setEditFullName(getDisplayFullName(userItem));
+    setEditPhoneCountryCode(userItem.phoneCountryCode || '+244');
+    setEditPhoneNumber(userItem.phoneNumber || userItem.producerWhatsApp || '');
+  };
+
+  const handleSaveEditStudent = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingStudent?.id) return;
+
+    const trimmedName = editFullName.trim();
+    const trimmedPhone = editPhoneNumber.trim();
+
+    if (!trimmedName) {
+      showNotification('O Nome Completo não pode ficar em branco.', 'error');
+      return;
+    }
+
+    setIsSavingEditStudent(true);
+    try {
+      const nameParts = trimmedName.split(' ').filter(Boolean);
+      const fName = nameParts[0] || trimmedName;
+      const lName = nameParts.slice(1).join(' ');
+
+      await updateDoc(doc(db, 'users', editingStudent.id), {
+        fullName: trimmedName,
+        firstName: fName,
+        lastName: lName,
+        name: trimmedName,
+        displayName: trimmedName,
+        phoneCountryCode: editPhoneCountryCode,
+        phoneNumber: trimmedPhone,
+        profileCompleted: true
+      });
+
+      showNotification(`Dados de ${trimmedName} atualizados com sucesso!`, 'success');
+      setEditingStudent(null);
+    } catch (err) {
+      console.error('Erro ao atualizar aluno:', err);
+      showNotification('Erro ao salvar os novos dados do aluno.', 'error');
+    } finally {
+      setIsSavingEditStudent(false);
     }
   };
 
@@ -497,8 +572,9 @@ export default function StudentDirectory() {
 
   const filteredUsers = effectiveUsers.filter(u => {
     const cleanEmail = (u.email || '').toLowerCase();
-    const fullName = `${u.firstName || ''} ${u.lastName || ''}`.toLowerCase();
-    const matchesSearch = cleanEmail.includes(searchTerm.toLowerCase()) || fullName.includes(searchTerm.toLowerCase()) || (u.phoneNumber || '').includes(searchTerm);
+    const userFullName = getDisplayFullName(u).toLowerCase();
+    const phoneStr = `${u.phoneCountryCode || ''} ${u.phoneNumber || ''} ${u.producerWhatsApp || ''}`.toLowerCase();
+    const matchesSearch = cleanEmail.includes(searchTerm.toLowerCase()) || userFullName.includes(searchTerm.toLowerCase()) || phoneStr.includes(searchTerm.toLowerCase());
 
     if (!matchesSearch) return false;
 
@@ -538,8 +614,8 @@ export default function StudentDirectory() {
       if (aIsMaster && !bIsMaster) return -1;
       if (!aIsMaster && bIsMaster) return 1;
 
-      const nameA = (a.firstName ? `${a.firstName} ${a.lastName || ''}` : (a.email ? a.email.split('@')[0] : '')).trim().toLowerCase();
-      const nameB = (b.firstName ? `${b.firstName} ${b.lastName || ''}` : (b.email ? b.email.split('@')[0] : '')).trim().toLowerCase();
+      const nameA = getDisplayFullName(a).toLowerCase();
+      const nameB = getDisplayFullName(b).toLowerCase();
 
       return nameA.localeCompare(nameB, 'pt', { sensitivity: 'base' });
     });
@@ -780,10 +856,8 @@ export default function StudentDirectory() {
                 const isPendingApproval = !isMaster && (userItem.subscriptionStatus === 'pending_approval' || (isProducerRole && userItem.isApproved === false));
                 const isActive = isMaster || userItem.subscriptionStatus === 'active';
                 
-                const fullName = userItem.firstName 
-                  ? `${userItem.firstName} ${userItem.lastName || ''}` 
-                  : (userItem.email ? userItem.email.split('@')[0] : 'Usuário');
-                const initials = (userItem.firstName ? userItem.firstName[0] : (userItem.email ? userItem.email[0] : 'U')).toUpperCase();
+                const fullName = getDisplayFullName(userItem);
+                const initials = (fullName && fullName !== 'Estudante' && fullName !== 'Usuário' ? fullName[0] : (userItem.email ? userItem.email[0] : 'E')).toUpperCase();
                 const enrolledList: string[] = Array.isArray(userItem.enrolledCourses) ? userItem.enrolledCourses : [];
 
                 return (
@@ -852,6 +926,13 @@ export default function StudentDirectory() {
                             <>
                               <div className="fixed inset-0 z-40" onClick={() => setActiveMenuUserId(null)} />
                               <div className="absolute right-0 mt-1 w-48 bg-[#1a1a1a] border border-[#353534] rounded-xl shadow-2xl py-1.5 z-50 text-left animate-in fade-in zoom-in-95">
+                                <button
+                                  onClick={() => { handleOpenEditStudent(userItem); setActiveMenuUserId(null); }}
+                                  className="w-full px-3.5 py-2 text-xs text-blue-300 hover:bg-white/10 flex items-center gap-2 cursor-pointer font-bold"
+                                >
+                                  <User className="w-3.5 h-3.5" />
+                                  <span>Editar Dados</span>
+                                </button>
                                 <button
                                   onClick={() => { handleOpenCourseManager(userItem); setActiveMenuUserId(null); }}
                                   className="w-full px-3.5 py-2 text-xs text-gray-200 hover:bg-white/10 flex items-center gap-2 cursor-pointer"
@@ -1052,10 +1133,8 @@ export default function StudentDirectory() {
                       const isPendingApproval = !isMaster && (userItem.subscriptionStatus === 'pending_approval' || (isProducerRole && userItem.isApproved === false));
                       const isActive = isMaster || userItem.subscriptionStatus === 'active';
                       
-                      const fullName = userItem.firstName 
-                        ? `${userItem.firstName} ${userItem.lastName || ''}` 
-                        : (userItem.email ? userItem.email.split('@')[0] : 'Usuário');
-                      const initials = (userItem.firstName ? userItem.firstName[0] : (userItem.email ? userItem.email[0] : 'U')).toUpperCase();
+                      const fullName = getDisplayFullName(userItem);
+                      const initials = (fullName && fullName !== 'Estudante' && fullName !== 'Usuário' ? fullName[0] : (userItem.email ? userItem.email[0] : 'E')).toUpperCase();
                       
                       const enrolledList: string[] = Array.isArray(userItem.enrolledCourses) ? userItem.enrolledCourses : [];
 
@@ -1221,6 +1300,13 @@ export default function StudentDirectory() {
                                       </>
                                     ) : (
                                       <>
+                                        <button
+                                          onClick={() => { handleOpenEditStudent(userItem); setActiveMenuUserId(null); }}
+                                          className="w-full px-4 py-2.5 text-xs text-blue-300 hover:bg-white/5 flex items-center gap-2.5 cursor-pointer font-bold"
+                                        >
+                                          <User className="w-4 h-4" />
+                                          <span>Editar Dados do Aluno</span>
+                                        </button>
                                         <button
                                           onClick={() => { handleOpenCourseManager(userItem); setActiveMenuUserId(null); }}
                                           className="w-full px-4 py-2.5 text-xs text-stone-200 hover:bg-white/5 flex items-center gap-2.5 cursor-pointer"
@@ -2214,6 +2300,111 @@ export default function StudentDirectory() {
                 </button>
               </div>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal de Edição dos Dados do Aluno */}
+      {editingStudent && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-in fade-in">
+          <div className="w-full max-w-md bg-[#181818] border border-[#e9c349]/40 rounded-2xl p-6 sm:p-8 shadow-2xl relative text-left">
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-[#e9c349]/20 border border-[#e9c349]/40 flex items-center justify-center text-[#e9c349]">
+                  <User className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-bold text-white font-headline">Editar Dados do Estudante</h3>
+                  <p className="text-xs text-stone-400 font-mono">{editingStudent.email}</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setEditingStudent(null)}
+                className="text-stone-400 hover:text-white p-1 rounded-lg hover:bg-white/10 cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveEditStudent} className="space-y-4">
+              <div className="space-y-1.5">
+                <label className="block text-xs font-bold text-stone-300 uppercase tracking-wider">
+                  NOME COMPLETO DO ESTUDANTE
+                </label>
+                <input
+                  type="text"
+                  value={editFullName}
+                  onChange={(e) => setEditFullName(e.target.value)}
+                  placeholder="Nome Completo do Aluno"
+                  required
+                  className="w-full bg-[#121212] border border-white/10 rounded-xl py-3 px-4 text-white placeholder:text-stone-600 focus:border-[#e9c349] focus:outline-none text-sm"
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="block text-xs font-bold text-stone-300 uppercase tracking-wider">
+                  WHATSAPP / TELEFONE
+                </label>
+                <div className="flex gap-2">
+                  <div className="relative w-[35%] min-w-[100px]">
+                    <select
+                      className="w-full bg-[#121212] border border-white/10 rounded-xl py-3 pl-3 pr-8 text-white text-xs focus:border-[#e9c349] focus:outline-none appearance-none cursor-pointer"
+                      value={editPhoneCountryCode}
+                      onChange={(e) => setEditPhoneCountryCode(e.target.value)}
+                    >
+                      <option value="+244">🇦🇴 +244</option>
+                      <option value="+351">🇵🇹 +351</option>
+                      <option value="+55">🇧🇷 +55</option>
+                      <option value="+258">🇲🇿 +258</option>
+                      <option value="+238">🇨🇻 +238</option>
+                      <option value="+245">🇬🇼 +245</option>
+                      <option value="+239">🇸🇹 +239</option>
+                      <option value="+1">🇺🇸 +1</option>
+                      <option value="+34">🇪🇸 +34</option>
+                      <option value="+44">🇬🇧 +44</option>
+                    </select>
+                    <div className="pointer-events-none absolute inset-y-0 right-2 flex items-center text-stone-400">
+                      <span className="material-symbols-outlined text-sm">keyboard_arrow_down</span>
+                    </div>
+                  </div>
+                  <input
+                    type="tel"
+                    value={editPhoneNumber}
+                    onChange={(e) => setEditPhoneNumber(e.target.value)}
+                    placeholder="923 456 789"
+                    className="flex-grow w-[65%] bg-[#121212] border border-white/10 rounded-xl py-3 px-4 text-white placeholder:text-stone-600 focus:border-[#e9c349] focus:outline-none text-sm"
+                  />
+                </div>
+              </div>
+
+              <div className="pt-3 flex items-center justify-end gap-3">
+                <button
+                  type="button"
+                  onClick={() => setEditingStudent(null)}
+                  className="px-4 py-2.5 rounded-xl text-xs font-semibold text-stone-400 hover:text-white cursor-pointer"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSavingEditStudent}
+                  className="px-6 py-2.5 rounded-xl text-xs font-bold bg-[#e9c349] text-black hover:bg-[#d4b03f] active:scale-95 transition-all shadow-md flex items-center gap-2 disabled:opacity-50 cursor-pointer"
+                >
+                  {isSavingEditStudent ? (
+                    <>
+                      <div className="w-4 h-4 border-2 border-black border-t-transparent rounded-full animate-spin"></div>
+                      <span>Salvando...</span>
+                    </>
+                  ) : (
+                    <>
+                      <CheckCircle className="w-4 h-4" />
+                      <span>Salvar Alterações</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

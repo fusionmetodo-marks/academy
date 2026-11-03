@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
-import { loginWithGoogle, loginWithEmail, registerWithEmail, sendResetEmail, db } from '../firebase';
+import { loginWithGoogle, loginWithEmail, registerWithEmail, sendResetEmail, db, logout } from '../firebase';
 import { doc, getDoc, setDoc, serverTimestamp } from 'firebase/firestore';
+import { updateProfile } from 'firebase/auth';
 import { DEFAULT_CFA_LOGO, getValidLogoUrl, isMasterEmail } from '../utils/constants';
 import { ProducerContractModal } from '../components/ProducerContractModal';
 import { sendSystemNotification } from '../services/notificationService';
@@ -21,6 +22,15 @@ export default function Login() {
   const [phoneCountryCode, setPhoneCountryCode] = useState('+244'); // Default to Angola
   const [phoneNumber, setPhoneNumber] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
+
+  // Modal Obrigatório de Conclusão de Cadastro Google (Nome Completo e Telefone)
+  const [showGoogleProfileModal, setShowGoogleProfileModal] = useState(false);
+  const [googlePendingUser, setGooglePendingUser] = useState<any | null>(null);
+  const [googleName, setGoogleName] = useState('');
+  const [googlePhoneCountryCode, setGooglePhoneCountryCode] = useState('+244');
+  const [googlePhoneNumber, setGooglePhoneNumber] = useState('');
+  const [googleModalError, setGoogleModalError] = useState<string | null>(null);
+  const [isSubmittingGoogleModal, setIsSubmittingGoogleModal] = useState(false);
 
   // Password security verification
   const isPasswordMinLength = password.length >= 8;
@@ -95,6 +105,12 @@ export default function Login() {
     let status = isAdminEmail ? 'active' : 'inactive';
     let isApproved = true;
 
+    // Normalização rigorosa do Nome Completo
+    const rawProvidedName = (registrationData?.firstName || user.displayName || '').trim();
+    const nameParts = rawProvidedName.split(' ').filter(Boolean);
+    const fName = nameParts[0] || rawProvidedName;
+    const lName = nameParts.slice(1).join(' ');
+
     if (!userSnap.exists()) {
       if (isAdminEmail) {
         role = 'admin';
@@ -120,10 +136,18 @@ export default function Login() {
         createdAt: serverTimestamp()
       };
 
-      if (registrationData) {
-        payload.fullName = registrationData.firstName;
-        payload.phoneCountryCode = registrationData.phoneCountryCode;
-        payload.phoneNumber = registrationData.phoneNumber;
+      if (rawProvidedName) {
+        payload.fullName = rawProvidedName;
+        payload.firstName = fName;
+        payload.lastName = lName;
+        payload.name = rawProvidedName;
+        payload.displayName = rawProvidedName;
+      }
+
+      if (registrationData?.phoneNumber) {
+        payload.phoneCountryCode = registrationData.phoneCountryCode || '+244';
+        payload.phoneNumber = registrationData.phoneNumber.trim();
+        payload.profileCompleted = true;
       }
 
       await setDoc(userRef, payload);
@@ -133,13 +157,13 @@ export default function Login() {
         sendSystemNotification({
           type: 'new_student',
           title: '🎓 Novo Estudante Cadastrado!',
-          message: `${registrationData?.firstName ? `${registrationData.firstName}` : cleanEmail} acabou de se cadastrar como Estudante na Money Building - Academia de Opções Binárias.`,
+          message: `${rawProvidedName ? rawProvidedName : cleanEmail} acabou de se cadastrar como Estudante na Money Building - Academia de Opções Binárias.`,
           link: '/students',
           targetRole: 'admin',
           metadata: {
             email: cleanEmail,
-            name: `${registrationData?.firstName || ''}`.trim(),
-            phone: `${registrationData?.phoneCountryCode || ''} ${registrationData?.phoneNumber || ''}`.trim(),
+            name: rawProvidedName || cleanEmail,
+            phone: `${registrationData?.phoneCountryCode || '+244'} ${registrationData?.phoneNumber || ''}`.trim(),
             uid: user.uid
           }
         });
@@ -150,16 +174,33 @@ export default function Login() {
       status = isAdminEmail ? 'active' : (data.subscriptionStatus || 'active');
       isApproved = true;
 
+      const updateData: any = {};
       if (isAdminEmail && (data.role !== 'admin' || data.subscriptionStatus !== 'active')) {
-        await setDoc(userRef, { role: 'admin', subscriptionStatus: 'active', roleType: 'admin', isApproved: true }, { merge: true });
+        updateData.role = 'admin';
+        updateData.subscriptionStatus = 'active';
+        updateData.roleType = 'admin';
+        updateData.isApproved = true;
       }
 
       if (registrationData) {
-        await setDoc(userRef, {
-          fullName: registrationData.firstName,
-          phoneCountryCode: registrationData.phoneCountryCode,
-          phoneNumber: registrationData.phoneNumber
-        }, { merge: true });
+        updateData.fullName = rawProvidedName;
+        updateData.firstName = fName;
+        updateData.lastName = lName;
+        updateData.name = rawProvidedName;
+        updateData.displayName = rawProvidedName;
+        updateData.phoneCountryCode = registrationData.phoneCountryCode || '+244';
+        updateData.phoneNumber = registrationData.phoneNumber.trim();
+        updateData.profileCompleted = true;
+      } else if (rawProvidedName && !data.fullName && !data.firstName) {
+        updateData.fullName = rawProvidedName;
+        updateData.firstName = fName;
+        updateData.lastName = lName;
+        updateData.name = rawProvidedName;
+        updateData.displayName = rawProvidedName;
+      }
+
+      if (Object.keys(updateData).length > 0) {
+        await setDoc(userRef, updateData, { merge: true });
       }
 
       // Se for produtor e ainda não assinou o contrato digital, abre o contrato
@@ -167,7 +208,7 @@ export default function Login() {
         setPendingContractUser({
           uid: user.uid,
           email: cleanEmail,
-          fullName: data.fullName || registrationData?.firstName || '',
+          fullName: data.fullName || rawProvidedName || '',
           phoneNumber: data.phoneNumber || registrationData?.phoneNumber || '',
           phoneCountryCode: data.phoneCountryCode || registrationData?.phoneCountryCode || '+244',
           contractAccepted: false,
@@ -234,11 +275,11 @@ export default function Login() {
     
     if (isRegistering) {
       if (!firstName.trim()) {
-        setErrorMessage("Por favor, informe o seu Nome Completo.");
+        setErrorMessage("Por favor, informe o seu Nome Completo (obrigatório).");
         return;
       }
       if (!phoneNumber.trim()) {
-        setErrorMessage("Por favor, insira o seu número de telefone.");
+        setErrorMessage("Por favor, insira o seu número de WhatsApp / Telefone (obrigatório).");
         return;
       }
       if (!email.trim()) {
@@ -260,6 +301,11 @@ export default function Login() {
       let user;
       if (isRegistering) {
         user = await registerWithEmail(email, password);
+        try {
+          await updateProfile(user, { displayName: firstName.trim() });
+        } catch (profileErr) {
+          console.warn("Could not update displayName on email registration:", profileErr);
+        }
       } else {
         user = await loginWithEmail(email, password);
       }
@@ -281,6 +327,28 @@ export default function Login() {
     setSuccessMessage(null);
     try {
       const user = await loginWithGoogle();
+      const cleanEmail = (user.email || '').trim().toLowerCase();
+      const isAdminEmail = isMasterEmail(cleanEmail);
+
+      const userRef = doc(db, 'users', user.uid);
+      const userSnap = await getDoc(userRef);
+
+      const existingData = userSnap.exists() ? userSnap.data() : null;
+      const existingFullName = (existingData?.fullName || existingData?.firstName || existingData?.name || '').trim();
+      const existingPhone = (existingData?.phoneNumber || '').trim();
+
+      // Regra Rigorosa: Quem entrar pelo Google DEVE ter Nome Completo e Telefone/WhatsApp
+      if (!isAdminEmail && (!existingFullName || !existingPhone)) {
+        setGooglePendingUser(user);
+        setGoogleName(existingFullName || user.displayName || '');
+        setGooglePhoneCountryCode(existingData?.phoneCountryCode || '+244');
+        setGooglePhoneNumber(existingPhone);
+        setGoogleModalError(null);
+        setShowGoogleProfileModal(true);
+        setIsLoading(false);
+        return;
+      }
+
       await handleUserRouting(user);
     } catch (error: any) {
       console.error("Login failed", error);
@@ -288,6 +356,57 @@ export default function Login() {
     } finally {
       setIsLoading(false);
     }
+  };
+
+  const handleCompleteGoogleProfile = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!googlePendingUser) return;
+
+    const trimmedName = googleName.trim();
+    const trimmedPhone = googlePhoneNumber.trim();
+
+    if (!trimmedName || trimmedName.length < 2) {
+      setGoogleModalError("Por favor, digite o seu Nome Completo (obrigatório).");
+      return;
+    }
+    if (!trimmedPhone || trimmedPhone.length < 5) {
+      setGoogleModalError("Por favor, insira o seu número de WhatsApp / Telefone válido (obrigatório).");
+      return;
+    }
+
+    setIsSubmittingGoogleModal(true);
+    setGoogleModalError(null);
+
+    try {
+      const user = googlePendingUser;
+      try {
+        await updateProfile(user, { displayName: trimmedName });
+      } catch (authErr) {
+        console.warn("Could not update auth displayName:", authErr);
+      }
+
+      await handleUserRouting(user, {
+        firstName: trimmedName,
+        phoneCountryCode: googlePhoneCountryCode,
+        phoneNumber: trimmedPhone
+      });
+
+      setShowGoogleProfileModal(false);
+      setGooglePendingUser(null);
+    } catch (err: any) {
+      console.error("Erro ao salvar perfil Google:", err);
+      setGoogleModalError("Erro ao salvar seus dados: " + (err.message || err));
+    } finally {
+      setIsSubmittingGoogleModal(false);
+    }
+  };
+
+  const handleCancelGoogleModal = async () => {
+    setShowGoogleProfileModal(false);
+    setGooglePendingUser(null);
+    try {
+      await logout();
+    } catch (_) {}
   };
 
   return (
@@ -382,14 +501,14 @@ export default function Login() {
             {isRegistering && (
               <div className="space-y-2">
                 <label className="block text-xs font-semibold text-on-surface-variant uppercase tracking-wider font-label" htmlFor="fullName">
-                  NOME COMPLETO
+                  NOME COMPLETO (OBRIGATÓRIO)
                 </label>
                 <input
                   className="w-full bg-surface-container-lowest border-none rounded-xl py-3.5 px-4 text-on-surface placeholder:text-outline-variant/60 focus:ring-1 focus:ring-primary transition-all duration-300 outline-none font-body"
                   id="fullName"
                   value={firstName}
                   onChange={(e) => setFirstName(e.target.value)}
-                  placeholder="Ex: João Silva"
+                  placeholder="Ex: João Manuel dos Santos"
                   type="text"
                   required
                 />
@@ -399,7 +518,7 @@ export default function Login() {
             {isRegistering && (
               <div className="space-y-2">
                 <label className="block text-xs font-semibold text-on-surface-variant uppercase tracking-wider font-label" htmlFor="phoneNumber">
-                  CONTATO DO PAI / RESPONSÁVEL (DDI E TELEFONE)
+                  WHATSAPP / TELEFONE (OBRIGATÓRIO)
                 </label>
                 <div className="flex gap-2">
                   <div className="relative w-[35%] min-w-[100px]">
@@ -409,9 +528,9 @@ export default function Login() {
                       onChange={(e) => setPhoneCountryCode(e.target.value)}
                       aria-label="Código telefônico do país (DDI)"
                     >
-                      <option value="+55">🇧🇷 +55</option>
                       <option value="+244">🇦🇴 +244</option>
                       <option value="+351">🇵🇹 +351</option>
+                      <option value="+55">🇧🇷 +55</option>
                       <option value="+258">🇲🇿 +258</option>
                       <option value="+238">🇨🇻 +238</option>
                       <option value="+245">🇬🇼 +245</option>
@@ -430,7 +549,7 @@ export default function Login() {
                     id="phoneNumber"
                     value={phoneNumber}
                     onChange={(e) => setPhoneNumber(e.target.value)}
-                    placeholder="99999-9999"
+                    placeholder="923 456 789"
                     type="tel"
                     required
                   />
@@ -636,6 +755,116 @@ export default function Login() {
             navigate('/library');
           }}
         />
+      )}
+
+      {/* Modal Obrigatório de Conclusão de Cadastro Google */}
+      {showGoogleProfileModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-md animate-in fade-in">
+          <div className="w-full max-w-md bg-[#181818] border border-[#e9c349]/40 rounded-2xl p-6 sm:p-8 shadow-2xl relative text-left">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="w-10 h-10 rounded-xl bg-[#e9c349]/20 border border-[#e9c349]/40 flex items-center justify-center text-[#e9c349]">
+                <span className="material-symbols-outlined text-2xl">person_check</span>
+              </div>
+              <div>
+                <h3 className="text-lg font-bold text-white font-headline">Concluir Cadastro de Estudante</h3>
+                <p className="text-xs text-stone-400">Conta Google sincronizada com sucesso</p>
+              </div>
+            </div>
+
+            <p className="text-xs text-stone-300 leading-relaxed mb-5 bg-[#222] p-3 rounded-xl border border-white/5">
+              💡 Para emissão de certificados, controle de matrículas e suporte individualizado na <strong>Money Building</strong>, é obrigatório preencher o seu <strong>Nome Completo</strong> e seu número de <strong>WhatsApp</strong>.
+            </p>
+
+            {googleModalError && (
+              <div className="mb-4 bg-rose-500/10 border border-rose-500/20 text-rose-200 text-xs p-3 rounded-xl flex items-center gap-2">
+                <span className="material-symbols-outlined text-sm">error</span>
+                <span>{googleModalError}</span>
+              </div>
+            )}
+
+            <form onSubmit={handleCompleteGoogleProfile} className="space-y-4">
+              <div className="space-y-1.5">
+                <label className="block text-[11px] font-bold text-stone-300 uppercase tracking-wider">
+                  NOME COMPLETO (OBRIGATÓRIO)
+                </label>
+                <input
+                  type="text"
+                  value={googleName}
+                  onChange={(e) => setGoogleName(e.target.value)}
+                  placeholder="Ex: João Manuel dos Santos"
+                  required
+                  className="w-full bg-[#121212] border border-white/10 rounded-xl py-3 px-4 text-white placeholder:text-stone-600 focus:border-[#e9c349] focus:outline-none text-sm"
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="block text-[11px] font-bold text-stone-300 uppercase tracking-wider">
+                  WHATSAPP / TELEFONE (OBRIGATÓRIO)
+                </label>
+                <div className="flex gap-2">
+                  <div className="relative w-[35%] min-w-[100px]">
+                    <select
+                      className="w-full bg-[#121212] border border-white/10 rounded-xl py-3 pl-3 pr-8 text-white text-xs focus:border-[#e9c349] focus:outline-none appearance-none cursor-pointer"
+                      value={googlePhoneCountryCode}
+                      onChange={(e) => setGooglePhoneCountryCode(e.target.value)}
+                      aria-label="Código telefônico do país (DDI)"
+                    >
+                      <option value="+244">🇦🇴 +244</option>
+                      <option value="+351">🇵🇹 +351</option>
+                      <option value="+55">🇧🇷 +55</option>
+                      <option value="+258">🇲🇿 +258</option>
+                      <option value="+238">🇨🇻 +238</option>
+                      <option value="+245">🇬🇼 +245</option>
+                      <option value="+239">🇸🇹 +239</option>
+                      <option value="+1">🇺🇸 +1</option>
+                      <option value="+34">🇪🇸 +34</option>
+                      <option value="+44">🇬🇧 +44</option>
+                    </select>
+                    <div className="pointer-events-none absolute inset-y-0 right-2 flex items-center text-stone-400">
+                      <span className="material-symbols-outlined text-sm">keyboard_arrow_down</span>
+                    </div>
+                  </div>
+                  <input
+                    type="tel"
+                    value={googlePhoneNumber}
+                    onChange={(e) => setGooglePhoneNumber(e.target.value)}
+                    placeholder="923 456 789"
+                    required
+                    className="flex-grow w-[65%] bg-[#121212] border border-white/10 rounded-xl py-3 px-4 text-white placeholder:text-stone-600 focus:border-[#e9c349] focus:outline-none text-sm"
+                  />
+                </div>
+              </div>
+
+              <div className="pt-2 flex flex-col gap-2">
+                <button
+                  type="submit"
+                  disabled={isSubmittingGoogleModal}
+                  className="w-full py-3.5 bg-[#e9c349] hover:bg-[#d8b33c] text-stone-900 font-black text-sm rounded-xl transition-all shadow-lg shadow-[#e9c349]/10 cursor-pointer flex items-center justify-center gap-2 disabled:opacity-50"
+                >
+                  {isSubmittingGoogleModal ? (
+                    <>
+                      <div className="w-4 h-4 border-2 border-stone-900 border-t-transparent rounded-full animate-spin"></div>
+                      <span>Salvando dados...</span>
+                    </>
+                  ) : (
+                    <>
+                      <span className="material-symbols-outlined text-base">check</span>
+                      <span>Concluir e Acessar Plataforma</span>
+                    </>
+                  )}
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleCancelGoogleModal}
+                  className="w-full py-2.5 text-xs text-stone-400 hover:text-white transition-colors cursor-pointer text-center"
+                >
+                  Cancelar e Desconectar
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
       )}
       <footer className="relative z-10 w-full px-8 py-10 flex flex-col md:flex-row justify-between items-center gap-6">
         <div className="flex items-center gap-6">

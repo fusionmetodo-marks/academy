@@ -76,12 +76,16 @@ export const adminCreateStudentAccount = async (
     const selectedCourses = studentData.enrolledCourses || [];
     const hasCourses = selectedCourses.length > 0;
 
+    const fullName = `${studentData.firstName.trim()} ${studentData.lastName?.trim() || ''}`.trim();
     const userRef = doc(db, 'users', newUid);
     await setDoc(userRef, {
       uid: newUid,
       email: email.trim().toLowerCase(),
       firstName: studentData.firstName.trim(),
-      lastName: studentData.lastName.trim(),
+      lastName: studentData.lastName?.trim() || '',
+      fullName: fullName,
+      name: fullName,
+      displayName: fullName,
       phoneCountryCode: studentData.phoneCountryCode || '+244',
       phoneNumber: studentData.phoneNumber || '',
       role: 'student',
@@ -89,6 +93,7 @@ export const adminCreateStudentAccount = async (
       subscriptionStatus: hasCourses ? 'active' : 'inactive',
       enrolledCourses: selectedCourses,
       plan: hasCourses ? (studentData.plan || 'Estudante Matriculado') : 'Estudante Cadastrado (Sem Curso)',
+      profileCompleted: true,
       createdAt: serverTimestamp(),
       createdBy: auth.currentUser?.email || 'admin'
     });
