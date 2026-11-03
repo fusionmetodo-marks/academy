@@ -4,6 +4,7 @@ import { auth, db } from '../firebase';
 import { subscribeUserEnrollments } from '../services/enrollmentService';
 import { BookOpen, Play, CheckCircle2, Award, ArrowRight, Clock, ExternalLink } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
+import { sortCoursesByLevel } from '../utils/courseSorting';
 
 interface Course {
   id: string;
@@ -59,10 +60,10 @@ export default function StudentMyCourses({ onExplore }: { onExplore: () => void 
     return () => unsubCourses();
   }, []);
 
-  // 3. Filtrar cursos conforme a lista de matriculados
+  // 3. Filtrar cursos conforme a lista de matriculados e ordenar por Nível
   useEffect(() => {
     const myFiltered = allCourses.filter(c => enrolledCourseIds.includes(c.id));
-    setCourses(myFiltered);
+    setCourses(sortCoursesByLevel(myFiltered));
   }, [allCourses, enrolledCourseIds]);
 
   if (loading) {

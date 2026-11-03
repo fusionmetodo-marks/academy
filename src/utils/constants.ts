@@ -34,7 +34,7 @@ export interface PaymentProofData {
   courseTitle: string;
   formattedPrice: string;
   paymentMethod: string;
-  referenceNumber: string;
+  referenceNumber?: string;
   whatsappNumber?: string;
 }
 
@@ -45,7 +45,6 @@ export function buildPaymentProofWhatsAppMessage(data: PaymentProofData): string
   const course = (data.courseTitle || '').trim() || 'Curso / Mentoria';
   const price = (data.formattedPrice || '').trim() || 'A confirmar';
   const method = (data.paymentMethod || '').trim() || 'Transferência';
-  const ref = (data.referenceNumber || '').trim() || 'Sem código de ref.';
 
   return `👋 *SOLICITAÇÃO DE VERIFICAÇÃO DE COMPROVATIVO*
 *Plataforma Money Building*
@@ -61,7 +60,6 @@ Olá, equipe de Suporte! Acabei de realizar o pagamento para adesão e gostaria 
 • *Curso / Serviço:* ${course}
 • *Valor:* ${price}
 • *Método de Pagamento:* ${method}
-• *Nº / Ref. do Comprovativo:* ${ref}
 
 📎 *Ação Necessária:*
 Segue em anexo o meu comprovativo de pagamento para validação e liberação do acesso à minha conta na plataforma. Obrigado!`;

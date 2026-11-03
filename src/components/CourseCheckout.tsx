@@ -42,7 +42,6 @@ export default function CourseCheckout({ courseId, courseTitle, coursePrice, cou
   const [producerName, setProducerName] = useState<string | null>(null);
   const [courseAuthorId, setCourseAuthorId] = useState<string | null>(null);
   const [courseAuthorEmail, setCourseAuthorEmail] = useState<string | null>(null);
-  const [bankReference, setBankReference] = useState(''); 
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [effectiveCover, setEffectiveCover] = useState<string>(courseCover || '');
@@ -383,21 +382,10 @@ export default function CourseCheckout({ courseId, courseTitle, coursePrice, cou
     setTimeout(() => setCopiedKey(null), 2000);
   };
 
-  const handleGenerateRefCode = () => {
-    const randomCode = `REF-${Math.floor(100000 + Math.random() * 900000)}`;
-    setBankReference(randomCode);
-  };
-
   const handleConfirmAndRedirect = async (e: React.FormEvent) => {
     e.preventDefault();
     
     const finalStudentName = studentNameInput.trim() || user?.name || 'Aluno';
-    const cleanRef = bankReference.trim();
-
-    if (!cleanRef) {
-      alert('Por favor, insira o número de referência ou do talão do seu comprovativo de pagamento.');
-      return;
-    }
 
     const targetPhone = (producerWhatsApp || supportNumber || '244923456789').replace(/[^0-9]/g, '');
     if (!targetPhone) {
@@ -423,7 +411,6 @@ export default function CourseCheckout({ courseId, courseTitle, coursePrice, cou
       userPhone: studentPhoneInput.trim() || '',
       courseId,
       courseTitle: safeTitle,
-      referenceNumber: cleanRef,
       paymentMethod: selectedMethod.shortName || selectedMethod.bankName || 'Transferência',
       amount: finalPrice,
       originalAmount: safePrice,
@@ -444,14 +431,13 @@ export default function CourseCheckout({ courseId, courseTitle, coursePrice, cou
       sendSystemNotification({
         type: 'payment_submitted',
         title: '💳 Pagamento Informado ("Já Paguei")!',
-        message: `O estudante ${finalStudentName} informou pagamento de ${formattedPrice} no curso "${safeTitle}" (Formador: ${courseAuthorEmail || 'Marks o Monstro'}). Referência: ${cleanRef}`,
+        message: `O estudante ${finalStudentName} informou pagamento de ${formattedPrice} no curso "${safeTitle}" (Formador: ${courseAuthorEmail || 'Marks o Monstro'}).`,
         link: '/dashboard',
         targetRole: 'admin',
         metadata: {
           studentName: finalStudentName,
           courseTitle: safeTitle,
           amount: finalPrice,
-          referenceNumber: cleanRef,
           paymentMethod: selectedMethod.shortName || selectedMethod.bankName || 'Transferência',
           phone: studentPhoneInput.trim()
         }
@@ -473,7 +459,6 @@ export default function CourseCheckout({ courseId, courseTitle, coursePrice, cou
             studentName: finalStudentName,
             courseTitle: safeTitle,
             amount: finalPrice,
-            referenceNumber: cleanRef,
             targetEmail: producerEmail
           }
         });
@@ -501,7 +486,6 @@ export default function CourseCheckout({ courseId, courseTitle, coursePrice, cou
         courseTitle: safeTitle,
         formattedPrice,
         paymentMethod: selectedMethod.shortName || selectedMethod.bankName || 'Transferência',
-        referenceNumber: cleanRef,
         whatsappNumber: targetPhone || DEFAULT_SUPPORT_WHATSAPP
       });
       
@@ -529,7 +513,6 @@ export default function CourseCheckout({ courseId, courseTitle, coursePrice, cou
         `• *Curso:* ${safeTitle}\n` +
         `• *Aluno:* ${finalStudentName}\n` +
         `• *Valor Pago:* ${formattedPrice}\n` +
-        `• *Código de Referência:* ${cleanRef}\n` +
         `• *Método:* ${selectedMethod.shortName || selectedMethod.bankName}\n\n` +
         `📎 Segue em anexo o meu comprovativo de pagamento para validação e liberação do acesso. Gostaria que confirmassem. Obrigado!`;
 
@@ -577,7 +560,7 @@ export default function CourseCheckout({ courseId, courseTitle, coursePrice, cou
             <p className="text-gray-400 text-xs sm:text-sm mb-6 sm:mb-8 leading-relaxed">
               1. Selecione abaixo o método de pagamento oficial ativo.<br/>
               2. Efetue a transferência ou depósito correspondente.<br/>
-              3. Insira o número de referência/talão no campo ao lado para envio automático.
+              3. Clique em enviar para encaminhar o comprovativo diretamente ao suporte no WhatsApp.
             </p>
 
             {/* ABAS HORIZONTAIS DE MÉTODOS */}
@@ -625,6 +608,15 @@ export default function CourseCheckout({ courseId, courseTitle, coursePrice, cou
                 </div>
               </div>
             )}
+
+            {/* AVISO / CONSELHO DE TRANSFERÊNCIA MESMO BANCO PARA ACESSO RÁPIDO */}
+            <div className="mt-5 p-4 rounded-2xl bg-[#e9c349]/10 border border-[#e9c349]/30 flex items-start gap-3">
+              <Sparkles className="w-5 h-5 text-[#e9c349] shrink-0 mt-0.5" />
+              <div className="text-xs text-stone-300 leading-relaxed">
+                <strong className="text-[#e9c349] font-bold block mb-0.5">💡 Conselho para Liberação Rápida do Acesso:</strong>
+                Recomendamos preferencialmente efetuar a transferência a partir do <strong>mesmo banco</strong> ou via <strong>Multicaixa Express / KWIK</strong>. Transferências entre o mesmo banco caem imediatamente e aceleram a validação do seu acesso!
+              </div>
+            </div>
           </div>
 
           {/* LADO DIREITO: Resumo e Formulário de Envio */}
@@ -800,10 +792,6 @@ export default function CourseCheckout({ courseId, courseTitle, coursePrice, cou
                   </div>
 
                   <div className="bg-black/60 p-4 rounded-xl border border-gray-800 space-y-2 text-xs">
-                    <div className="flex justify-between items-center border-b border-gray-800/80 pb-2">
-                      <span className="text-stone-400">Código / Referência:</span>
-                      <strong className="text-[#e9c349] font-mono text-sm">{bankReference || lastSubmittedTx?.referenceNumber || 'REF-CFA'}</strong>
-                    </div>
                     <div className="flex justify-between items-center">
                       <span className="text-stone-400">Aluno:</span>
                       <span className="text-white font-medium">{studentNameInput || lastSubmittedTx?.userName || 'Aluno'}</span>
@@ -833,7 +821,6 @@ export default function CourseCheckout({ courseId, courseTitle, coursePrice, cou
                         `• *Curso:* ${safeTitle}\n` +
                         `• *Aluno:* ${studentNameInput.trim() || user?.name || 'Aluno'}\n` +
                         `• *Valor Pago:* ${new Intl.NumberFormat('pt-AO', { style: 'currency', currency: 'AOA', maximumFractionDigits: 0 }).format(finalPrice)}\n` +
-                        `• *Código de Referência:* ${bankReference || lastSubmittedTx?.referenceNumber || 'REF-CFA'}\n` +
                         `• *Método:* ${activeMethod.shortName || activeMethod.bankName}\n\n` +
                         `📎 Segue em anexo o meu comprovativo de pagamento para validação e liberação do acesso. Gostaria que confirmassem. Obrigado!`
                       )}`}
@@ -920,30 +907,6 @@ export default function CourseCheckout({ courseId, courseTitle, coursePrice, cou
                     />
                   </div>
 
-                  {/* INPUT PARA REFERÊNCIA BANCÁRIA DO ALUNO */}
-                  <div>
-                    <div className="flex items-center justify-between mb-1.5">
-                      <label className="block text-[11px] font-bold text-gray-400 uppercase tracking-wider font-mono">
-                        Código / Nº do Talão (Obrigatório)
-                      </label>
-                      <button
-                        type="button"
-                        onClick={handleGenerateRefCode}
-                        className="text-[11px] text-[#e9c349] hover:underline cursor-pointer font-medium"
-                      >
-                        Gerar Código Auto
-                      </button>
-                    </div>
-                    <input
-                      type="text"
-                      required
-                      value={bankReference}
-                      onChange={(e) => setBankReference(e.target.value)}
-                      placeholder="Ex: 884920311 ou Talão Multicaixa"
-                      className="w-full bg-black/80 border border-gray-700 text-white rounded-xl p-3 focus:border-[#e9c349] outline-none font-mono text-sm placeholder:font-sans placeholder:text-gray-600 transition-all"
-                    />
-                  </div>
-
                   {/* Card com Resumo Organizado antes de enviar */}
                   <div className="bg-black/60 border border-gray-800/80 rounded-xl p-3.5 space-y-1.5 text-[11px]">
                     <span className="text-[10px] uppercase font-mono text-stone-500 font-bold block mb-1">
@@ -987,7 +950,7 @@ export default function CourseCheckout({ courseId, courseTitle, coursePrice, cou
                       ) : (
                         <>
                           <MessageCircle className="w-5 h-5 fill-white shrink-0" />
-                          <span>Enviar Comprovativo e Referência no WhatsApp</span>
+                          <span>Enviar Comprovativo no WhatsApp</span>
                         </>
                       )}
                     </button>
@@ -1006,7 +969,7 @@ export default function CourseCheckout({ courseId, courseTitle, coursePrice, cou
               <div className="mt-6 pt-4 border-t border-gray-800 flex items-start gap-2.5 text-gray-400 text-xs">
                 <ShieldCheck className="w-4 h-4 text-[#e9c349] shrink-0 mt-0.5" />
                 <span className="leading-relaxed text-[11px]">
-                  O seu acesso será liberado assim que o suporte ou produtor validar o comprovativo e a referência no WhatsApp.
+                  O seu acesso será liberado assim que o suporte ou produtor validar o seu comprovativo no WhatsApp.
                 </span>
               </div>
             </div>

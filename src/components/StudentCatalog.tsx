@@ -9,6 +9,7 @@ import ExpandableSearch from './ExpandableSearch';
 import { Coupon } from '../types';
 import { EcosystemFooter } from './EcosystemFooter';
 import { isMasterEmail } from '../utils/constants';
+import { sortCoursesByLevel } from '../utils/courseSorting';
 
 export interface Course {
   id: string;
@@ -192,7 +193,7 @@ export default function StudentCatalog({ onSelectCourse }: StudentCatalogProps) 
         id: doc.id,
         ...doc.data()
       })) as Course[];
-      setCourses(coursesList);
+      setCourses(sortCoursesByLevel(coursesList));
       setIsLoading(false);
     }, (error) => {
       console.error("Erro ao buscar cursos:", error);

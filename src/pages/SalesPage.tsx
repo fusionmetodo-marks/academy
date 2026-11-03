@@ -1,10 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { collection, getDocs, query, where, doc, getDoc } from 'firebase/firestore';
+import { collection, getDocs, query, where, doc, getDoc, onSnapshot } from 'firebase/firestore';
 import { Coupon } from '../types';
 import { auth, db } from '../firebase';
 import { onAuthStateChanged } from 'firebase/auth';
 import { DEFAULT_CFA_LOGO, getValidLogoUrl, isMasterEmail, DEFAULT_SUPPORT_WHATSAPP } from '../utils/constants';
+import { sortCoursesByLevel } from '../utils/courseSorting';
 import HeroSection from '../components/HeroSection';
 import AnnouncementBar from '../components/AnnouncementBar';
 import { EcosystemFooter } from '../components/EcosystemFooter';
@@ -237,6 +238,8 @@ export default function SalesPage() {
 
   // Fetch published courses and active coupons from database
   useEffect(() => {
+    let unsubscribeCourses = () => {};
+
     const fetchCoursesAndCoupons = async () => {
       try {
         // Fetch active coupons first
@@ -259,21 +262,29 @@ export default function SalesPage() {
           console.error("Erro ao carregar cupões na Landing Page:", couponErr);
         }
 
-        // Fetch courses
+        // Fetch courses in real time
         const q = query(collection(db, 'courses'), where("isPublished", "==", true));
-        const querySnapshot = await getDocs(q);
-        const coursesList = querySnapshot.docs.map(doc => ({
-          id: doc.id,
-          ...doc.data()
-        })) as Course[];
-        setCourses(coursesList);
+        unsubscribeCourses = onSnapshot(q, (querySnapshot) => {
+          const coursesList = querySnapshot.docs.map(doc => ({
+            id: doc.id,
+            ...doc.data()
+          })) as Course[];
+          setCourses(sortCoursesByLevel(coursesList));
+          setIsLoadingCourses(false);
+        }, (err) => {
+          console.error("Erro ao carregar cursos na Landing Page:", err);
+          setIsLoadingCourses(false);
+        });
       } catch (err) {
         console.error("Erro ao carregar dados na Landing Page:", err);
-      } finally {
         setIsLoadingCourses(false);
       }
     };
     fetchCoursesAndCoupons();
+
+    return () => {
+      unsubscribeCourses();
+    };
   }, []);
 
   // Handler for course CTA button clicks
@@ -411,7 +422,7 @@ export default function SalesPage() {
             </div>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
-              {courses.filter((_, idx) => idx >= 2).map((course) => {
+              {courses.map((course) => {
                 const isFree = !course.price || course.price === 0;
                 const isAlreadyEnrolled = enrolledCourseIds.includes(course.id);
                 

@@ -6,6 +6,7 @@ import { isMasterEmail } from '../utils/constants';
 import { notifyNewCourse } from '../services/notificationService';
 import { Coupon } from '../types';
 import { subscribeCoupons, getCourseDiscountInfo } from '../utils/discountUtils';
+import { getCourseLevelOrder, sortCoursesByLevel } from '../utils/courseSorting';
 
 interface CourseItem {
   id: string;
@@ -13,6 +14,7 @@ interface CourseItem {
   price: number;
   status: 'published' | 'draft';
   modulesCount: number;
+  order?: number;
   description?: string;
   coverImage?: string;
   producerName?: string;
@@ -229,12 +231,18 @@ export default function CoursesList({ onSelectCourse }: CoursesListProps) {
           if (!isMyCourse) return; // ignora cursos de outros produtores ou do admin master
         }
 
+        const detectedOrder = getCourseLevelOrder(data);
+        if (isMaster && data.order !== detectedOrder) {
+          updateDoc(doc(db, 'courses', docSnap.id), { order: detectedOrder }).catch(() => null);
+        }
+
         list.push({
           id: docSnap.id,
           title: data.title || 'Curso Sem Título',
           price: Number(data.price) || 0,
           status: (data.isPublished ?? data.status === 'published') ? 'published' : 'draft',
           modulesCount: Array.isArray(data.modules) ? data.modules.length : (data.modulesCount || 0),
+          order: data.order ?? detectedOrder,
           description: data.description || '',
           coverImage: data.coverImage || data.imageUrl || data.image || '',
           producerName: data.producerName || data.instructor || '',
@@ -242,7 +250,7 @@ export default function CoursesList({ onSelectCourse }: CoursesListProps) {
           authorId: data.authorId || ''
         });
       });
-      setCourses(list);
+      setCourses(sortCoursesByLevel(list));
       setLoading(false);
     }, (err) => {
       console.error("Erro ao carregar lista de cursos:", err);

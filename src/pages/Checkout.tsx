@@ -15,7 +15,6 @@ export default function Checkout() {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [selectedCourse, setSelectedCourse] = useState<{ id: string; title: string; price: number; coverImage?: string; authorId?: string } | null>(null);
   const [selectedMethod, setSelectedMethod] = useState('kwik');
-  const [referenceNumber, setReferenceNumber] = useState('');
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [supportWhatsApp, setSupportWhatsApp] = useState(DEFAULT_SUPPORT_WHATSAPP);
@@ -222,11 +221,6 @@ export default function Checkout() {
     setTimeout(() => setCopiedKey(null), 2000);
   };
 
-  const handleGenerateRefCode = () => {
-    const randomCode = `REF-${Math.floor(100000 + Math.random() * 900000)}`;
-    setReferenceNumber(randomCode);
-  };
-
   const coursePrice = selectedCourse ? selectedCourse.price : 0;
   const courseTitle = selectedCourse ? selectedCourse.title : 'Formação CFA';
   const courseId = selectedCourse ? selectedCourse.id : 'curso-cfa';
@@ -293,7 +287,6 @@ export default function Checkout() {
     const user = auth.currentUser || currentUser;
     const userId = user ? user.uid : `guest_${Date.now()}`;
     const txId = `tx_${Date.now()}`;
-    const cleanRef = referenceNumber.trim() || `REF-${Math.floor(100000 + Math.random() * 900000)}`;
     const studentDisplayName = user?.displayName || user?.email?.split('@')[0] || 'Aluno';
     const studentDisplayEmail = user?.email || '';
 
@@ -304,7 +297,6 @@ export default function Checkout() {
       userName: studentDisplayName,
       courseId: courseId,
       courseTitle: courseTitle,
-      referenceNumber: cleanRef,
       paymentMethod: selectedMethod,
       amount: finalPrice,
       originalAmount: coursePrice,
@@ -322,23 +314,16 @@ export default function Checkout() {
       sendSystemNotification({
         type: 'payment_submitted',
         title: '💳 Pagamento Informado ("Já Paguei")!',
-        message: `O aluno ${studentDisplayName} informou pagamento de ${finalPrice.toLocaleString('pt-AO')} Kz no curso "${selectedCourse?.title || courseTitle}". Referência: ${cleanRef}`,
+        message: `O aluno ${studentDisplayName} informou pagamento de ${finalPrice.toLocaleString('pt-AO')} Kz no curso "${selectedCourse?.title || courseTitle}".`,
         link: '/dashboard',
         targetRole: 'admin',
         metadata: {
           studentName: studentDisplayName,
           courseTitle: selectedCourse?.title || courseTitle,
           amount: finalPrice,
-          referenceNumber: cleanRef,
           paymentMethod: selectedMethod
         }
       });
-
-      if (user) {
-        await updateDoc(doc(db, 'users', user.uid), {
-          lastTransactionRef: cleanRef
-        }).catch(() => null);
-      }
 
       localStorage.setItem('cfa_last_transaction', JSON.stringify({
         ...transactionData,
@@ -461,7 +446,9 @@ export default function Checkout() {
             {/* Payment Methods Section - Exclusive Display per Selected Method */}
             <section className="bg-surface-container p-6 md:p-8 rounded-2xl border border-outline-variant/10">
               <div className="flex items-center gap-4 mb-6">
-                <div className="w-10 h-10 rounded-full bg-surface-container-highest flex items-center justify-center text-primary font-bold">01</div>
+                <div className="w-10 h-10 rounded-full bg-surface-container-highest flex items-center justify-center text-primary font-bold">
+                  <span className="material-symbols-outlined text-xl">payments</span>
+                </div>
                 <div>
                   <h2 className="text-xl font-bold font-headline">Coordenadas e Método de Pagamento</h2>
                   <p className="text-xs text-stone-400 mt-0.5">Selecione o método desejado para visualizar apenas as suas coordenadas oficiais.</p>
@@ -747,46 +734,13 @@ export default function Checkout() {
                   </div>
                 )}
               </div>
-            </section>
 
-            {/* Step 2: Transaction Reference Number / Proof */}
-            <section className="bg-surface-container p-6 md:p-8 rounded-2xl border border-outline-variant/10">
-              <div className="flex items-center gap-4 mb-6">
-                <div className="w-10 h-10 rounded-full bg-surface-container-highest flex items-center justify-center text-primary font-bold">02</div>
-                <div>
-                  <h2 className="text-xl font-bold font-headline">Número de Referência da Transação</h2>
-                  <p className="text-xs text-stone-400 mt-0.5">Insira o código/referência do comprovativo ou gere um código automático para envio.</p>
-                </div>
-              </div>
-              <div className="space-y-4">
-                <div>
-                  <div className="flex items-center justify-between mb-2">
-                    <label className="block text-xs font-bold uppercase tracking-wider text-on-surface-variant font-mono">
-                      Número da Transação / Referência <span className="text-primary">*</span>
-                    </label>
-                    <button
-                      type="button"
-                      onClick={handleGenerateRefCode}
-                      className="text-xs text-[#e9c349] hover:underline cursor-pointer font-bold flex items-center gap-1"
-                    >
-                      <span className="material-symbols-outlined text-sm">autorenew</span>
-                      Gerar Código Auto
-                    </button>
-                  </div>
-                  <div className="relative">
-                    <input 
-                      required
-                      value={referenceNumber}
-                      onChange={(e) => setReferenceNumber(e.target.value)}
-                      className="w-full bg-surface-container-highest border border-outline-variant/20 rounded-xl px-4 py-3 pl-11 focus:ring-1 focus:ring-primary text-on-surface placeholder:text-stone-600 transition-all outline-none font-mono text-base" 
-                      placeholder="Ex: TR-8920194, 9238472910 ou talão de pagamento" 
-                      type="text" 
-                    />
-                    <span className="material-symbols-outlined absolute left-3.5 top-3.5 text-stone-400 text-lg">tag</span>
-                  </div>
-                  <p className="text-[11px] text-stone-500 mt-2">
-                    Este código é registado na transação para conferência e validação da inscrição pelo suporte da Money Building - Academia de Opções Binárias.
-                  </p>
+              {/* AVISO / CONSELHO DE TRANSFERÊNCIA MESMO BANCO PARA ACESSO RÁPIDO */}
+              <div className="mt-6 p-4 rounded-2xl bg-[#e9c349]/10 border border-[#e9c349]/30 flex items-start gap-3">
+                <span className="material-symbols-outlined text-[#e9c349] text-xl shrink-0 mt-0.5">lightbulb</span>
+                <div className="text-xs text-stone-300 leading-relaxed">
+                  <strong className="text-[#e9c349] font-bold block mb-0.5">💡 Conselho para Liberação Rápida do Acesso:</strong>
+                  Recomendamos preferencialmente efetuar a transferência a partir do <strong>mesmo banco</strong> ou via <strong>Multicaixa Express / KWIK</strong>. Transferências entre o mesmo banco caem imediatamente e aceleram a validação do seu acesso!
                 </div>
               </div>
             </section>

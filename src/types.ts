@@ -30,7 +30,7 @@ export interface Transaction {
   userName: string;
   courseId: string;
   courseTitle: string;
-  referenceNumber: string; // NOVO: Número da transação/referência
+  referenceNumber?: string;
   paymentMethod?: string;
   amount?: number;
   originalAmount?: number;

@@ -85,7 +85,6 @@ export default function PurchaseConfirmation() {
   };
 
   const whatsappNumber = transaction?.supportWhatsApp?.replace(/[^0-9]/g, '') || DEFAULT_SUPPORT_WHATSAPP;
-  const refNum = transaction?.referenceNumber || 'REF-CFA-2026';
   const studentName = transaction?.userName || currentUser?.displayName || 'Estudante';
   const studentEmail = transaction?.userEmail || currentUser?.email || 'Não informado';
   const studentPhone = transaction?.userPhone || 'Não informado';
@@ -102,7 +101,6 @@ export default function PurchaseConfirmation() {
     courseTitle,
     formattedPrice: formattedAmount,
     paymentMethod,
-    referenceNumber: refNum,
     whatsappNumber
   });
 
@@ -329,21 +327,26 @@ export default function PurchaseConfirmation() {
               </div>
             )}
           </div>
+
+          {/* AVISO / CONSELHO DE TRANSFERÊNCIA MESMO BANCO PARA ACESSO RÁPIDO */}
+          <div className="mt-4 p-4 rounded-xl bg-[#e9c349]/10 border border-[#e9c349]/30 flex items-start gap-3 text-left">
+            <span className="material-symbols-outlined text-[#e9c349] text-xl shrink-0 mt-0.5">lightbulb</span>
+            <div className="text-xs text-stone-300 leading-relaxed">
+              <strong className="text-[#e9c349] font-bold block mb-0.5">💡 Conselho para Liberação Rápida do Acesso:</strong>
+              Recomendamos preferencialmente efetuar a transferência a partir do <strong>mesmo banco</strong> ou via <strong>Multicaixa Express / KWIK</strong>. Transferências entre o mesmo banco caem imediatamente e aceleram a validação do seu acesso!
+            </div>
+          </div>
         </div>
 
         <div className="bg-surface-container-highest p-6 rounded-xl border border-outline-variant/10 mb-6 text-left space-y-3">
           <div className="flex items-center justify-between border-b border-outline-variant/20 pb-3">
-            <h3 className="font-bold text-sm uppercase tracking-wider text-stone-400 font-label">Referência da sua Inscrição</h3>
+            <h3 className="font-bold text-sm uppercase tracking-wider text-stone-400 font-label">Detalhes da sua Inscrição</h3>
             <span className="px-2.5 py-0.5 rounded-full text-xs font-mono font-bold bg-primary/10 text-primary border border-primary/20">
               Pronto para Envio
             </span>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-1">
-            <div>
-              <p className="text-[10px] uppercase text-stone-400 font-label">Número de Referência / Transação</p>
-              <p className="font-mono font-black text-xl text-primary">{refNum}</p>
-            </div>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 pt-1">
             <div>
               <p className="text-[10px] uppercase text-stone-400 font-label">Nome do Estudante</p>
               <p className="font-semibold text-sm text-on-surface">{studentName}</p>
@@ -370,8 +373,8 @@ export default function PurchaseConfirmation() {
               <span className="material-symbols-outlined text-3xl">chat</span>
             </div>
             <div>
-              <h4 className="font-bold text-sm text-on-surface">Enviar Referência e Comprovativo</h4>
-              <p className="text-xs text-stone-400">Clique para enviar a sua referência e comprovativo diretamente para o WhatsApp oficial.</p>
+              <h4 className="font-bold text-sm text-on-surface">Enviar Comprovativo de Pagamento</h4>
+              <p className="text-xs text-stone-400">Clique para enviar o seu comprovativo diretamente para o WhatsApp oficial.</p>
             </div>
           </div>
           <a 
