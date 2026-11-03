@@ -163,14 +163,14 @@ export const approveStudentTransaction = async (
 
     console.log(`Curso ${targetCourseId} liberado com sucesso para a transação ${transactionId}`);
 
-    // Dispara notificação de pagamento aprovado
+    // Dispara notificação de pagamento aprovado para o Administrador (aluno não recebe avisos de compra)
     try {
       await addDoc(collection(db, 'notifications'), {
         type: 'payment_approved',
-        title: '🎉 Matrícula Confirmada!',
-        message: `O seu pagamento foi aprovado com sucesso e o seu acesso ao curso foi liberado na sua Área do Estudante!`,
-        link: '/library',
-        targetRole: 'student',
+        title: '💰 Pagamento Aprovado & Matrícula Liberada!',
+        message: `A transação ${transactionId} (Curso: ${targetCourseId}) foi aprovada com sucesso no painel.`,
+        link: '/directory',
+        targetRole: 'admin',
         targetUserId: userId || null,
         read: false,
         timestamp: Date.now(),

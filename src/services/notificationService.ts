@@ -23,6 +23,7 @@ export type NotificationType =
   | 'new_course' 
   | 'new_module' 
   | 'new_lesson' 
+  | 'usdt_rate_update'
   | 'doubt'
   | 'general';
 
@@ -145,16 +146,14 @@ export const requestPushPermission = async (userId?: string): Promise<boolean> =
           applicationServerKey: convertedVapidKey
         });
 
-        // Se o userId estiver disponível, gravar a subscrição no Firestore (pode suportar múltiplas futuramente, mas aqui substituímos/atualizamos)
+        // Se o userId estiver disponível, gravar a subscrição no Firestore
         if (userId) {
           const userRef = doc(db, 'users', userId);
-          // Obter os dados atuais para não sobrescrever sem querer
           const userSnap = await getDoc(userRef);
           if (userSnap.exists()) {
             const userData = userSnap.data();
             const currentSubs = userData.pushSubscriptions || [];
             
-            // Gravar (evitando duplicados exatos)
             const subStr = JSON.stringify(subscription);
             const isDuplicate = currentSubs.some((s: any) => JSON.stringify(s) === subStr);
             
@@ -174,7 +173,7 @@ export const requestPushPermission = async (userId?: string): Promise<boolean> =
         return true;
       } catch (err) {
         console.error('Erro na subscrição do Service Worker / Push:', err);
-        return true; // A permissão local foi dada, mas a Web Push falhou
+        return true;
       }
     }
     return false;
@@ -224,7 +223,7 @@ export const showNativeNotification = (title: string, body: string, link: string
 };
 
 /**
- * Envia uma notificação para o Firestore (visível para Admin e Alunos em tempo real)
+ * Envia uma notificação para o Firestore
  */
 export const sendSystemNotification = async (payload: {
   type: NotificationType;
@@ -251,13 +250,12 @@ export const sendSystemNotification = async (payload: {
 
     await addDoc(collection(db, 'notifications'), notificationData);
     
-    // Agora disparar as Web Push em segundo plano via Backend
-    // Precisamos de recolher as subscrições dos utilizadores alvo
+    // Web Push via backend
     const usersQuery = payload.targetUserId 
       ? query(collection(db, 'users'), where('__name__', '==', payload.targetUserId))
       : payload.targetRole === 'all'
         ? query(collection(db, 'users'))
-        : query(collection(db, 'users'), where('role', '==', payload.targetRole)); // Simplificado, na prática para 'all' ou papeis complexos pode precisar de lógicas compostas
+        : query(collection(db, 'users'), where('role', '==', payload.targetRole));
         
     const usersSnap = await getDocs(usersQuery);
     let allSubscriptions: any[] = [];
@@ -265,9 +263,7 @@ export const sendSystemNotification = async (payload: {
     usersSnap.forEach(docSnap => {
       const data = docSnap.data();
       if (data.pushSubscriptions && Array.isArray(data.pushSubscriptions)) {
-        // Extra check for complex roles (e.g., student vs admin simulation)
         if (payload.targetRole === 'admin' && (data.role !== 'admin' && data.roleType !== 'producer' && data.email !== 'fusionmetodo@gmail.com')) return;
-        
         allSubscriptions = [...allSubscriptions, ...data.pushSubscriptions];
       }
     });
@@ -314,6 +310,31 @@ export const notifyNewCourse = async (course: {
       courseTitle: course.title,
       instructor: course.instructor || 'Marks o Monstro',
       price: course.price
+    }
+  });
+};
+
+/**
+ * Dispara notificação de Câmbio USDT Atualizado
+ */
+export const notifyUsdtRateUpdate = async (params: {
+  rate: number;
+  updatedBy?: string;
+}) => {
+  const formattedRate = new Intl.NumberFormat('pt-AO', {
+    maximumFractionDigits: 2
+  }).format(params.rate);
+
+  return sendSystemNotification({
+    type: 'usdt_rate_update',
+    title: '💱 Câmbio USDT Atualizado!',
+    message: `A cotação do USDT Kz foi atualizada na plataforma para ${formattedRate} Kz / USDT. Clique para conferir e solicitar a sua transação.`,
+    link: '/library/comprar-usdt',
+    targetRole: 'all',
+    metadata: {
+      rate: params.rate,
+      updatedBy: params.updatedBy || 'Sistema',
+      updatedAt: new Date().toISOString()
     }
   });
 };
@@ -424,35 +445,23 @@ export const subscribeToNotifications = (
         
         let shouldKeep = false;
         
+        // REGRA DE NOTIFICAÇÕES RIGOROSA:
+        // Alunos APENAS recebem: Aula nova, novo módulo, novo curso/mentoria e câmbio atualizado
+        // O Administrador ("maestro") recebe RIGOROSAMENTE TODAS as notificações
         if (isStudent) {
-          if (['new_lesson', 'new_module', 'new_course'].includes(notifType)) {
+          if (['new_lesson', 'new_module', 'new_course', 'usdt_rate_update'].includes(notifType)) {
             shouldKeep = true;
           }
-          if (data.targetUserId && data.targetUserId === userId) {
+        } else if (isAdmin) {
+          shouldKeep = true;
+        } else if (isProducer) {
+          if (['new_lesson', 'new_module', 'new_course', 'usdt_rate_update'].includes(notifType)) {
             shouldKeep = true;
           }
-        } else if (isProducer || isAdmin) {
-          // Se for admin e a notificação for para admins, mantém
-          if (isAdmin && docRole === 'admin') {
-            shouldKeep = true;
-          }
-          
-          // Se for uma notificação de conteúdo para todos
-          if (['new_lesson', 'new_module', 'new_course'].includes(notifType) && docRole === 'all') {
-            shouldKeep = true;
-          }
-          
-          // Se for notificação de produtor (Ex: Venda)
           if (docRole === 'producer') {
             let isMine = false;
-            // Match por ID
             if (data.targetUserId && data.targetUserId === userId) isMine = true;
-            // Match por Email
             if (targetEmail && currentUserEmail && targetEmail.toLowerCase() === currentUserEmail.toLowerCase()) isMine = true;
-            
-            // Administrador também vê as vendas dos seus próprios cursos antigos
-            if (isAdmin && data.targetUserId === 'admin_default') isMine = true;
-            
             if (isMine) shouldKeep = true;
           }
         }
@@ -481,7 +490,6 @@ export const subscribeToNotifications = (
             const data = change.doc.data();
             const docRole = data.targetRole || 'all';
 
-            // Verifica se o usuário atual deve receber a notificação nativa
             let shouldNotify = false;
             const isStudent = targetRole === 'student';
             const isProducer = targetRole === 'producer';
@@ -491,17 +499,15 @@ export const subscribeToNotifications = (
             const targetEmail = data.metadata?.targetEmail;
             
             if (isStudent) {
-              if (['new_lesson', 'new_module', 'new_course'].includes(notifType)) shouldNotify = true;
-              if (data.targetUserId && data.targetUserId === userId) shouldNotify = true;
-            } else if (isProducer || isAdmin) {
-              if (isAdmin && docRole === 'admin') shouldNotify = true;
-              if (['new_lesson', 'new_module', 'new_course'].includes(notifType) && docRole === 'all') shouldNotify = true;
-              
+              if (['new_lesson', 'new_module', 'new_course', 'usdt_rate_update'].includes(notifType)) shouldNotify = true;
+            } else if (isAdmin) {
+              shouldNotify = true;
+            } else if (isProducer) {
+              if (['new_lesson', 'new_module', 'new_course', 'usdt_rate_update'].includes(notifType)) shouldNotify = true;
               if (docRole === 'producer') {
                 let isMine = false;
                 if (data.targetUserId && data.targetUserId === userId) isMine = true;
                 if (targetEmail && currentUserEmail && targetEmail.toLowerCase() === currentUserEmail.toLowerCase()) isMine = true;
-                if (isAdmin && data.targetUserId === 'admin_default') isMine = true;
                 if (isMine) shouldNotify = true;
               }
             }

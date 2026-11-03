@@ -188,6 +188,8 @@ export const NotificationCenter: React.FC<NotificationCenterProps> = ({
         return <Layers className="w-4 h-4 text-sky-400" />;
       case 'new_lesson':
         return <PlayCircle className="w-4 h-4 text-emerald-400" />;
+      case 'usdt_rate_update':
+        return <Sparkles className="w-4 h-4 text-emerald-400" />;
       default:
         return <Sparkles className="w-4 h-4 text-[#e9c349]" />;
     }
@@ -340,9 +342,9 @@ export const NotificationCenter: React.FC<NotificationCenterProps> = ({
                     )}
 
                     {/* Botão de Ação Rápida */}
-                    {(notif.type === 'new_course' || notif.type === 'new_module' || notif.type === 'new_lesson' || notif.type === 'payment_approved') && (
+                    {(notif.type === 'new_course' || notif.type === 'new_module' || notif.type === 'new_lesson' || notif.type === 'usdt_rate_update' || notif.type === 'payment_approved') && (
                       <div className="mt-2 flex items-center gap-1 text-[10px] font-bold text-[#e9c349] group-hover:underline">
-                        <span>{notif.type === 'new_lesson' ? 'Assistir aula agora' : notif.type === 'new_module' ? 'Explorar módulo' : 'Ver detalhes do curso'}</span>
+                        <span>{notif.type === 'new_lesson' ? 'Assistir aula agora' : notif.type === 'new_module' ? 'Explorar módulo' : notif.type === 'usdt_rate_update' ? 'Ver câmbio atualizado' : 'Ver detalhes do curso'}</span>
                         <ChevronRight className="w-3 h-3 group-hover:translate-x-0.5 transition-transform" />
                       </div>
                     )}

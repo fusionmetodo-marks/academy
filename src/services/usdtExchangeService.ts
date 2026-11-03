@@ -1,5 +1,6 @@
 import { doc, getDoc, setDoc, onSnapshot } from 'firebase/firestore';
 import { db } from '../firebase';
+import { notifyUsdtRateUpdate } from './notificationService';
 
 export interface UsdtExchangeConfig {
   rate: number; // Kwanza por 1 USDT (ex: 1050)
@@ -88,6 +89,16 @@ export async function saveUsdtExchangeConfig(
   };
 
   await setDoc(docRef, payload, { merge: true });
+
+  // Notifica automaticamente os alunos sobre a nova cotação de câmbio
+  if (newConfig.rate !== undefined) {
+    notifyUsdtRateUpdate({
+      rate: newConfig.rate,
+      updatedBy
+    }).catch(err => {
+      console.error('Erro ao disparar notificação automática de câmbio:', err);
+    });
+  }
 }
 
 /**
