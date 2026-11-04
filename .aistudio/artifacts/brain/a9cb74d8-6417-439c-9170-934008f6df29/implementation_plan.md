@@ -1,23 +1,24 @@
-# Fix User Registration Sorting Filters (Newest & Oldest)
+# Pending Payment Validation Table Enhancements
 
-Fix the sorting logic in the student and course directory (`StudentDirectory.tsx`) so that "Mais Recentes" and "Mais Antigos" strictly sort by registration time without conflicting alphabetical fallback, while keeping Master Admin pinned at the top.
+Enhance the pending payments validation table in `Dashboard.tsx` with student phone numbers and direct WhatsApp action links in the reference column, a 3-dots action dropdown menu, and robust confirmation popups for approval, rejection, and deletion.
 
 ## User Review & Critical Decisions
 
 > [!IMPORTANT]
-> - **Confirmed Sorting Logic**: "Mais Recentes" sorts from latest registered to oldest. "Mais Antigos" sorts from first registered to latest. "Ordem Alfabética" sorts strictly from A to Z.
-> - **Confirmed Master Admin Pinning**: Master Administrator accounts remain pinned at the very top.
+> - **Confirmed Reference Column**: Displays the student's phone number with a direct WhatsApp chat link button.
+> - **Confirmed Actions Menu**: Inline action buttons are consolidated into a clean 3-dots menu (`more_vert`).
+> - **Confirmed Safety Popups**: Explicit confirmation modal dialogs protect against accidental approvals, rejections, and deletions.
 
 ## 1. Overview & Core Concept
 
-- **What It Does**: Refines `getUserRegistrationTime` and `sortedFilteredUsers` in `StudentDirectory.tsx` to guarantee strict chronological sorting for registration date filters.
+- **What It Does**: Streamlines the pending payment validation workflow by giving administrators immediate WhatsApp contact access and safeguarding actions with confirmation dialogs.
 - **Target Audience**: Platform administrators and producers.
-- **Key Value**: Accurate, intuitive sorting by registration date.
+- **Key Value**: Enhanced communication speed and strict operational safety.
 
 ## 2. Technical Architecture & Data Strategy
 
-- **Sorting Comparator Refinement**:
-  - `sortOrder === 'newest'`: Strict descending timestamp sort (`timeB - timeA`).
-  - `sortOrder === 'oldest'`: Strict ascending timestamp sort (`timeA - timeB`).
-  - `sortOrder === 'alphabetical'`: Strict A-Z alphabetical sort.
-- **Timestamp Extraction**: Improved fallback handling in `getUserRegistrationTime`.
+- **Student Phone & WhatsApp Integration**:
+  - Matches transaction `userId` or `userEmail` with student profile records to retrieve phone numbers.
+  - Generates direct `https://wa.me/<phone>` links.
+- **Action Dropdown & Modals State**:
+  - State variables for active dropdown transaction ID, transaction to approve (`txToApprove`), transaction to reject (`txToReject`), and transaction to delete (`txToDelete`).

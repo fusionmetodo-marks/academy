@@ -96,6 +96,9 @@ export default function Dashboard() {
   // Custom confirmation modal states (replaces iframe-blocked confirm popup)
   const [txToDelete, setTxToDelete] = useState<Transaction | null>(null);
   const [txToCancel, setTxToCancel] = useState<Transaction | null>(null);
+  const [txToApprove, setTxToApprove] = useState<Transaction | null>(null);
+  const [txToReject, setTxToReject] = useState<Transaction | null>(null);
+  const [activePendingDropdownTxId, setActivePendingDropdownTxId] = useState<string | null>(null);
   const [pendingSearch, setPendingSearch] = useState('');
 
   const showNotification = (msg: string) => {
@@ -924,10 +927,29 @@ export default function Dashboard() {
                         const dateStr = t.createdAt ? (t.createdAt.toDate ? t.createdAt.toDate().toLocaleString('pt-AO') : new Date(t.createdAt).toLocaleString('pt-AO')).toLowerCase() : '';
                         return name.includes(q) || email.includes(q) || course.includes(q) || ref.includes(q) || dateStr.includes(q);
                       })
-                      .map((tx) => (
+                      .map((tx) => {
+                        const student = students.find(s => s.id === tx.userId || (s.email && tx.userEmail && s.email.toLowerCase() === tx.userEmail.toLowerCase()));
+                        const studentPhone = tx.userPhone || student?.phone || student?.whatsapp || student?.phoneNumber || tx.referenceNumber || 'N/A';
+                        const cleanPhoneDigits = studentPhone !== 'N/A' ? studentPhone.replace(/[^0-9]/g, '') : '';
+                        const whatsappUrl = cleanPhoneDigits ? `https://wa.me/${cleanPhoneDigits}?text=${encodeURIComponent(`Olá ${tx.userName || 'Estudante'}, entramos em contato sobre o seu comprovativo para o curso ${tx.courseTitle || 'Marks ACADEMY'}.`)}` : '#';
+
+                        return (
                       <tr key={tx.id} className="hover:bg-surface-container-highest/30 transition-colors">
                         <td className="py-3 px-3">
-                          <span className="font-mono font-bold text-primary">{tx.referenceNumber || 'N/A'}</span>
+                          {cleanPhoneDigits ? (
+                            <a 
+                              href={whatsappUrl} 
+                              target="_blank" 
+                              rel="noopener noreferrer"
+                              className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 font-mono font-bold text-xs hover:bg-emerald-500/20 transition-colors shadow-sm"
+                              title="Contactar via WhatsApp"
+                            >
+                              <span className="material-symbols-outlined text-sm">chat</span>
+                              <span>{studentPhone}</span>
+                            </a>
+                          ) : (
+                            <span className="font-mono font-bold text-stone-400 text-xs">{tx.referenceNumber || 'N/A'}</span>
+                          )}
                         </td>
                         <td className="py-3 px-3">
                           <p className="font-medium text-on-surface">{tx.userName || 'Estudante'}</p>
@@ -942,32 +964,63 @@ export default function Dashboard() {
                             Pendente
                           </span>
                         </td>
-                        <td className="py-3 px-3 text-right">
-                          <div className="flex items-center justify-end gap-2">
+                        <td className="py-3 px-3 text-right relative">
+                          <div className="relative inline-block text-left">
                             <button
-                              onClick={() => handleApproveTransaction(tx)}
-                              className="px-3 py-1 bg-secondary text-surface font-bold text-xs rounded-lg hover:brightness-110 transition-all flex items-center gap-1 cursor-pointer"
+                              type="button"
+                              onClick={() => setActivePendingDropdownTxId(activePendingDropdownTxId === tx.id ? null : tx.id)}
+                              className="p-1.5 text-stone-400 hover:text-white hover:bg-stone-800 rounded-lg transition-colors cursor-pointer inline-flex items-center"
                             >
-                              <span className="material-symbols-outlined text-xs">check</span>
-                              Aprovar & Arquivar
+                              <span className="material-symbols-outlined text-base">more_vert</span>
                             </button>
-                            <button
-                              onClick={() => handleRejectTransaction(tx)}
-                              className="px-2 py-1 bg-error/20 text-error hover:bg-error/30 font-bold text-xs rounded-lg transition-all cursor-pointer"
-                            >
-                              Recusar
-                            </button>
-                            <button
-                              onClick={() => setTxToDelete(tx)}
-                              className="p-1.5 text-stone-400 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-colors cursor-pointer inline-flex items-center"
-                              title="Eliminar Transação"
-                            >
-                              <span className="material-symbols-outlined text-sm">delete</span>
-                            </button>
+
+                            {activePendingDropdownTxId === tx.id && (
+                              <>
+                                <div className="fixed inset-0 z-40" onClick={() => setActivePendingDropdownTxId(null)} />
+                                <div className="absolute right-0 mt-1 w-48 bg-[#1e1e1e] border border-stone-800 rounded-xl shadow-2xl z-50 py-1 overflow-hidden animate-in fade-in zoom-in-95 duration-100 text-left">
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setActivePendingDropdownTxId(null);
+                                      setTxToApprove(tx);
+                                    }}
+                                    className="w-full px-3 py-2 text-xs text-secondary hover:bg-stone-800 transition-colors flex items-center gap-2 cursor-pointer font-bold"
+                                  >
+                                    <span className="material-symbols-outlined text-sm">check_circle</span>
+                                    Aprovar & Arquivar
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setActivePendingDropdownTxId(null);
+                                      setTxToReject(tx);
+                                    }}
+                                    className="w-full px-3 py-2 text-xs text-error hover:bg-stone-800 transition-colors flex items-center gap-2 cursor-pointer font-bold"
+                                  >
+                                    <span className="material-symbols-outlined text-sm">cancel</span>
+                                    Recusar
+                                  </button>
+                                  <div className="pt-1 mt-1 border-t border-stone-800">
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setActivePendingDropdownTxId(null);
+                                        setTxToDelete(tx);
+                                      }}
+                                      className="w-full px-3 py-2 text-xs text-red-400 hover:bg-red-500/10 transition-colors flex items-center gap-2 cursor-pointer font-bold"
+                                    >
+                                      <span className="material-symbols-outlined text-sm">delete</span>
+                                      Eliminar Transação
+                                    </button>
+                                  </div>
+                                </div>
+                              </>
+                            )}
                           </div>
                         </td>
                       </tr>
-                    ))}
+                        );
+                      })}
                   </tbody>
                 </table>
               </div>
@@ -1649,6 +1702,76 @@ export default function Dashboard() {
                 className="px-4 py-2.5 bg-[#e9c349] hover:bg-[#d4b03f] text-black text-xs font-extrabold rounded-xl transition-colors cursor-pointer"
               >
                 Cancelar Subscrição
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* CUSTOM APPROVE CONFIRMATION MODAL */}
+      {txToApprove && (
+        <div className="fixed inset-0 z-[100] bg-black/80 backdrop-blur-md flex items-center justify-center p-4">
+          <div className="bg-[#181818] border border-secondary/30 rounded-2xl max-w-md w-full p-6 shadow-2xl animate-in fade-in zoom-in-95 duration-150">
+            <div className="w-12 h-12 rounded-xl bg-secondary/10 text-secondary flex items-center justify-center border border-secondary/20 mb-4">
+              <span className="material-symbols-outlined text-2xl">check_circle</span>
+            </div>
+            <h4 className="text-base font-bold text-white mb-2 font-headline">Aprovar & Arquivar Pagamento?</h4>
+            <p className="text-xs text-stone-400 mb-6 leading-relaxed">
+              Deseja realmente aprovar o pagamento do estudante <strong className="text-white">{txToApprove.userName || 'Estudante'}</strong> e liberar imediatamente o acesso ao curso <strong className="text-white">{txToApprove.courseTitle || 'Método Fusion'}</strong>?
+            </p>
+            <div className="flex justify-end gap-3">
+              <button
+                type="button"
+                onClick={() => setTxToApprove(null)}
+                className="px-4 py-2.5 bg-stone-800 hover:bg-stone-700 text-stone-300 text-xs font-bold rounded-xl transition-colors cursor-pointer"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={async () => {
+                  const t = txToApprove;
+                  setTxToApprove(null);
+                  await handleApproveTransaction(t);
+                }}
+                className="px-4 py-2.5 bg-secondary text-surface text-xs font-bold rounded-xl hover:brightness-110 transition-all cursor-pointer"
+              >
+                Confirmar Aprovação
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* CUSTOM REJECT CONFIRMATION MODAL */}
+      {txToReject && (
+        <div className="fixed inset-0 z-[100] bg-black/80 backdrop-blur-md flex items-center justify-center p-4">
+          <div className="bg-[#181818] border border-error/30 rounded-2xl max-w-md w-full p-6 shadow-2xl animate-in fade-in zoom-in-95 duration-150">
+            <div className="w-12 h-12 rounded-xl bg-error/10 text-error flex items-center justify-center border border-error/20 mb-4">
+              <span className="material-symbols-outlined text-2xl">cancel</span>
+            </div>
+            <h4 className="text-base font-bold text-white mb-2 font-headline">Recusar Pagamento?</h4>
+            <p className="text-xs text-stone-400 mb-6 leading-relaxed">
+              Deseja realmente recusar o comprovativo enviado por <strong className="text-white">{txToReject.userName || 'Estudante'}</strong>? A transação será marcada como recusada e arquivada.
+            </p>
+            <div className="flex justify-end gap-3">
+              <button
+                type="button"
+                onClick={() => setTxToReject(null)}
+                className="px-4 py-2.5 bg-stone-800 hover:bg-stone-700 text-stone-300 text-xs font-bold rounded-xl transition-colors cursor-pointer"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={async () => {
+                  const t = txToReject;
+                  setTxToReject(null);
+                  await handleRejectTransaction(t);
+                }}
+                className="px-4 py-2.5 bg-error text-white text-xs font-bold rounded-xl hover:brightness-110 transition-all cursor-pointer"
+              >
+                Confirmar Recusa
               </button>
             </div>
           </div>
