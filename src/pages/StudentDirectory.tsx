@@ -679,22 +679,22 @@ export default function StudentDirectory() {
       if (aIsMaster && !bIsMaster) return -1;
       if (!aIsMaster && bIsMaster) return 1;
 
+      const timeA = getUserRegistrationTime(a);
+      const timeB = getUserRegistrationTime(b);
+
       if (sortOrder === 'newest') {
-        const timeA = getUserRegistrationTime(a);
-        const timeB = getUserRegistrationTime(b);
         if (timeA !== timeB) return timeB - timeA;
+        return getDisplayFullName(a).localeCompare(getDisplayFullName(b), 'pt', { sensitivity: 'base' });
       }
 
       if (sortOrder === 'oldest') {
-        const timeA = getUserRegistrationTime(a);
-        const timeB = getUserRegistrationTime(b);
         if (timeA !== timeB) return timeA - timeB;
+        return getDisplayFullName(a).localeCompare(getDisplayFullName(b), 'pt', { sensitivity: 'base' });
       }
 
-      // Default: Ordem Alfabética (A-Z)
+      // Ordem Alfabética (A-Z)
       const nameA = getDisplayFullName(a).toLowerCase();
       const nameB = getDisplayFullName(b).toLowerCase();
-
       return nameA.localeCompare(nameB, 'pt', { sensitivity: 'base' });
     });
   }, [filteredUsers, sortOrder]);

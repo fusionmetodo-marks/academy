@@ -1,32 +1,23 @@
-# Military-Grade Platform Security Hardening
+# Fix User Registration Sorting Filters (Newest & Oldest)
 
-Implement a comprehensive security suite ("Hardening Estilo Militar") across the entire platform, establishing strict backend middleware, rate limiting, and impenetrable database security rules.
+Fix the sorting logic in the student and course directory (`StudentDirectory.tsx`) so that "Mais Recentes" and "Mais Antigos" strictly sort by registration time without conflicting alphabetical fallback, while keeping Master Admin pinned at the top.
 
 ## User Review & Critical Decisions
 
 > [!IMPORTANT]
-> - **Confirmed Security Priority**: Strict backend validation middleware, rate limiting, and database security rules.
-> - **Confirmed Access Control**: Server-side role verification with master email whitelist check on every privileged request.
+> - **Confirmed Sorting Logic**: "Mais Recentes" sorts from latest registered to oldest. "Mais Antigos" sorts from first registered to latest. "Ordem Alfabética" sorts strictly from A to Z.
+> - **Confirmed Master Admin Pinning**: Master Administrator accounts remain pinned at the very top.
 
 ## 1. Overview & Core Concept
 
-- **What It Does**: Hardens all platform entry points, API routes, and database rules against brute-force attacks, unauthorized API tampering, and privilege escalation.
-- **Target Audience**: Platform administrators and secure student sessions.
-- **Key Value**: Closes all exposed holes, guarantees zero unauthorized backend access, and enforces military-grade access control.
+- **What It Does**: Refines `getUserRegistrationTime` and `sortedFilteredUsers` in `StudentDirectory.tsx` to guarantee strict chronological sorting for registration date filters.
+- **Target Audience**: Platform administrators and producers.
+- **Key Value**: Accurate, intuitive sorting by registration date.
 
-## 2. Technical Architecture & Security Enhancements
+## 2. Technical Architecture & Data Strategy
 
-```
-┌────────────────────────┐      ┌───────────────────────────────┐      ┌────────────────────────┐
-│ Client Request         │ ───► │ Rate Limiter & Auth Middleware│ ───► │ Firestore Rules / DB   │
-│ (API / Streaming / Pay)│      │ (Master Whitelist & JWT/UID)  │      │ (Encrypted & Guarded)  │
-└────────────────────────┘      └───────────────────────────────┘      └────────────────────────┘
-```
-
-- **Security Layer 1: Rate Limiting & DDoS Defense (`server.ts`)**:
-  - Global sliding-window / token bucket rate limiter for API endpoints (preventing brute-force on auth and payment validation).
-- **Security Layer 2: Strict Backend Middleware (`server.ts`)**:
-  - Whitelist enforcement for master administrators (`fusionmetodo@gmail.com`, `grupocassaminha@gmail.com`, `exportacoes.extras@gmail.com`).
-  - Authorization validation on all video streaming and transaction approval endpoints.
-- **Security Layer 3: Database Rule Hardening (`firestore.rules`)**:
-  - Prevent unauthorized client updates to `role`, `subscriptionStatus`, `enrolledCourses`, and encrypted vault settings.
+- **Sorting Comparator Refinement**:
+  - `sortOrder === 'newest'`: Strict descending timestamp sort (`timeB - timeA`).
+  - `sortOrder === 'oldest'`: Strict ascending timestamp sort (`timeA - timeB`).
+  - `sortOrder === 'alphabetical'`: Strict A-Z alphabetical sort.
+- **Timestamp Extraction**: Improved fallback handling in `getUserRegistrationTime`.
