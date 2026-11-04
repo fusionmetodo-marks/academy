@@ -296,9 +296,6 @@ export const NotificationCenter: React.FC<NotificationCenterProps> = ({
                 <p className="text-xs font-medium text-stone-400">
                   Nenhuma notificação no momento
                 </p>
-                <p className="text-[10px] text-stone-500 max-w-[220px] mx-auto">
-                  Quando alunos se registrarem ou confirmarem pagamentos, os alertas aparecerão aqui e no seu telemóvel.
-                </p>
               </div>
             ) : (
               notifications.map((notif) => (
