@@ -90,6 +90,7 @@ export default function Dashboard() {
   // History Modal State
   const [isHistoryModalOpen, setIsHistoryModalOpen] = useState(false);
   const [historyPage, setHistoryPage] = useState(1);
+  const [historySearch, setHistorySearch] = useState('');
   const [activeDropdownTxId, setActiveDropdownTxId] = useState<string | null>(null);
 
   // Custom confirmation modal states (replaces iframe-blocked confirm popup)
@@ -1386,7 +1387,18 @@ export default function Dashboard() {
       {/* MODAL: HISTÓRICO DE PAGAMENTOS ARQUIVADOS COM PAGINAÇÃO (20 POR PÁGINA) */}
       {/* ========================================================================= */}
       {isHistoryModalOpen && (() => {
-        const archived = transactions.filter(t => t.status === 'approved' || t.status === 'rejected');
+        const baseArchived = transactions.filter(t => t.status === 'approved' || t.status === 'rejected');
+        const archived = baseArchived.filter(tx => {
+          if (!historySearch.trim()) return true;
+          const q = historySearch.toLowerCase();
+          const student = students.find(s => s.id === tx.userId || (s.email && tx.userEmail && s.email.toLowerCase() === tx.userEmail.toLowerCase()));
+          const studentPhone = (tx.userPhone || student?.phone || student?.whatsapp || student?.phoneNumber || tx.referenceNumber || '').toLowerCase();
+          const studentEmail = (tx.userEmail || student?.email || '').toLowerCase();
+          const studentName = (tx.userName || (student?.firstName ? `${student.firstName} ${student.lastName || ''}`.trim() : student?.name) || '').toLowerCase();
+          const courseTitle = (tx.courseTitle || '').toLowerCase();
+          const refNum = (tx.referenceNumber || '').toLowerCase();
+          return studentPhone.includes(q) || studentEmail.includes(q) || studentName.includes(q) || courseTitle.includes(q) || refNum.includes(q);
+        });
         const itemsPerPage = 20;
         const totalPages = Math.ceil(archived.length / itemsPerPage) || 1;
         const startIndex = (historyPage - 1) * itemsPerPage;
@@ -1412,6 +1424,23 @@ export default function Dashboard() {
                 >
                   <X className="w-5 h-5" />
                 </button>
+              </div>
+
+              {/* Search Bar for Archived History */}
+              <div className="py-3 border-b border-outline-variant/10">
+                <div className="relative w-full sm:w-80">
+                  <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-stone-400 text-sm">search</span>
+                  <input
+                    type="text"
+                    placeholder="Pesquisar por nome, número ou e-mail..."
+                    value={historySearch}
+                    onChange={(e) => {
+                      setHistorySearch(e.target.value);
+                      setHistoryPage(1);
+                    }}
+                    className="w-full bg-[#121212] border border-outline-variant/20 rounded-xl pl-9 pr-4 py-2 text-xs text-white placeholder-stone-500 focus:outline-none focus:border-[#e9c349]"
+                  />
+                </div>
               </div>
 
               {/* Table Container */}
