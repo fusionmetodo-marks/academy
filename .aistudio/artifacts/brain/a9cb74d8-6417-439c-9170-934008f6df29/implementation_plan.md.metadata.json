@@ -1,6 +1,6 @@
 {
-  "summary":  "Plano de arquitetura e implementação das camadas de segurança de ponta a ponta para a plataforma Marks o Monstro - ACADEMY: blindagem de senhas e dados sensíveis (PII), proteção anti-pirataria de aulas de trading com marca d'água dinâmica e bloqueio de captura, controle de até 2 dispositivos simultâneos por estudante, e restrição de visualização de dados completos exclusivamente para o Maestro (Administrador Mestre).",
-  "updatedAt":  "2026-10-31T00:49:55.852810500Z",
-  "requestFeedback":  true,
-  "userFacing":  true
+  "summary": "Plano detalhado para implementação do sistema rigoroso de segurança contra acesso não autorizado às aulas, incluindo proxy de autorização no backend (server.ts), regras de segurança no Firestore e proteções de player no cliente.",
+  "updatedAt": "2026-11-04T03:18:09.599535623Z",
+  "requestFeedback": true,
+  "userFacing": true
 }

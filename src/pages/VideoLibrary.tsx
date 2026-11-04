@@ -7,6 +7,7 @@ import { subscribeUserEnrollments } from '../services/enrollmentService';
 import { Lock, ShieldAlert, ArrowLeft, BookOpen, AlertTriangle } from 'lucide-react';
 import { slugify } from '../utils/slugify';
 import WistiaPlayer from '../components/WistiaPlayer';
+import SecureVideoPlayer from '../components/SecureVideoPlayer';
 import { LinkifiedText } from '../components/LinkifiedText';
 import { parseVideoUrlOrIframe } from '../utils/videoParser';
 
@@ -495,56 +496,17 @@ export default function VideoLibrary({ courseId }: VideoLibraryProps = {}) {
       );
     }
 
-    // Embed wistia/youtube/vimeo/iframe
     if (isPlaying) {
-      const parsed = parseVideoUrlOrIframe(rawData);
-
-      // 1. Wistia check
-      if (parsed.type === 'wistia') {
-        return (
-          <WistiaPlayer 
-            videoId={parsed.url} 
-            studentEmail={auth.currentUser?.email || userProfile?.email}
-            studentUid={auth.currentUser?.uid || userProfile?.uid}
-          />
-        );
-      }
-
-      // 2. YouTube check
-      if (parsed.type === 'youtube') {
-        return (
-          <iframe 
-            src={parsed.url}
-            frameBorder="0"
-            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
-            allowFullScreen
-            referrerPolicy="strict-origin-when-cross-origin"
-            className="w-full h-full rounded-2xl"
-          />
-        );
-      }
-
-      // 3. Vimeo check
-      if (parsed.type === 'vimeo') {
-        return (
-          <iframe 
-            src={parsed.url}
-            frameBorder="0"
-            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
-            allowFullScreen
-            referrerPolicy="no-referrer"
-            className="w-full h-full rounded-2xl"
-          />
-        );
-      }
-
-      // 4. Direct video fallback (e.g. mp4, m3u8) or direct iframe
       return (
-        <video 
-          src={parsed.url || rawData}
-          controls
-          autoPlay
-          className="w-full h-full rounded-2xl bg-black"
+        <SecureVideoPlayer
+          courseId={activeCourseId || lesson.courseId}
+          lessonId={lesson.id}
+          videoSource={lesson.videoSource || 'wistia'}
+          videoData={rawData}
+          userId={auth.currentUser?.uid || currentUserId}
+          studentEmail={auth.currentUser?.email || userProfile?.email}
+          studentName={userProfile ? (userProfile.fullName || userProfile.name || `${userProfile.firstName || ''} ${userProfile.lastName || ''}`).trim() : null}
+          studentPhone={userProfile?.phoneNumber}
         />
       );
     }

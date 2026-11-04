@@ -78,6 +78,15 @@ export default function StudentDirectory() {
   const [searchTerm, setSearchTerm] = useState('');
   const [roleFilter, setRoleFilter] = useState<'all' | 'students' | 'active_students' | 'registered_only' | 'producers' | 'pending'>('all');
   
+  // Ordenação e Paginação (Até 50 estudantes por página)
+  const [sortOrder, setSortOrder] = useState<'alphabetical' | 'newest' | 'oldest'>('alphabetical');
+  const [currentPage, setCurrentPage] = useState<number>(1);
+  const ITEMS_PER_PAGE = 50;
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchTerm, roleFilter, sortOrder]);
+  
   // Modal de Cadastro de Aluno
   const [isRegisterModalOpen, setIsRegisterModalOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -602,7 +611,7 @@ export default function StudentDirectory() {
     return true;
   });
 
-  // Ordenação garantida: Administrador Master SEMPRE no topo, seguido de organização alfabética dos demais usuários
+  // Ordenação garantida: Administrador Master SEMPRE no topo, seguido pela ordem selecionada
   const sortedFilteredUsers = useMemo(() => {
     return [...filteredUsers].sort((a, b) => {
       const cleanEmailA = (a.email || '').trim().toLowerCase();
@@ -614,12 +623,32 @@ export default function StudentDirectory() {
       if (aIsMaster && !bIsMaster) return -1;
       if (!aIsMaster && bIsMaster) return 1;
 
+      if (sortOrder === 'newest') {
+        const timeA = a.createdAt?.toMillis ? a.createdAt.toMillis() : (a.createdAt ? new Date(a.createdAt).getTime() : 0);
+        const timeB = b.createdAt?.toMillis ? b.createdAt.toMillis() : (b.createdAt ? new Date(b.createdAt).getTime() : 0);
+        if (timeA !== timeB) return timeB - timeA;
+      }
+
+      if (sortOrder === 'oldest') {
+        const timeA = a.createdAt?.toMillis ? a.createdAt.toMillis() : (a.createdAt ? new Date(a.createdAt).getTime() : 0);
+        const timeB = b.createdAt?.toMillis ? b.createdAt.toMillis() : (b.createdAt ? new Date(b.createdAt).getTime() : 0);
+        if (timeA !== timeB) return timeA - timeB;
+      }
+
+      // Default: Ordem Alfabética (A-Z)
       const nameA = getDisplayFullName(a).toLowerCase();
       const nameB = getDisplayFullName(b).toLowerCase();
 
       return nameA.localeCompare(nameB, 'pt', { sensitivity: 'base' });
     });
-  }, [filteredUsers]);
+  }, [filteredUsers, sortOrder]);
+
+  // Paginação: Máximo de 50 estudantes por página
+  const totalPages = Math.ceil(sortedFilteredUsers.length / ITEMS_PER_PAGE) || 1;
+  const paginatedUsers = useMemo(() => {
+    const start = (currentPage - 1) * ITEMS_PER_PAGE;
+    return sortedFilteredUsers.slice(start, start + ITEMS_PER_PAGE);
+  }, [sortedFilteredUsers, currentPage, ITEMS_PER_PAGE]);
 
   // Alunos reais da plataforma (exclui Master Admin e Produtores)
   const studentUsers = effectiveUsers.filter(u => {
@@ -832,9 +861,25 @@ export default function StudentDirectory() {
               )}
             </div>
 
-            <span className="text-xs text-gray-500 font-mono">
-              Mostrando {sortedFilteredUsers.length} de {isProducerMode ? effectiveUsers.length : users.length} usuários
-            </span>
+            {/* Seletor de Ordenação e Indicador de Paginação */}
+            <div className="flex items-center gap-3 shrink-0 flex-wrap">
+              <div className="flex items-center gap-2 bg-[#131313] px-3 py-1.5 rounded-xl border border-gray-800">
+                <span className="text-xs text-gray-400 font-bold">Ordem:</span>
+                <select
+                  value={sortOrder}
+                  onChange={(e) => setSortOrder(e.target.value as any)}
+                  className="bg-[#0e0e0e] text-[#e9c349] border border-gray-800 text-xs font-bold rounded-lg px-2.5 py-1 focus:border-[#e9c349] outline-none cursor-pointer"
+                >
+                  <option value="alphabetical">Alfabética (A - Z)</option>
+                  <option value="newest">Mais Recentes (Recentes -&gt; Antigos)</option>
+                  <option value="oldest">Mais Antigos (Antigos -&gt; Recentes)</option>
+                </select>
+              </div>
+
+              <span className="text-xs text-gray-400 font-mono">
+                Mostrando {paginatedUsers.length} de {sortedFilteredUsers.length} usuários
+              </span>
+            </div>
           </div>
 
           {/* Cards Mobile (md:hidden) */}
@@ -844,12 +889,12 @@ export default function StudentDirectory() {
                 <div className="w-8 h-8 border-2 border-[#e9c349] border-t-transparent rounded-full animate-spin mx-auto mb-2"></div>
                 Carregando registros...
               </div>
-            ) : sortedFilteredUsers.length === 0 ? (
+            ) : paginatedUsers.length === 0 ? (
               <div className="p-8 bg-[#131313] border border-[#353534]/30 rounded-2xl text-center text-gray-500">
                 Nenhum usuário encontrado com os filtros atuais.
               </div>
             ) : (
-              sortedFilteredUsers.map((userItem) => {
+              paginatedUsers.map((userItem) => {
                 const cleanEmail = (userItem.email || '').trim().toLowerCase();
                 const isMaster = isMasterEmail(cleanEmail);
                 const isProducerRole = userItem.role === 'producer' || userItem.roleType === 'producer';
@@ -1119,14 +1164,14 @@ export default function StudentDirectory() {
                         Carregando registros...
                       </td>
                     </tr>
-                  ) : sortedFilteredUsers.length === 0 ? (
+                  ) : paginatedUsers.length === 0 ? (
                     <tr>
                       <td colSpan={5} className="px-6 py-12 text-center text-gray-500">
                         Nenhum usuário encontrado com os filtros atuais.
                       </td>
                     </tr>
                   ) : (
-                    sortedFilteredUsers.map((userItem) => {
+                    paginatedUsers.map((userItem) => {
                       const cleanEmail = (userItem.email || '').trim().toLowerCase();
                       const isMaster = isMasterEmail(cleanEmail);
                       const isProducerRole = userItem.role === 'producer' || userItem.roleType === 'producer';
@@ -1381,6 +1426,49 @@ export default function StudentDirectory() {
               </table>
             </div>
           </div>
+
+          {/* Barra de Paginação (Limite de 50 estudantes por página) */}
+          {totalPages > 1 && (
+            <div className="flex flex-col sm:flex-row items-center justify-between gap-4 bg-[#131313] border border-[#353534]/30 rounded-2xl p-4 mt-6 shadow-md">
+              <div className="text-xs text-gray-400 font-mono">
+                Página <span className="font-bold text-[#e9c349]">{currentPage}</span> de <span className="font-bold text-white">{totalPages}</span> &bull; Mostrando {((currentPage - 1) * ITEMS_PER_PAGE) + 1} - {Math.min(currentPage * ITEMS_PER_PAGE, sortedFilteredUsers.length)} de {sortedFilteredUsers.length} usuários
+              </div>
+
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                  disabled={currentPage === 1}
+                  className="px-3.5 py-2 bg-[#0e0e0e] border border-gray-800 rounded-xl text-xs font-bold text-gray-300 hover:text-white hover:border-[#e9c349] disabled:opacity-40 disabled:hover:border-gray-800 disabled:hover:text-gray-300 transition-all cursor-pointer flex items-center gap-1"
+                >
+                  <span>Anterior</span>
+                </button>
+
+                <div className="flex items-center gap-1">
+                  {Array.from({ length: totalPages }, (_, i) => i + 1).map((page) => (
+                    <button
+                      key={page}
+                      onClick={() => setCurrentPage(page)}
+                      className={`w-8 h-8 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                        currentPage === page
+                          ? 'bg-[#e9c349] text-black shadow-md'
+                          : 'bg-[#0e0e0e] text-gray-400 border border-gray-800 hover:text-white hover:border-gray-700'
+                      }`}
+                    >
+                      {page}
+                    </button>
+                  ))}
+                </div>
+
+                <button
+                  onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                  disabled={currentPage === totalPages}
+                  className="px-3.5 py-2 bg-[#0e0e0e] border border-gray-800 rounded-xl text-xs font-bold text-gray-300 hover:text-white hover:border-[#e9c349] disabled:opacity-40 disabled:hover:border-gray-800 disabled:hover:text-gray-300 transition-all cursor-pointer flex items-center gap-1"
+                >
+                  <span>Próxima</span>
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       </main>
 
