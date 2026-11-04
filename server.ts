@@ -3,6 +3,7 @@ import path from 'path';
 import cors from 'cors';
 import webpush from 'web-push';
 import fs from 'fs';
+import crypto from 'crypto';
 import { createServer as createViteServer } from 'vite';
 import { initializeApp, getApps } from 'firebase/app';
 import { getFirestore, doc, getDoc } from 'firebase/firestore';
@@ -12,6 +13,53 @@ const PORT = 3000;
 
 app.use(cors());
 app.use(express.json());
+
+// AES-256-GCM Cryptographic Engine for Sensitive Payment and Wistia Secrets
+const MASTER_KEY = process.env.ENCRYPTION_MASTER_KEY || 'money-building-secure-master-secret-key-2026';
+const KEY_BUFFER = crypto.scryptSync(MASTER_KEY, 'money-building-salt', 32);
+
+function encryptData(text: string): { ciphertext: string; iv: string; authTag: string } {
+  const iv = crypto.randomBytes(12);
+  const cipher = crypto.createCipheriv('aes-256-gcm', KEY_BUFFER, iv);
+  let ciphertext = cipher.update(text, 'utf8', 'hex');
+  ciphertext += cipher.final('hex');
+  const authTag = cipher.getAuthTag().toString('hex');
+  return { ciphertext, iv: iv.toString('hex'), authTag };
+}
+
+function decryptData(ciphertext: string, ivHex: string, authTagHex: string): string {
+  const iv = Buffer.from(ivHex, 'hex');
+  const authTag = Buffer.from(authTagHex, 'hex');
+  const decipher = crypto.createDecipheriv('aes-256-gcm', KEY_BUFFER, iv);
+  decipher.setAuthTag(authTag);
+  let decrypted = decipher.update(ciphertext, 'hex', 'utf8');
+  decrypted += decipher.final('utf8');
+  return decrypted;
+}
+
+app.post('/api/crypto/encrypt', (req, res) => {
+  try {
+    const { plaintext } = req.body;
+    if (!plaintext) return res.status(400).json({ error: 'Plaintext is required' });
+    const encrypted = encryptData(typeof plaintext === 'string' ? plaintext : JSON.stringify(plaintext));
+    res.json(encrypted);
+  } catch (err: any) {
+    console.error('Encryption error:', err);
+    res.status(500).json({ error: 'Failed to encrypt data' });
+  }
+});
+
+app.post('/api/crypto/decrypt', (req, res) => {
+  try {
+    const { ciphertext, iv, authTag } = req.body;
+    if (!ciphertext || !iv || !authTag) return res.status(400).json({ error: 'Ciphertext, iv and authTag are required' });
+    const decrypted = decryptData(ciphertext, iv, authTag);
+    res.json({ decrypted });
+  } catch (err: any) {
+    console.error('Decryption error:', err);
+    res.status(500).json({ error: 'Failed to decrypt data (invalid signature or key)' });
+  }
+});
 
 // Carregar configuração oficial do Firebase para validação no backend
 const configPath = new URL('./firebase-applet-config.json', import.meta.url);

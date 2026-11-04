@@ -1,6 +1,6 @@
 {
-  "summary": "Plano detalhado para implementação do sistema rigoroso de segurança contra acesso não autorizado às aulas, incluindo proxy de autorização no backend (server.ts), regras de segurança no Firestore e proteções de player no cliente.",
-  "updatedAt": "2026-11-04T03:18:09.599535623Z",
+  "summary": "Implementation plan for secure AES-256-GCM encryption of platform payment settings, Wistia player tokens, and sensitive secrets stored in Firestore with backend server decryption proxy.",
+  "updatedAt": "2026-11-04T17:49:28.726976211Z",
   "requestFeedback": true,
   "userFacing": true
 }

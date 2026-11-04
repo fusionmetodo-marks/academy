@@ -1,37 +1,48 @@
-# Plano de Implementação: Sistema Rigoroso de Segurança e Proteção de Aulas
+# Secure Encryption Architecture for Payment Settings & Wistia Secrets
 
-Implementação de uma arquitetura de segurança em camadas (Zero-Trust) para garantir que o acesso às aulas e aos links dos vídeos seja estritamente validado no servidor (backend e banco de dados), impedindo que usuários não autorizados ou hackers obtenham os links das aulas via inspeção de código ou manipulação de rede.
+Implement robust end-to-end AES-256-GCM encryption for sensitive platform data (payment configurations, Wistia tokens, API credentials, and secrets) stored in Firestore, backed by a secure server-side master key and decryption proxy.
 
----
+## User Review & Critical Decisions
 
-## 1. Servidor Proxy de Autorização de Vídeos (`server.ts`)
-- Criar a rota de API protegida `/api/lessons/verify-access`.
-- Exigir o envio do token de autenticação Firebase (`Authorization: Bearer <idToken>`).
-- Validar no servidor se o usuário possui matrícula ativa no curso correspondente no Firestore antes de liberar qualquer resposta.
-- Retornar uma resposta encriptada ou token temporário assinado com expiração de curto prazo para reprodução do vídeo no player.
-- Ocultar URLs diretas de origens externas no código fonte do cliente e nas requisições públicas.
+> [!IMPORTANT]
+> - **Confirmed Encryption Standard**: AES-256-GCM with authenticated encryption (integrity + confidentiality).
+> - **Confirmed Key Storage**: Server-side master key in environment variables (`ENCRYPTION_MASTER_KEY`), ensuring secrets are never exposed in plaintext in client code or database documents.
+> - **Confirmed Storage Architecture**: Encrypted payloads (`ciphertext`, `iv`, `authTag`) stored in Firestore documents, decrypted via secure backend proxy endpoints (`/api/settings/decrypt`).
 
----
+## 1. Overview & Core Concept
 
-## 2. Regras Rígidas do Firestore (`firestore.rules`)
-- Garantir que a leitura de aulas completas e conteúdos exclusivos seja restrita a alunos com o ID do curso presente no seu array `enrolledCourses` e com `subscriptionStatus == 'active'`.
-- Bloquear estritamente qualquer tentativa do cliente de modificar o seu próprio papel (`role`), estado de assinatura (`subscriptionStatus`) ou matrículas (`enrolledCourses`).
-- Permitir alteração de status de transação exclusivamente para o e-mail administrador mestre (`fusionmetodo@gmail.com` ou utilizadores autenticados com `role == 'admin'`).
+- **What It Does**: Encrypts sensitive configuration data (payment gateway credentials, Wistia integration tokens, and private API secrets) at rest in Firestore using enterprise-grade AES-256-GCM encryption.
+- **Target Audience / Platform Owners**: Administrators and producers managing platform settings and video streaming keys.
+- **Key Value**: Guarantees that even if database access is compromised, all sensitive payment and video credentials remain cryptographically secure and unreadable.
 
----
+## 2. User Experience & Visual Design
 
-## 3. Camada de Proteção da Interface do Player de Vídeo (`src/components/`)
-- **Remoção de Elementos DOM Expostos**:
-  - Impedir a renderização da URL bruta no HTML (`src`, `href` ou atributos inspecionáveis).
-  - Utilizar renderização embutida com suporte a token de sessão e sandbox restrito.
-- **Bloqueio de Ferramentas de Inspeção e Download**:
-  - Desativar menu de contexto (clique direito `contextmenu`).
-  - Bloquear atalhos de teclado de inspeção e captura (`F12`, `Ctrl+Shift+I`, `Ctrl+Shift+J`, `Ctrl+U`, `Ctrl+S`, `Cmd+Option+I`).
-- **Marca d'Água Dinâmica Anti-Vazamento (Deterrence)**:
-  - Exibir marca d'água semi-transparente e flutuante sobre o player com o Nome, E-mail e Telefone do aluno conectado para inibir gravação de tela.
+- **Admin Settings & Security Management**:
+  - Encrypted fields displayed with masking (e.g., `••••••••••••••••`) and a secure lock badge.
+  - Action buttons to test configuration, update encrypted tokens, and verify security status.
+- **Visual Theme**: Dark futuristic dashboard aesthetic matching the Money Building design system (`#121212` background, `#e9c349` gold accents, outline-variant borders).
 
----
+## 3. Key Product Decisions & Trade-Offs
 
-## 4. Validação e Compilação
-- Testar a validação de tipos e sintaxe através do `lint_applet`.
-- Compilar o projeto completo via `compile_applet`.
+- **Decision 1**: Server-Side Master Key vs Client-Side Password.
+  - *Chosen Approach*: Server-side environment secret (`ENCRYPTION_MASTER_KEY`).
+  - *Why*: Allows headless background tasks (billing reminders, server-side proxies, webhook processing) to decrypt and validate payments securely without requiring manual user passwords.
+- **Decision 2**: AES-256-GCM vs Simple Base64/Obfuscation.
+  - *Chosen Approach*: Node.js `crypto` module AES-256-GCM with Initialization Vector (IV) and Authentication Tag.
+  - *Why*: Provides military-grade cryptographic security and tamper detection.
+
+## 4. Technical Architecture & Data Strategy
+
+```
+┌────────────────────────┐      ┌─────────────────────────      ┌──────────────────────┐
+│ Admin / Frontend UI    │ ───► │ Express Server (server.ts) │ ───► │ Firestore Database   │
+│ (Masked Secret Inputs) │      │ (AES-256-GCM Encrypt/Decrypt) │      │ (Encrypted Payload)  │
+└────────────────────────┘      └───────────────────────────────      └──────────────────────┘
+```
+
+- **Data Model**:
+  - `settings/paymentConfig`: Stores `{ ciphertext, iv, authTag, updatedAt }`.
+  - `settings/wistiaConfig`: Stores `{ ciphertext, iv, authTag, updatedAt }`.
+- **API Endpoints**:
+  - `POST /api/encrypt`: Encrypts sensitive plaintext payload using `ENCRYPTION_MASTER_KEY`.
+  - `POST /api/decrypt`: Decrypts stored ciphertext payload for authorized administrative operations.
