@@ -70,6 +70,50 @@ export const getDisplayFullName = (u: any): string => {
   return 'Estudante';
 };
 
+export const getUserRegistrationTime = (u: any): number => {
+  if (!u) return 0;
+
+  if (u.createdAt) {
+    if (typeof u.createdAt.toMillis === 'function') return u.createdAt.toMillis();
+    if (typeof u.createdAt.toDate === 'function') return u.createdAt.toDate().getTime();
+    if (typeof u.createdAt === 'number') return u.createdAt;
+    if (typeof u.createdAt === 'string') {
+      const parsed = new Date(u.createdAt).getTime();
+      if (!isNaN(parsed) && parsed > 0) return parsed;
+    }
+  }
+
+  for (const field of ['registeredAt', 'joinedAt', 'approvedAt', 'updatedAt', 'timestamp']) {
+    if (u[field]) {
+      if (typeof u[field].toMillis === 'function') return u[field].toMillis();
+      if (typeof u[field].toDate === 'function') return u[field].toDate().getTime();
+      if (typeof u[field] === 'number') return u[field];
+      if (typeof u[field] === 'string') {
+        const parsed = new Date(u[field]).getTime();
+        if (!isNaN(parsed) && parsed > 0) return parsed;
+      }
+    }
+  }
+
+  return 0;
+};
+
+export const formatRegistrationDateTime = (u: any): string => {
+  const time = getUserRegistrationTime(u);
+  if (!time || time <= 0) return 'Data não informada';
+  try {
+    return new Intl.DateTimeFormat('pt-PT', {
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit'
+    }).format(new Date(time));
+  } catch {
+    return 'Data não informada';
+  }
+};
+
 export default function StudentDirectory() {
   const [users, setUsers] = useState<any[]>([]);
   const [availableCourses, setAvailableCourses] = useState<CourseOption[]>([]);
@@ -79,7 +123,7 @@ export default function StudentDirectory() {
   const [roleFilter, setRoleFilter] = useState<'all' | 'students' | 'active_students' | 'registered_only' | 'producers' | 'pending'>('all');
   
   // Ordenação e Paginação (Até 50 estudantes por página)
-  const [sortOrder, setSortOrder] = useState<'alphabetical' | 'newest' | 'oldest'>('alphabetical');
+  const [sortOrder, setSortOrder] = useState<'newest' | 'oldest' | 'alphabetical'>('newest');
   const [currentPage, setCurrentPage] = useState<number>(1);
   const ITEMS_PER_PAGE = 50;
 
@@ -624,14 +668,14 @@ export default function StudentDirectory() {
       if (!aIsMaster && bIsMaster) return 1;
 
       if (sortOrder === 'newest') {
-        const timeA = a.createdAt?.toMillis ? a.createdAt.toMillis() : (a.createdAt ? new Date(a.createdAt).getTime() : 0);
-        const timeB = b.createdAt?.toMillis ? b.createdAt.toMillis() : (b.createdAt ? new Date(b.createdAt).getTime() : 0);
+        const timeA = getUserRegistrationTime(a);
+        const timeB = getUserRegistrationTime(b);
         if (timeA !== timeB) return timeB - timeA;
       }
 
       if (sortOrder === 'oldest') {
-        const timeA = a.createdAt?.toMillis ? a.createdAt.toMillis() : (a.createdAt ? new Date(a.createdAt).getTime() : 0);
-        const timeB = b.createdAt?.toMillis ? b.createdAt.toMillis() : (b.createdAt ? new Date(b.createdAt).getTime() : 0);
+        const timeA = getUserRegistrationTime(a);
+        const timeB = getUserRegistrationTime(b);
         if (timeA !== timeB) return timeA - timeB;
       }
 
@@ -863,16 +907,16 @@ export default function StudentDirectory() {
 
             {/* Seletor de Ordenação e Indicador de Paginação */}
             <div className="flex items-center gap-3 shrink-0 flex-wrap">
-              <div className="flex items-center gap-2 bg-[#131313] px-3 py-1.5 rounded-xl border border-gray-800">
-                <span className="text-xs text-gray-400 font-bold">Ordem:</span>
+              <div className="flex items-center gap-1.5 bg-[#131313] px-2.5 py-1 rounded-lg border border-gray-800">
+                <span className="text-[11px] text-gray-400 font-bold">Ordem:</span>
                 <select
                   value={sortOrder}
                   onChange={(e) => setSortOrder(e.target.value as any)}
-                  className="bg-[#0e0e0e] text-[#e9c349] border border-gray-800 text-xs font-bold rounded-lg px-2.5 py-1 focus:border-[#e9c349] outline-none cursor-pointer"
+                  className="bg-[#0e0e0e] text-[#e9c349] border border-gray-800 text-[11px] font-bold rounded px-2 py-0.5 focus:border-[#e9c349] outline-none cursor-pointer"
                 >
-                  <option value="alphabetical">Alfabética (A - Z)</option>
-                  <option value="newest">Mais Recentes (Recentes -&gt; Antigos)</option>
-                  <option value="oldest">Mais Antigos (Antigos -&gt; Recentes)</option>
+                  <option value="newest">Mais Recentes</option>
+                  <option value="oldest">Mais Antigos</option>
+                  <option value="alphabetical">Ordem Alfabética (A - Z)</option>
                 </select>
               </div>
 
@@ -925,6 +969,7 @@ export default function StudentDirectory() {
                             )}
                           </div>
                           <p className="text-xs text-gray-400 font-mono truncate">{maskEmail(userItem.email, isMasterUser)}</p>
+                          <p className="text-[10px] text-gray-500 font-mono truncate mt-0.5">Cadastrado em: {formatRegistrationDateTime(userItem)}</p>
                         </div>
                       </div>
 
@@ -1202,7 +1247,8 @@ export default function StudentDirectory() {
                                     </span>
                                   )}
                                 </div>
-                                <span className="text-xs text-gray-400 font-mono">{maskEmail(userItem.email, isMasterUser)}</span>
+                                <span className="text-xs text-gray-400 font-mono block">{maskEmail(userItem.email, isMasterUser)}</span>
+                                <span className="text-[10px] text-gray-500 font-mono block mt-0.5">Cadastrado em: {formatRegistrationDateTime(userItem)}</span>
                               </div>
                             </div>
                           </td>

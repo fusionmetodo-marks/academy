@@ -95,6 +95,7 @@ export default function Dashboard() {
   // Custom confirmation modal states (replaces iframe-blocked confirm popup)
   const [txToDelete, setTxToDelete] = useState<Transaction | null>(null);
   const [txToCancel, setTxToCancel] = useState<Transaction | null>(null);
+  const [pendingSearch, setPendingSearch] = useState('');
 
   const showNotification = (msg: string) => {
     setToastMessage(msg);
@@ -873,9 +874,22 @@ export default function Dashboard() {
                 </div>
                 <h3 className="text-xl font-extrabold font-headline text-on-surface">Aguardando Aprovação de Comprovativos</h3>
               </div>
-              <span className="text-xs px-3 py-1 bg-surface-container-highest rounded-full text-[#e9c349] font-mono font-bold">
-                {effectiveTransactions.filter(t => !t.status || t.status === 'pending').length} Pendentes
-              </span>
+              
+              <div className="flex items-center gap-3 flex-wrap">
+                <div className="relative w-full sm:w-64">
+                  <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-stone-400 text-sm">search</span>
+                  <input
+                    type="text"
+                    placeholder="Pesquisar por nome, curso ou data..."
+                    value={pendingSearch}
+                    onChange={(e) => setPendingSearch(e.target.value)}
+                    className="w-full bg-[#121212] border border-outline-variant/20 rounded-xl pl-9 pr-4 py-2 text-xs text-white placeholder-stone-500 focus:outline-none focus:border-[#e9c349]"
+                  />
+                </div>
+                <span className="text-xs px-3 py-1 bg-surface-container-highest rounded-full text-[#e9c349] font-mono font-bold whitespace-nowrap">
+                  {effectiveTransactions.filter(t => !t.status || t.status === 'pending').length} Pendentes
+                </span>
+              </div>
             </div>
 
             {effectiveTransactions.filter(t => !t.status || t.status === 'pending').length === 0 ? (
@@ -899,6 +913,16 @@ export default function Dashboard() {
                   <tbody className="divide-y divide-outline-variant/5 font-body">
                     {effectiveTransactions
                       .filter(t => !t.status || t.status === 'pending')
+                      .filter(t => {
+                        if (!pendingSearch.trim()) return true;
+                        const q = pendingSearch.toLowerCase();
+                        const name = (t.userName || '').toLowerCase();
+                        const email = (t.userEmail || '').toLowerCase();
+                        const course = (t.courseTitle || '').toLowerCase();
+                        const ref = (t.referenceNumber || '').toLowerCase();
+                        const dateStr = t.createdAt ? (t.createdAt.toDate ? t.createdAt.toDate().toLocaleString('pt-AO') : new Date(t.createdAt).toLocaleString('pt-AO')).toLowerCase() : '';
+                        return name.includes(q) || email.includes(q) || course.includes(q) || ref.includes(q) || dateStr.includes(q);
+                      })
                       .map((tx) => (
                       <tr key={tx.id} className="hover:bg-surface-container-highest/30 transition-colors">
                         <td className="py-3 px-3">
