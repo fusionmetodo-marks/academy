@@ -120,12 +120,24 @@ export default function StudentDirectory() {
   const [currentUserProfile, setCurrentUserProfile] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
-  const [roleFilter, setRoleFilter] = useState<'all' | 'students' | 'active_students' | 'registered_only' | 'producers' | 'pending'>('all');
+  const [roleFilter, setRoleFilter] = useState<'all' | 'students' | 'active_students' | 'registered_only' | 'producers' | 'pending'>(() => {
+    return (localStorage.getItem('studentDirectory_roleFilter') as any) || 'all';
+  });
   
   // Ordenação e Paginação (Até 50 estudantes por página)
-  const [sortOrder, setSortOrder] = useState<'newest' | 'oldest' | 'alphabetical'>('newest');
+  const [sortOrder, setSortOrder] = useState<'newest' | 'oldest' | 'alphabetical'>(() => {
+    return (localStorage.getItem('studentDirectory_sortOrder') as any) || 'newest';
+  });
   const [currentPage, setCurrentPage] = useState<number>(1);
   const ITEMS_PER_PAGE = 50;
+
+  useEffect(() => {
+    localStorage.setItem('studentDirectory_roleFilter', roleFilter);
+  }, [roleFilter]);
+
+  useEffect(() => {
+    localStorage.setItem('studentDirectory_sortOrder', sortOrder);
+  }, [sortOrder]);
 
   useEffect(() => {
     setCurrentPage(1);
