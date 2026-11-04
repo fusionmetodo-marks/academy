@@ -4,10 +4,10 @@ self.addEventListener('push', function(event) {
     data = event.data.json();
   }
 
-  const title = data.title || 'Marks o Monstro - ACADEMY';
+  const title = data.title || 'Money Building';
   const options = {
     body: data.body || 'Você tem uma nova notificação.',
-    icon: 'https://cdn-icons-png.flaticon.com/512/3135/3135715.png', // Generic icon
+    icon: 'https://i.postimg.cc/LXt95dqk/rt.png',
     data: {
       url: data.url || '/'
     }

@@ -42,8 +42,9 @@ export interface SystemNotification {
   timestamp?: number;
 }
 
-const ACADEMY_ICON = 'https://i.postimg.cc/mDY7XpVF/apenas-12-vagas.png';
-const CFA_ICON = ACADEMY_ICON;
+const MONEY_BUILDING_ICON = 'https://i.postimg.cc/LXt95dqk/rt.png';
+const ACADEMY_ICON = MONEY_BUILDING_ICON;
+const CFA_ICON = MONEY_BUILDING_ICON;
 
 /**
  * Toca um som suave de notificação de alta qualidade usando Web Audio API
@@ -782,11 +783,11 @@ export const triggerAutomatedProducerBillingReminders = async () => {
         if (daysRemaining === 10) {
           stageKey = 'monthly_10d';
           reminderTitle = '⏳ Lembrete de Cobrança: Plano Mensal (10 Dias)';
-          reminderMessage = 'Aviso CFA: Daqui a 10 dias será cobrada a taxa mensal do seu plano de produtor (3.500 Kz). Mantenha a sua conta regularizada.';
+          reminderMessage = 'Aviso Money Building: Daqui a 10 dias será cobrada a taxa mensal do seu plano de produtor (3.500 Kz). Mantenha a sua conta regularizada.';
         } else if (daysRemaining === 5) {
           stageKey = 'monthly_5d';
           reminderTitle = '⚠️ Lembrete de Cobrança: 5 Dias Restantes (Plano Mensal)';
-          reminderMessage = 'Aviso CFA: Daqui a 5 dias vence a taxa mensal do seu plano de produtor (3.500 Kz). Prepare o comprovativo para envio.';
+          reminderMessage = 'Aviso Money Building: Daqui a 5 dias vence a taxa mensal do seu plano de produtor (3.500 Kz). Prepare o comprovativo para envio.';
         } else if (daysRemaining === 3 || daysRemaining === 2) {
           stageKey = `monthly_${daysRemaining}d`;
           reminderTitle = `🚨 Aviso de Vencimento Próximo: Faltam ${daysRemaining} Dias`;
@@ -794,30 +795,30 @@ export const triggerAutomatedProducerBillingReminders = async () => {
         } else if (daysRemaining === 0) {
           stageKey = 'monthly_due';
           reminderTitle = '🛑 Prazo Encerrado: Cobrança do Plano Mensal de Produtor';
-          reminderMessage = 'Aviso Importante: Hoje terminou o prazo do seu plano mensal de produtor CFA (3.500 Kz). Se ainda não efetuou o pagamento, por favor regularize o pagamento e envie o comprovativo.';
+          reminderMessage = 'Aviso Importante: Hoje terminou o prazo do seu plano mensal de produtor Money Building (3.500 Kz). Se ainda não efetuou o pagamento, por favor regularize o pagamento e envie o comprovativo.';
         }
       } else {
         // --- PLANO TRIMESTRAL (7.000 Kz) ---
         if (daysRemaining === 30) {
           stageKey = 'quarterly_30d';
           reminderTitle = '📅 Notificação: Início do Último Mês (Plano Trimestral)';
-          reminderMessage = 'Aviso CFA: Entrou no último mês da sua assinatura trimestral de produtor. No final deste mês será cobrada a taxa de renovação (7.000 Kz).';
+          reminderMessage = 'Aviso Money Building: Entrou no último mês da sua assinatura trimestral de produtor. No final deste mês será cobrada a taxa de renovação (7.000 Kz).';
         } else if (daysRemaining === 15) {
           stageKey = 'quarterly_15d';
           reminderTitle = '⏳ Lembrete de Cobrança: 15 Dias Restantes (Plano Trimestral)';
-          reminderMessage = 'Aviso CFA: Faltam 15 dias para o vencimento do seu plano trimestral de produtor (7.000 Kz).';
+          reminderMessage = 'Aviso Money Building: Faltam 15 dias para o vencimento do seu plano trimestral de produtor (7.000 Kz).';
         } else if (daysRemaining === 10) {
           stageKey = 'quarterly_10d';
           reminderTitle = '⏳ Lembrete de Cobrança: 10 Dias Restantes (Plano Trimestral)';
-          reminderMessage = 'Aviso CFA: Faltam 10 dias para a cobrança da taxa do seu plano trimestral de produtor (7.000 Kz).';
+          reminderMessage = 'Aviso Money Building: Faltam 10 dias para a cobrança da taxa do seu plano trimestral de produtor (7.000 Kz).';
         } else if (daysRemaining === 5) {
           stageKey = 'quarterly_5d';
           reminderTitle = '⚠️ Lembrete Urgente: 5 Dias Restantes (Plano Trimestral)';
-          reminderMessage = 'Aviso CFA: Faltam apenas 5 dias para o vencimento da taxa do seu plano trimestral de produtor (7.000 Kz).';
+          reminderMessage = 'Aviso Money Building: Faltam apenas 5 dias para o vencimento da taxa do seu plano trimestral de produtor (7.000 Kz).';
         } else if (daysRemaining === 0) {
           stageKey = 'quarterly_due';
           reminderTitle = '🛑 Prazo Encerrado: Cobrança do Plano Trimestral de Produtor';
-          reminderMessage = 'Aviso Importante: Hoje é o último dia do seu plano trimestral de produtor CFA (7.000 Kz). Caso ainda não tenha efetuado o pagamento, por favor regularize o pagamento imediatamente.';
+          reminderMessage = 'Aviso Importante: Hoje é o último dia do seu plano trimestral de produtor Money Building (7.000 Kz). Caso ainda não tenha efetuado o pagamento, por favor regularize o pagamento imediatamente.';
         }
       }
 

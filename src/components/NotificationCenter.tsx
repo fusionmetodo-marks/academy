@@ -142,7 +142,7 @@ export const NotificationCenter: React.FC<NotificationCenterProps> = ({
   const handleSendTestNotification = () => {
     playNotificationSound();
     showNativeNotification(
-      '🔔 Teste CFA Mobile',
+      '🔔 Teste Money Building Mobile',
       'As notificações do telemóvel estão ativas e funcionando com sucesso!',
       '/dashboard'
     );
