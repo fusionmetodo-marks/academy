@@ -14,6 +14,48 @@ const PORT = 3000;
 app.use(cors());
 app.use(express.json());
 
+// Military-Grade Security Headers Middleware
+app.use((req, res, next) => {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'DENY');
+  res.setHeader('X-XSS-Protection', '1; mode=block');
+  res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
+  next();
+});
+
+// DDoS & Brute-Force Rate Limiting Middleware for API Endpoints
+const rateLimitMap = new Map<string, { count: number; resetTime: number }>();
+const RATE_LIMIT_WINDOW = 60000; // 1 min
+const RATE_LIMIT_MAX = 150; // max 150 requests per min per IP
+
+app.use('/api/', (req, res, next) => {
+  const ip = req.ip || req.socket.remoteAddress || 'unknown';
+  const now = Date.now();
+  let record = rateLimitMap.get(ip);
+
+  if (!record || now > record.resetTime) {
+    record = { count: 1, resetTime: now + RATE_LIMIT_WINDOW };
+    rateLimitMap.set(ip, record);
+  } else {
+    record.count++;
+    if (record.count > RATE_LIMIT_MAX) {
+      return res.status(429).json({ error: 'Muitas requisições detectadas. Limite de segurança atingido, aguarde um momento.' });
+    }
+  }
+  next();
+});
+
+const MASTER_EMAILS = [
+  'fusionmetodo@gmail.com',
+  'grupocassaminha@gmail.com',
+  'exportacoes.extras@gmail.com'
+];
+
+function isMasterEmail(email?: string): boolean {
+  if (!email) return false;
+  return MASTER_EMAILS.includes(email.trim().toLowerCase());
+}
+
 // AES-256-GCM Cryptographic Engine for Sensitive Payment and Wistia Secrets
 const MASTER_KEY = process.env.ENCRYPTION_MASTER_KEY || 'money-building-secure-master-secret-key-2026';
 const KEY_BUFFER = crypto.scryptSync(MASTER_KEY, 'money-building-salt', 32);
