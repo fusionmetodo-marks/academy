@@ -815,19 +815,19 @@ export default function Dashboard() {
           </header>
 
           {/* Key Metrics */}
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-12">
-            <div className="bg-surface-container p-6 rounded-2xl border border-outline-variant/10 relative overflow-hidden group">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-6 gap-6 mb-12">
+            <div className="bg-surface-container p-6 rounded-2xl border border-outline-variant/10 relative overflow-hidden group lg:col-span-3">
               <div className="absolute top-0 right-0 p-4 opacity-20 group-hover:opacity-40 transition-opacity">
                 <span className="material-symbols-outlined text-4xl text-primary">account_balance_wallet</span>
               </div>
               <p className="text-xs font-bold uppercase tracking-widest text-on-surface-variant mb-2">Faturamento Real Aprovado</p>
-              <h3 className="text-3xl font-black font-headline text-on-surface mb-2">{revenueFormatted}</h3>
+              <h3 className="text-3xl sm:text-4xl font-black font-headline text-on-surface mb-2">{revenueFormatted}</h3>
               <div className="flex items-center gap-1 text-secondary text-xs font-medium">
                 <span className="material-symbols-outlined text-sm">payments</span>
                 <span>Baseado em transações aprovadas</span>
               </div>
             </div>
-            <div className="bg-surface-container p-6 rounded-2xl border border-outline-variant/10 relative overflow-hidden group">
+            <div className="bg-surface-container p-6 rounded-2xl border border-outline-variant/10 relative overflow-hidden group lg:col-span-1">
               <div className="absolute top-0 right-0 p-4 opacity-20 group-hover:opacity-40 transition-opacity">
                 <span className="material-symbols-outlined text-4xl text-primary">group</span>
               </div>
@@ -835,10 +835,10 @@ export default function Dashboard() {
               <h3 className="text-3xl font-black font-headline text-on-surface mb-2">{totalStudents}</h3>
               <div className="flex items-center gap-1 text-secondary text-xs font-medium">
                 <span className="material-symbols-outlined text-sm">person_add</span>
-                <span>{activeStudents} estudantes com acesso ativo</span>
+                <span>{activeStudents} ativos</span>
               </div>
             </div>
-            <div className="bg-surface-container p-6 rounded-2xl border border-outline-variant/10 relative overflow-hidden group">
+            <div className="bg-surface-container p-6 rounded-2xl border border-outline-variant/10 relative overflow-hidden group lg:col-span-1">
               <div className="absolute top-0 right-0 p-4 opacity-20 group-hover:opacity-40 transition-opacity">
                 <span className="material-symbols-outlined text-4xl text-error">cancel</span>
               </div>
@@ -848,10 +848,10 @@ export default function Dashboard() {
               </h3>
               <div className="flex items-center gap-1 text-secondary text-xs font-medium">
                 <span className="material-symbols-outlined text-sm">done_all</span>
-                <span>Percentual de estudantes ativos</span>
+                <span>Percentual ativo</span>
               </div>
             </div>
-            <div className="bg-surface-container p-6 rounded-2xl border border-outline-variant/10 relative overflow-hidden group">
+            <div className="bg-surface-container p-6 rounded-2xl border border-outline-variant/10 relative overflow-hidden group lg:col-span-1">
               <div className="absolute top-0 right-0 p-4 opacity-20 group-hover:opacity-40 transition-opacity">
                 <span className="material-symbols-outlined text-4xl text-primary">play_circle</span>
               </div>
@@ -859,7 +859,7 @@ export default function Dashboard() {
               <h3 className="text-3xl font-black font-headline text-on-surface mb-2">{totalCompletions}</h3>
               <div className="flex items-center gap-1 text-secondary text-xs font-medium">
                 <span className="material-symbols-outlined text-sm">trending_up</span>
-                <span>Total de checklists validados</span>
+                <span>Checklists validados</span>
               </div>
             </div>
           </div>
@@ -1427,8 +1427,8 @@ export default function Dashboard() {
                       <thead className="uppercase text-stone-500 font-label border-b border-outline-variant/10">
                         <tr>
                           <th className="pb-2.5 px-2.5">Data e Hora</th>
-                          <th className="pb-2.5 px-2.5">Referência</th>
-                          <th className="pb-2.5 px-2.5">Estudante (ID / Nome)</th>
+                          <th className="pb-2.5 px-2.5">Telefone</th>
+                          <th className="pb-2.5 px-2.5">Estudante (E-mail / Nome)</th>
                           <th className="pb-2.5 px-2.5">Curso Assinado</th>
                           <th className="pb-2.5 px-2.5">Valor</th>
                           <th className="pb-2.5 px-2.5 text-right">Status</th>
@@ -1436,17 +1436,22 @@ export default function Dashboard() {
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-outline-variant/5 font-body">
-                        {currentItems.map((tx) => (
+                        {currentItems.map((tx) => {
+                          const student = students.find(s => s.id === tx.userId || (s.email && tx.userEmail && s.email.toLowerCase() === tx.userEmail.toLowerCase()));
+                          const studentPhone = tx.userPhone || student?.phone || student?.whatsapp || student?.phoneNumber || tx.referenceNumber || 'N/A';
+                          const studentEmail = tx.userEmail || student?.email || 'N/A';
+                          const studentName = tx.userName || (student?.firstName ? `${student.firstName} ${student.lastName || ''}`.trim() : student?.name) || 'Estudante';
+                          return (
                           <tr key={tx.id} className="hover:bg-surface-container-highest/30 transition-colors">
                             <td className="py-2.5 px-2.5 text-stone-300 font-mono text-[11px]">
                               {tx.createdAt ? (tx.createdAt.toDate ? tx.createdAt.toDate().toLocaleString('pt-AO') : new Date(tx.createdAt).toLocaleString('pt-AO')) : '-'}
                             </td>
                             <td className="py-2.5 px-2.5">
-                              <span className="font-mono font-bold text-on-surface text-xs">{tx.referenceNumber || 'N/A'}</span>
+                              <span className="font-mono font-bold text-on-surface text-xs">{studentPhone}</span>
                             </td>
                             <td className="py-2.5 px-2.5">
-                              <p className="font-medium text-on-surface text-xs">{tx.userName || 'Estudante'}</p>
-                              <p className="text-[10px] text-stone-500 font-mono">ID: {tx.userId || 'N/A'}</p>
+                              <p className="font-medium text-on-surface text-xs">{studentName}</p>
+                              <p className="text-[10px] text-stone-500 font-mono">{studentEmail}</p>
                             </td>
                             <td className="py-2.5 px-2.5 text-stone-300 font-semibold text-xs">{tx.courseTitle || 'Método Fusion'}</td>
                             <td className="py-2.5 px-2.5 text-[#e9c349] font-bold font-mono text-xs">
@@ -1502,7 +1507,8 @@ export default function Dashboard() {
                               </div>
                             </td>
                           </tr>
-                        ))}
+                        );
+                        })}
                       </tbody>
                     </table>
                   </div>
