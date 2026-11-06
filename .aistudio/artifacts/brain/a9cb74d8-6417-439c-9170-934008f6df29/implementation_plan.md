@@ -1,85 +1,74 @@
-# Sistema de Proteção DRM e Restrição de Vídeo Wistia
+# Arquitetura de Proteção de Senhas, Contas e Dados dos Alunos
 
-Arquitetura de proteção avançada para vídeo aulas utilizando restrição de domínio, tokens criptografados de sessão efêmera, marca d'água forense dinâmica e escudo anti-gravação de tela.
+Estrutura detalhada de isolamento de credenciais, blindagem do banco de dados e mascaramento de dados pessoais (PII) entre Administrador Mestre e operadores da plataforma.
 
 ## Decisões Confirmadas com o Utilizador
 
 > [!IMPORTANT]
-> - **Abordagem DRM Selecionada**: Restrição estrita de domínio Wistia combinada com tokens criptografados de sessão assinados pelo servidor.
-> - **Proteções Ativas no Player**: Descriptografia de tokens de sessão, marca d'água forense dinâmica flutuante (Nome, E-mail e Telefone do estudante) e proteção contra gravação/captura de tela (bloqueio de atalhos de inspeção e cortina de privacidade).
+> - **Proteção e Armazenamento de Senhas**: Manutenção estrita do padrão Google Firebase Auth com hashing Scrypt e separação total do Firestore (senhas nunca são salvas no banco de dados).
+> - **Mascaramento de Dados Pessoais (PII)**: E-mails e números de telefone dos estudantes mascarados de forma automática em todo o painel e tabelas de transação para operadores comuns e produtores, com visibilidade integral reservada unicamente ao Administrador Mestre.
 
 ---
 
-## 1. Visão Geral da Arquitetura de Proteção
+## 1. Como as Senhas e Contas Já São Blindadas
 
-O sistema combina 4 camadas de segurança complementares para blindar as aulas contra pirataria, downloads indevidos e compartilhamento:
+1. **Separadas Fisicamente do Banco de Dados**:
+   - As senhas dos estudantes **nunca são gravadas em texto plano nem em documentos do Firestore**.
+   - As contas utilizam o **Firebase Authentication**, serviço isolado do Google que armazena apenas hashes criptográficos de via única com algoritmo **Scrypt + salt**.
+   - Mesmo que um invasor tivesse acesso de leitura ao banco de dados, ele não encontrará nenhuma senha de nenhum aluno.
 
-1. **Restrição de Domínio no Provedor (Wistia Domain Locking)**:
-   - Configuração de trava de domínio no Wistia para autorizar reprodução exclusivamente nas URLs oficiais da plataforma. Qualquer tentativa de carregar o vídeo fora da plataforma (como em extensões de download, leitores de mídia externos ou sites de terceiros) é bloqueada na fonte.
-   - Bloqueio de download nativo desativado em todas as mídias.
+2. **Isolamento de Acesso às Contas (`firestore.rules`)**:
+   - Cada aluno tem permissão restrita para ler e atualizar exclusivamente o seu próprio documento (`request.auth.uid == userId`).
+   - Tentativas de ler documentos de outros alunos resultam em bloqueio imediato (`permission-denied`).
 
-2. **Handshake de Sessão Criptografada (Stream Session Tokens)**:
-   - Antes de iniciar o player, o frontend solicita uma autorização ao endpoint `/api/lessons/verify-access`.
-   - O servidor verifica a matrícula ativa e gera um token efêmero com assinatura HMAC-SHA256 contendo `userId`, `courseId`, `lessonId` e tempo de expiração (1 hora).
-   - O player só renderiza os componentes de reprodução após validação bem-sucedida do token.
-
-3. **Marca D'Água Forense Dinâmica (Anti-Vazamento Rastreável)**:
-   - Sobreposição flutuante semitransparente que se move de forma contínua e randômica sobre o vídeo a cada 6 segundos.
-   - Exibe os dados oficiais do estudante autenticado (Nome Completo, E-mail e Telefone).
-   - Se o estudante tentar gravar a tela com câmera ou software externo, sua identidade fica gravada no vídeo, permitindo banimento imediato e responsabilização legal.
-
-4. **Escudo Anti-Gravação e Anti-Inspeção no Cliente**:
-   - Bloqueio de botão direito do mouse (`contextmenu`) no player.
-   - Bloqueio de atalhos de ferramentas de desenvolvedor (`F12`, `Ctrl+Shift+I`, `Ctrl+Shift+J`, `Ctrl+Shift+C`, `Ctrl+U`, `Ctrl+S`).
-   - Detecção de tecla `PrintScreen` e perda de foco com cortina escura de proteção.
+3. **Proteção de Chaves e Configurações Sensíveis**:
+   - Chaves de gateways de pagamento e tokens do Wistia são criptografados com **AES-256-GCM** no servidor antes de serem gravados.
 
 ---
 
-## 2. Diagrama de Fluxo de Segurança
+## 2. Aprimoramento de Privacidade: Mascaramento PII em Todo o Painel
+
+Para garantir que produtores, operadores ou colaboradores não tenham acesso a dados confidenciais dos alunos:
+
+1. **Tabelas de Validação e Histórico no Dashboard (`Dashboard.tsx`)**:
+   - E-mails: exibidos como `al***@gmail.com` para operadores; completos para o Mestre.
+   - Telefones: exibidos como `+244 92*** **12` para operadores; completos para o Mestre.
+2. **Diretório de Estudantes (`StudentDirectory.tsx`)**:
+   - Reforço do mascaramento nas visualizações mobile e desktop para qualquer usuário sem privilégio Mestre.
+
+---
+
+## 3. Diagrama da Arquitetura de Separação de Dados
 
 ```
 ┌─────────────────────────────────┐
-│ Aluno Autenticado               │
-│ (Clica em Assistir Aula)        │
+│ Dispositivo do Estudante / Admin │
 └────────────────┬────────────────┘
                  │
-                 │ 1. Solicita Token de Streaming (/api/lessons/verify-access)
-                 ▼
-┌────────────────────────────────────────────────────────┐
-│ Servidor Backend (server.ts)                           │
-│ 2. Valida Matrícula Ativa + Role + Status              │
-│ 3. Assina Token Criptografado HMAC-SHA256              │
-│ 4. Prepara Metadados Forenses da Marca D'água          │
-└────────────────┬───────────────────────────────────────┘
+                 ├── 1. Autenticação Direta ──► ┌───────────────────────────────┐
+                 │    (Login com Senha)         │ Google Firebase Auth          │
+                 │                              │ (Hash Scrypt + Salt — Sem DB) │
+                 │                              └───────────────────────────────┘
                  │
-                 │ 5. Retorna { allowed: true, token, watermarkData }
-                 ▼
-┌────────────────────────────────────────────────────────┐
-│ Player Protegido (SecureVideoPlayer.tsx)               │
-│ 6. Carrega Embed Wistia com Restrição de Domínio       │
-│ 7. Ativa Escudo Anti-Inspeção e Anti-Screen Capture    │
-│ 8. Inicia Movimentação Randômica da Marca D'água       │
-└────────────────────────────────────────────────────────┘
+                 └── 2. Dados de Perfil & Cursos ─► ┌───────────────────────────┐
+                      (Com Regras Restritas)        │ Firestore Database        │
+                                                    │ • UID, Nome, Cursos       │
+                                                    │ • PII Mascarada p/ Staff  │
+                                                    │ • Cofre AES-256-GCM       │
+                                                    └───────────────────────────┘
 ```
 
 ---
 
-## 3. Plano de Execução Passo a Passo
+## 4. Plano de Execução Passo a Passo
 
-### Etapa 1: Reforço dos Tokens de Sessão no Backend (`server.ts`)
-- Implementar geração de token assinado com HMAC-SHA256 incluindo timestamp de expiração rigoroso de 60 minutos.
-- Inserir cabeçalhos anti-embedding e validação de origem segura na resposta de autorização.
+### Etapa 1: Aplicação do Mascaramento no Dashboard (`src/pages/Dashboard.tsx`)
+- Importar `maskEmail` e `maskPhone` de `../utils/maskUtils`.
+- Aplicar nas tabelas de validação pendente e modal de histórico de transações com base em `isMasterUser`.
 
-### Etapa 2: Aprimoramento do Player Seguro (`src/components/SecureVideoPlayer.tsx`)
-- Adicionar parâmetros de proteção reforçada no embed Wistia (`videoFoam=true`, `endVideoBehavior=pause`, `controlsVisibleOnLoad=false`).
-- Integrar escudo de privacidade em perda de foco/tentativa de captura de tela (cortina preta com mensagem de proteção).
-- Reforçar o bloqueio de atalhos de teclado (incluindo atalhos MacOS como `Cmd+Option+I` e `PrintScreen`).
+### Etapa 2: Validação das Regras do Banco
+- Confirmar que as regras do `firestore.rules` mantêm o bloqueio estrito contra leitura cruzada de contas.
 
-### Etapa 3: Instruções de Configuração no Painel Wistia
-- Documentar no painel administrativo as configurações recomendadas no dashboard da Wistia:
-  1. *Security -> Domain Restriction*: Adicionar domínios permitidos.
-  2. *Customizations -> Controls*: Desabilitar botões de download e compartilhamento social.
-
-### Etapa 4: Validação e Compilação
-- Compilar o projeto com `compile_applet` e validar com `lint_applet`.
-- Testar o fluxo completo de reprodução e as barreiras de proteção.
+### Etapa 3: Verificação e Compilação
+- Executar `compile_applet` e `lint_applet` para assegurar integridade do código.
+- Reiniciar o servidor de desenvolvimento.

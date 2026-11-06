@@ -507,6 +507,9 @@ export default function VideoLibrary({ courseId }: VideoLibraryProps = {}) {
           studentEmail={auth.currentUser?.email || userProfile?.email}
           studentName={userProfile ? (userProfile.fullName || userProfile.name || `${userProfile.firstName || ''} ${userProfile.lastName || ''}`).trim() : null}
           studentPhone={userProfile?.phoneNumber}
+          enrolledCourses={userProfile?.enrolledCourses || enrolledCourseIds}
+          subscriptionStatus={userProfile?.subscriptionStatus || 'active'}
+          userRole={userProfile?.role || 'student'}
         />
       );
     }

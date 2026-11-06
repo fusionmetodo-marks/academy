@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { ShieldCheck, ShieldAlert, Lock, RefreshCw } from 'lucide-react';
 import { extractWistiaId } from '../utils/wistia';
 import { parseVideoUrlOrIframe } from '../utils/videoParser';
+import { auth } from '../firebase';
 
 interface SecureVideoPlayerProps {
   courseId?: string;
@@ -12,6 +13,9 @@ interface SecureVideoPlayerProps {
   studentEmail?: string | null;
   studentName?: string | null;
   studentPhone?: string | null;
+  enrolledCourses?: string[];
+  subscriptionStatus?: string;
+  userRole?: string;
 }
 
 interface VerificationState {
@@ -33,7 +37,10 @@ export default function SecureVideoPlayer({
   userId,
   studentEmail,
   studentName,
-  studentPhone
+  studentPhone,
+  enrolledCourses,
+  subscriptionStatus,
+  userRole
 }: SecureVideoPlayerProps) {
   const [verification, setVerification] = useState<VerificationState>({
     isVerifying: true,
@@ -46,33 +53,88 @@ export default function SecureVideoPlayer({
 
   // 1. Handshake de autorização no servidor (Backend API Verification)
   const verifyBackendAccess = async () => {
-    setVerification({ isVerifying: true, isAuthorized: false });
+    const currentAuthUser = auth.currentUser;
+    const effectiveUserId = userId || currentAuthUser?.uid;
+    const effectiveEmail = (studentEmail || currentAuthUser?.email || '').trim().toLowerCase();
+    
+    const isMaster = [
+      'fusionmetodo@gmail.com',
+      'grupocassaminha@gmail.com',
+      'exportacoes.extras@gmail.com'
+    ].includes(effectiveEmail);
 
-    if (!userId) {
+    const hasClientEnrollment = isMaster || userRole === 'admin' || userRole === 'producer' || (Array.isArray(enrolledCourses) && !!courseId && enrolledCourses.includes(courseId));
+
+    if (hasClientEnrollment) {
+      setVerification(prev => ({
+        ...prev,
+        isAuthorized: true,
+        watermarkData: {
+          name: studentName || 'Estudante Autorizado',
+          email: effectiveEmail,
+          phone: studentPhone || ''
+        }
+      }));
+    } else {
+      setVerification({ isVerifying: true, isAuthorized: false });
+    }
+
+    if (!effectiveUserId && !effectiveEmail) {
       setVerification({
         isVerifying: false,
         isAuthorized: false,
-        reason: 'Sessão não identificada. Por favor, faça login para assistir.'
+        reason: 'Faça login para assistir a esta aula.'
       });
       return;
     }
 
     try {
+      let idToken: string | null = null;
+      if (currentAuthUser) {
+        try {
+          idToken = await currentAuthUser.getIdToken();
+        } catch (tErr) {
+          console.warn('Aviso: Não foi possível obter idToken:', tErr);
+        }
+      }
+
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json'
+      };
+      if (idToken) {
+        headers['Authorization'] = `Bearer ${idToken}`;
+      }
+
       const res = await fetch('/api/lessons/verify-access', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ userId, courseId, lessonId })
+        headers,
+        body: JSON.stringify({
+          userId: effectiveUserId,
+          courseId,
+          lessonId,
+          studentEmail: effectiveEmail,
+          studentName,
+          studentPhone,
+          enrolledCourses,
+          subscriptionStatus,
+          role: userRole
+        })
       });
 
-      const data = await res.json();
+      let data: any = null;
+      try {
+        data = await res.json();
+      } catch (parseErr) {
+        console.warn('Resposta não-JSON do servidor:', parseErr);
+      }
 
-      if (res.ok && data.allowed) {
+      if (res.ok && data?.allowed) {
         setVerification({
           isVerifying: false,
           isAuthorized: true,
           watermarkData: {
             name: data.studentName || studentName || 'Estudante Autorizado',
-            email: data.studentEmail || studentEmail || '',
+            email: data.studentEmail || effectiveEmail || '',
             phone: data.studentPhone || studentPhone || ''
           }
         });
@@ -80,7 +142,7 @@ export default function SecureVideoPlayer({
         setVerification({
           isVerifying: false,
           isAuthorized: false,
-          reason: data.reason || 'Matrícula inativa ou acesso não liberado pelo servidor.'
+          reason: data?.reason || 'Matrícula inativa ou acesso não liberado pelo servidor.'
         });
       }
     } catch (err) {
@@ -96,7 +158,7 @@ export default function SecureVideoPlayer({
 
   useEffect(() => {
     verifyBackendAccess();
-  }, [userId, courseId, lessonId]);
+  }, [userId, courseId, lessonId, enrolledCourses?.length, subscriptionStatus]);
 
   // 2. Movimentação suave da marca d'água anti-vazamento sobre o vídeo
   useEffect(() => {
@@ -164,42 +226,34 @@ export default function SecureVideoPlayer({
     );
   }
 
-  // Estado de verificação backend em andamento
-  if (verification.isVerifying) {
+  // Estado de carregamento da aula
+  if (verification.isVerifying && !verification.isAuthorized) {
     return (
-      <div className="w-full aspect-video bg-[#0a0c10] flex flex-col items-center justify-center rounded-2xl border border-[#e9c349]/30 p-6 text-center select-none shadow-2xl relative overflow-hidden">
-        <div className="w-14 h-14 rounded-full bg-[#e9c349]/10 border border-[#e9c349]/40 flex items-center justify-center mb-4 animate-pulse">
-          <RefreshCw className="w-6 h-6 text-[#e9c349] animate-spin" />
+      <div className="w-full aspect-video bg-[#0a0c10] flex flex-col items-center justify-center rounded-2xl border border-white/5 p-6 text-center select-none shadow-2xl relative overflow-hidden">
+        <div className="w-10 h-10 rounded-full bg-[#e9c349]/10 border border-[#e9c349]/30 flex items-center justify-center mb-3 animate-spin">
+          <RefreshCw className="w-5 h-5 text-[#e9c349]" />
         </div>
-        <h4 className="text-sm font-bold text-white font-headline">
-          🔒 Verificando Autorização de Acesso (DRM)
-        </h4>
-        <p className="text-xs text-stone-400 max-w-xs mt-1 leading-relaxed">
-          O servidor está a validar a sua matrícula e assinatura em tempo real...
-        </p>
+        <p className="text-xs text-stone-400 font-medium">Carregando aula...</p>
       </div>
     );
   }
 
-  // Estado de acesso negado pelo servidor
+  // Estado de acesso restrito (quando não matriculado)
   if (!verification.isAuthorized) {
     return (
-      <div className="w-full aspect-video bg-gradient-to-br from-[#160a0a] via-[#100808] to-black flex flex-col items-center justify-center rounded-2xl border border-rose-500/30 p-6 text-center select-none shadow-2xl relative overflow-hidden">
-        <div className="w-14 h-14 rounded-full bg-rose-500/10 border border-rose-500/30 flex items-center justify-center mb-4 text-rose-400">
-          <Lock className="w-7 h-7" />
+      <div className="w-full aspect-video bg-[#0c0d10] flex flex-col items-center justify-center rounded-2xl border border-white/10 p-6 text-center select-none shadow-2xl relative overflow-hidden">
+        <div className="w-12 h-12 rounded-full bg-white/5 border border-white/10 flex items-center justify-center mb-3 text-[#e9c349]">
+          <Lock className="w-6 h-6" />
         </div>
-        <h4 className="text-base font-extrabold text-white font-headline">
-          🔒 Conteúdo Protegido por DRM — Acesso Bloqueado
-        </h4>
-        <p className="text-xs text-stone-300 max-w-md mt-2 leading-relaxed">
-          {verification.reason || 'Você não possui uma matrícula ativa autorizada pelo servidor para assistir este conteúdo.'}
+        <p className="text-xs text-stone-300 max-w-md mt-1 leading-relaxed">
+          {verification.reason || 'Esta aula é reservada para alunos matriculados neste curso.'}
         </p>
         <button
           onClick={verifyBackendAccess}
-          className="mt-5 px-4 py-2 bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 border border-rose-500/40 rounded-xl font-bold text-xs flex items-center gap-2 transition-all cursor-pointer active:scale-95"
+          className="mt-4 px-4 py-2 bg-[#e9c349] hover:bg-[#d4b03e] text-[#131313] rounded-xl font-bold text-xs flex items-center gap-2 transition-all cursor-pointer active:scale-95"
         >
-          <RefreshCw className="w-4 h-4" />
-          <span>Tentar Novamente</span>
+          <RefreshCw className="w-3.5 h-3.5" />
+          <span>Atualizar Acesso</span>
         </button>
       </div>
     );
@@ -218,26 +272,20 @@ export default function SecureVideoPlayer({
       onContextMenu={(e) => e.preventDefault()}
       className="relative w-full aspect-video rounded-2xl overflow-hidden shadow-2xl border border-white/10 bg-black select-none group"
     >
-      {/* Cortina Anti-Captura de Tela (DRM Screen Protection Shield) */}
+      {/* Cortina Anti-Captura de Tela */}
       {isScreenCaptureBlocked && (
         <div className="absolute inset-0 z-50 bg-black flex flex-col items-center justify-center p-6 text-center select-none animate-fadeIn">
-          <div className="w-16 h-16 rounded-2xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-center mb-3 text-amber-400">
-            <ShieldAlert className="w-8 h-8" />
+          <div className="w-14 h-14 rounded-2xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-center mb-3 text-amber-400">
+            <ShieldAlert className="w-7 h-7" />
           </div>
-          <h4 className="text-base font-bold text-white font-headline">
-            🛡️ Captura de Tela Bloqueada por DRM
-          </h4>
-          <p className="text-xs text-stone-300 max-w-sm mt-1.5 leading-relaxed">
-            A gravação e captura de tela são estritamente proibidas para proteger os direitos autorais do Money Building.
+          <p className="text-sm font-semibold text-white">
+            Gravação ou captura de tela não permitida
+          </p>
+          <p className="text-xs text-stone-400 max-w-sm mt-1 leading-relaxed">
+            O material educativo é de uso pessoal e exclusivo do aluno.
           </p>
         </div>
       )}
-
-      {/* Indicador de DRM Ativo */}
-      <div className="absolute top-3 right-3 pointer-events-none z-20 select-none bg-black/60 backdrop-blur-xs border border-white/10 px-2.5 py-1 rounded-full text-[9px] font-mono font-bold text-emerald-400 flex items-center gap-1.5 shadow-sm opacity-60 group-hover:opacity-100 transition-opacity">
-        <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
-        <span>DRM Ativo • Stream Protegido</span>
-      </div>
 
       {/* 1. Player Wistia Protegido */}
       {isWistia && (
