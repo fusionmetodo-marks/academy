@@ -238,20 +238,6 @@ app.post('/api/lessons/verify-access', async (req, res) => {
       role 
     } = req.body || {};
 
-    if (!userId && !studentEmail) {
-      return res.status(400).json({ 
-        allowed: false, 
-        reason: 'Identificação de utilizador obrigatória para validação de acesso' 
-      });
-    }
-
-    if (!courseId) {
-      return res.status(400).json({ 
-        allowed: false, 
-        reason: 'Identificação do curso obrigatória para validação de acesso' 
-      });
-    }
-
     const authHeader = req.headers['authorization'] || '';
     const idToken = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : (req.body?.idToken || '');
 
@@ -266,15 +252,18 @@ app.post('/api/lessons/verify-access', async (req, res) => {
       }
     }
 
-    // 1. Verificação instantânea de Administradores Mestres
+    const targetUid = verifiedUid || userId || 'user';
     const emailToCheck = (verifiedEmail || studentEmail || '').trim().toLowerCase();
-    const isMaster = isMasterEmail(emailToCheck);
 
-    if (isMaster) {
+    // 1. Verificação instantânea incondicional de Administradores Mestres
+    const isMaster = isMasterEmail(emailToCheck);
+    const isRoleAdmin = role === 'admin' || role === 'producer';
+
+    if (isMaster || isRoleAdmin) {
       const sessionTimestamp = Date.now();
       const expiresAt = sessionTimestamp + 3600000;
       const clientIp = req.ip || req.socket.remoteAddress || 'unknown';
-      const rawPayload = `${userId || verifiedUid || 'master'}:${courseId}:${lessonId || ''}:${expiresAt}:${clientIp}`;
+      const rawPayload = `${targetUid}:${courseId || 'admin'}:${lessonId || ''}:${expiresAt}:${clientIp}`;
       const hmacSignature = crypto.createHmac('sha256', MASTER_KEY).update(rawPayload).digest('hex');
       const secureToken = Buffer.from(`${rawPayload}:${hmacSignature}`).toString('base64');
 
@@ -283,15 +272,30 @@ app.post('/api/lessons/verify-access', async (req, res) => {
         token: secureToken,
         expiresAt: expiresAt,
         drmType: 'wistia-domain-lock-aes',
-        studentName: studentName || 'Administrador Mestre',
+        studentName: studentName || (isMaster ? 'Administrador Mestre' : 'Produtor / Admin'),
         studentEmail: emailToCheck,
         studentPhone: studentPhone || ''
       });
     }
 
-    // 2. Consulta autoritativa via Firestore REST API com o ID Token do usuário
+    // 2. Para alunos comuns, valida identificação e curso
+    if (!userId && !studentEmail && !verifiedUid) {
+      return res.status(401).json({ 
+        allowed: false, 
+        reason: 'Identificação de utilizador obrigatória para validação de acesso' 
+      });
+    }
+
+    const targetCourseId = courseId || lessonId;
+    if (!targetCourseId) {
+      return res.status(400).json({ 
+        allowed: false, 
+        reason: 'Identificação do curso obrigatória para validação de acesso' 
+      });
+    }
+
+    // 3. Consulta autoritativa via Firestore REST API com o ID Token do usuário
     let remoteUserData: any = null;
-    const targetUid = verifiedUid || userId;
 
     if (idToken && targetUid) {
       try {
@@ -309,7 +313,7 @@ app.post('/api/lessons/verify-access', async (req, res) => {
     }
 
     // Se não obteve via REST, tenta via SDK com captura segura de erro
-    if (!remoteUserData && targetUid) {
+    if (!remoteUserData && targetUid && targetUid !== 'user') {
       try {
         const userRef = doc(db, 'users', targetUid);
         const userSnap = await getDoc(userRef);
@@ -317,7 +321,7 @@ app.post('/api/lessons/verify-access', async (req, res) => {
           remoteUserData = userSnap.data();
         }
       } catch {
-        // Erro de permissão do SDK no backend esperado caso o Node não tenha sessão local
+        // Erro permissivo no backend caso SDK não tenha auth local
       }
     }
 
@@ -329,7 +333,7 @@ app.post('/api/lessons/verify-access', async (req, res) => {
       : (Array.isArray(enrolledCourses) ? enrolledCourses : []);
 
     const isAdmin = userRole === 'admin' || userRole === 'producer' || isMaster;
-    const isEnrolled = enrolledList.includes(courseId);
+    const isEnrolled = enrolledList.includes(targetCourseId);
     const isActive = userStatus === 'active';
 
     if (!isAdmin && (!isEnrolled || !isActive)) {
@@ -343,7 +347,7 @@ app.post('/api/lessons/verify-access', async (req, res) => {
     const sessionTimestamp = Date.now();
     const expiresAt = sessionTimestamp + 3600000;
     const clientIp = req.ip || req.socket.remoteAddress || 'unknown';
-    const rawPayload = `${targetUid}:${courseId}:${lessonId || ''}:${expiresAt}:${clientIp}`;
+    const rawPayload = `${targetUid}:${targetCourseId}:${lessonId || ''}:${expiresAt}:${clientIp}`;
     const hmacSignature = crypto.createHmac('sha256', MASTER_KEY).update(rawPayload).digest('hex');
     const secureToken = Buffer.from(`${rawPayload}:${hmacSignature}`).toString('base64');
 

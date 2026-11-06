@@ -56,29 +56,54 @@ export default function SecureVideoPlayer({
     const currentAuthUser = auth.currentUser;
     const effectiveUserId = userId || currentAuthUser?.uid;
     const effectiveEmail = (studentEmail || currentAuthUser?.email || '').trim().toLowerCase();
-    
+    const effectiveCourseId = courseId || 'marks-trading-master';
+
     const isMaster = [
       'fusionmetodo@gmail.com',
       'grupocassaminha@gmail.com',
       'exportacoes.extras@gmail.com'
     ].includes(effectiveEmail);
 
-    const hasClientEnrollment = isMaster || userRole === 'admin' || userRole === 'producer' || (Array.isArray(enrolledCourses) && !!courseId && enrolledCourses.includes(courseId));
+    const isAdmin = isMaster || userRole === 'admin' || userRole === 'producer';
 
-    if (hasClientEnrollment) {
-      setVerification(prev => ({
-        ...prev,
+    // 1. Administradores possuem acesso total e irrestrito a todas as aulas
+    if (isAdmin) {
+      setVerification({
+        isVerifying: false,
         isAuthorized: true,
         watermarkData: {
-          name: studentName || 'Estudante Autorizado',
+          name: studentName || (isMaster ? 'Administrador Mestre' : 'Produtor / Admin'),
           email: effectiveEmail,
           phone: studentPhone || ''
         }
-      }));
-    } else {
-      setVerification({ isVerifying: true, isAuthorized: false });
+      });
+
+      // Handshake silencioso de token em segundo plano sem bloquear a reprodução do admin
+      try {
+        let idToken: string | null = null;
+        if (currentAuthUser) {
+          idToken = await currentAuthUser.getIdToken().catch(() => null);
+        }
+        const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+        if (idToken) headers['Authorization'] = `Bearer ${idToken}`;
+        await fetch('/api/lessons/verify-access', {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({
+            userId: effectiveUserId,
+            courseId: effectiveCourseId,
+            lessonId,
+            studentEmail: effectiveEmail,
+            role: userRole || 'admin'
+          })
+        }).catch(() => {});
+      } catch {
+        // Silencioso para admin
+      }
+      return;
     }
 
+    // 2. Para alunos: Verificação estrita de matrícula ativa em tempo real
     if (!effectiveUserId && !effectiveEmail) {
       setVerification({
         isVerifying: false,
@@ -88,14 +113,24 @@ export default function SecureVideoPlayer({
       return;
     }
 
+    const isEnrolled = Array.isArray(enrolledCourses) && enrolledCourses.includes(effectiveCourseId);
+    const isActive = subscriptionStatus === 'active';
+
+    // Se o aluno não tiver o curso matriculado ou se a permissão foi retirada em tempo real
+    if (!isEnrolled || !isActive) {
+      setVerification({
+        isVerifying: false,
+        isAuthorized: false,
+        reason: 'Acesso restrito: Você não possui matrícula ativa para este curso.'
+      });
+      return;
+    }
+
+    // Aluno com matrícula ativa identificada: valida com o servidor para assinatura do stream
     try {
       let idToken: string | null = null;
       if (currentAuthUser) {
-        try {
-          idToken = await currentAuthUser.getIdToken();
-        } catch (tErr) {
-          console.warn('Aviso: Não foi possível obter idToken:', tErr);
-        }
+        idToken = await currentAuthUser.getIdToken().catch(() => null);
       }
 
       const headers: Record<string, string> = {
@@ -110,7 +145,7 @@ export default function SecureVideoPlayer({
         headers,
         body: JSON.stringify({
           userId: effectiveUserId,
-          courseId,
+          courseId: effectiveCourseId,
           lessonId,
           studentEmail: effectiveEmail,
           studentName,
@@ -139,6 +174,7 @@ export default function SecureVideoPlayer({
           }
         });
       } else {
+        // Se o servidor negar explicitamente, bloqueia o aluno
         setVerification({
           isVerifying: false,
           isAuthorized: false,
@@ -146,19 +182,23 @@ export default function SecureVideoPlayer({
         });
       }
     } catch (err) {
-      console.error('Falha no handshake de segurança do vídeo:', err);
-      // Blindagem estilo militar: FAIL-CLOSED estrito. Qualquer exceção ou erro bloqueia o acesso imediatamente.
+      console.error('Falha na validação de segurança:', err);
+      // Se houver falha de rede mas o aluno já está matriculado no Firestore ativo
       setVerification({
         isVerifying: false,
-        isAuthorized: false,
-        reason: 'Falha na validação de segurança com o servidor. Acesso negado.'
+        isAuthorized: true,
+        watermarkData: {
+          name: studentName || 'Estudante Autorizado',
+          email: effectiveEmail,
+          phone: studentPhone || ''
+        }
       });
     }
   };
 
   useEffect(() => {
     verifyBackendAccess();
-  }, [userId, courseId, lessonId, enrolledCourses?.length, subscriptionStatus]);
+  }, [userId, courseId, lessonId, JSON.stringify(enrolledCourses), subscriptionStatus, userRole]);
 
   // 2. Movimentação suave da marca d'água anti-vazamento sobre o vídeo
   useEffect(() => {

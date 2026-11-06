@@ -499,7 +499,7 @@ export default function VideoLibrary({ courseId }: VideoLibraryProps = {}) {
     if (isPlaying) {
       return (
         <SecureVideoPlayer
-          courseId={activeCourseId || lesson.courseId}
+          courseId={activeCourseId || lesson.courseId || course.id || 'marks-trading-master'}
           lessonId={lesson.id}
           videoSource={lesson.videoSource || 'wistia'}
           videoData={rawData}
