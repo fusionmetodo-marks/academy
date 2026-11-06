@@ -170,33 +170,10 @@ export default function VideoLibrary({ courseId }: VideoLibraryProps = {}) {
 
 
 
-  // Redirecionamento direto e silencioso para a página de apresentação do curso quando o usuário não tiver matrícula ativa
-  useEffect(() => {
-    if (enrollmentStatusLoaded && activeCourseId && !enrolledCourseIds.includes(activeCourseId)) {
-      const isMaster = isMasterEmail(userProfile?.email) || isMasterEmail(auth.currentUser?.email);
-      const isAdmin = userProfile?.role === 'admin' || isMaster;
-      if (isAdmin && !isAdminSimulating) {
-        return; // Admins possuem acesso completo de auditoria
-      }
-      if (course.title && course.title !== 'Curso CFA') {
-        const courseSlug = slugify(course.title);
-        navigate(`/library/${courseSlug}`, { replace: true });
-      } else {
-        // Se o título ainda não carregou no estado local, busca rapidamente o título no Firestore para direcionar ao slug correto
-        getDoc(doc(db, 'courses', activeCourseId)).then((snap) => {
-          if (snap.exists()) {
-            const data = snap.data();
-            const courseSlug = data.title ? slugify(data.title) : activeCourseId;
-            navigate(`/library/${courseSlug}`, { replace: true });
-          } else {
-            navigate('/library', { replace: true });
-          }
-        }).catch(() => {
-          navigate('/library', { replace: true });
-        });
-      }
-    }
-  }, [enrollmentStatusLoaded, activeCourseId, enrolledCourseIds, course.title, userProfile, isAdminSimulating, navigate]);
+  // Verificar se o usuário possui acesso válido ao curso (Admin/Produtor tem auditoria; Aluno precisa estar matriculado)
+  const isMasterUser = isMasterEmail(userProfile?.email) || isMasterEmail(auth.currentUser?.email);
+  const isUserAdminOrProducer = (userProfile?.role === 'admin' || userProfile?.role === 'producer' || isMasterUser) && !isAdminSimulating;
+  const hasCourseAccess = isUserAdminOrProducer || (activeCourseId ? enrolledCourseIds.includes(activeCourseId) : false);
 
   // Monitor Course collection in Real-Time
   useEffect(() => {
@@ -499,7 +476,7 @@ export default function VideoLibrary({ courseId }: VideoLibraryProps = {}) {
     if (isPlaying) {
       return (
         <SecureVideoPlayer
-          courseId={activeCourseId || lesson.courseId || course.id || 'marks-trading-master'}
+          courseId={course.id || activeCourseId || lesson.courseId || ''}
           lessonId={lesson.id}
           videoSource={lesson.videoSource || 'wistia'}
           videoData={rawData}
@@ -543,11 +520,31 @@ export default function VideoLibrary({ courseId }: VideoLibraryProps = {}) {
     );
   }
 
-  if (activeCourseId && !enrolledCourseIds.includes(activeCourseId)) {
+  if (activeCourseId && !hasCourseAccess) {
     return (
-      <div className="bg-[#131313] min-h-screen flex flex-col items-center justify-center p-4 text-white">
-        <div className="w-8 h-8 border-3 border-[#e9c349] border-t-transparent rounded-full animate-spin mb-3"></div>
-        <p className="text-xs text-stone-400 font-headline uppercase tracking-widest">A carregar apresentação do produto...</p>
+      <div className="bg-[#131313] min-h-screen flex flex-col items-center justify-center p-6 text-white text-center">
+        <div className="w-16 h-16 rounded-full bg-red-500/10 border border-red-500/30 flex items-center justify-center mb-4 text-red-400">
+          <Lock className="w-8 h-8" />
+        </div>
+        <h2 className="text-xl font-bold font-headline mb-2 text-white">Disciplina Não Matriculada</h2>
+        <p className="text-xs text-stone-400 max-w-md mb-6 leading-relaxed">
+          Você não possui acesso a este curso ou sua assinatura não está ativa. As aulas são exclusivas para alunos devidamente matriculados nesta disciplina.
+        </p>
+        <div className="flex flex-col sm:flex-row gap-3">
+          <Link
+            to="/library/meus-cursos"
+            className="px-5 py-2.5 bg-[#e9c349] hover:bg-[#d4b03f] text-black font-bold text-xs rounded-xl transition-all shadow-md active:scale-95 flex items-center justify-center gap-2"
+          >
+            <BookOpen className="w-4 h-4" />
+            <span>Ver Meus Cursos</span>
+          </Link>
+          <Link
+            to="/library"
+            className="px-5 py-2.5 bg-white/10 hover:bg-white/20 text-white font-bold text-xs rounded-xl border border-white/10 transition-all active:scale-95 flex items-center justify-center gap-2"
+          >
+            <span>Vitrine de Cursos</span>
+          </Link>
+        </div>
       </div>
     );
   }

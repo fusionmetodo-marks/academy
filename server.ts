@@ -328,9 +328,14 @@ app.post('/api/lessons/verify-access', async (req, res) => {
     // Determina os dados do usuário a partir dos dados do servidor ou dos dados autenticados da requisição
     const userRole = remoteUserData?.role || role || 'student';
     const userStatus = remoteUserData?.subscriptionStatus || subscriptionStatus || 'active';
-    const enrolledList: string[] = Array.isArray(remoteUserData?.enrolledCourses) 
-      ? remoteUserData.enrolledCourses 
-      : (Array.isArray(enrolledCourses) ? enrolledCourses : []);
+    const serverEnrolled = Array.isArray(remoteUserData?.enrolledCourses) ? remoteUserData.enrolledCourses : [];
+    const clientEnrolled = Array.isArray(enrolledCourses) ? enrolledCourses : [];
+    let enrolledList: string[] = Array.from(new Set([...serverEnrolled, ...clientEnrolled]));
+    if (enrolledList.includes('marks-trading-master') || enrolledList.includes('curso-cfa')) {
+      if (!enrolledList.includes('c_1793470582310')) {
+        enrolledList.push('c_1793470582310');
+      }
+    }
 
     const isAdmin = userRole === 'admin' || userRole === 'producer' || isMaster;
     const isEnrolled = enrolledList.includes(targetCourseId);

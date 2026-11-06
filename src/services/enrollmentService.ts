@@ -32,7 +32,13 @@ export function subscribeUserEnrollments(
   let unsub2 = () => {};
 
   const handleSnapData = (docId: string, data: any) => {
-    const enrolled = Array.isArray(data?.enrolledCourses) ? data.enrolledCourses : [];
+    let enrolled = Array.isArray(data?.enrolledCourses) ? data.enrolledCourses : [];
+    // Mapeamento de retrocompatibilidade para alunos antigos: 'marks-trading-master' ou 'curso-cfa' equivale ao Nível 1
+    if (enrolled.includes('marks-trading-master') || enrolled.includes('curso-cfa')) {
+      if (!enrolled.includes('c_1793470582310')) {
+        enrolled = [...enrolled, 'c_1793470582310'];
+      }
+    }
     const completed = Array.isArray(data?.completedLessons) ? data.completedLessons : [];
     const status = data?.subscriptionStatus || (enrolled.length > 0 ? 'active' : 'inactive');
 

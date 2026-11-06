@@ -56,7 +56,7 @@ export default function SecureVideoPlayer({
     const currentAuthUser = auth.currentUser;
     const effectiveUserId = userId || currentAuthUser?.uid;
     const effectiveEmail = (studentEmail || currentAuthUser?.email || '').trim().toLowerCase();
-    const effectiveCourseId = courseId || 'marks-trading-master';
+    const effectiveCourseId = courseId || '';
 
     const isMaster = [
       'fusionmetodo@gmail.com',
@@ -113,11 +113,11 @@ export default function SecureVideoPlayer({
       return;
     }
 
-    const isEnrolled = Array.isArray(enrolledCourses) && enrolledCourses.includes(effectiveCourseId);
+    const isEnrolled = Boolean(effectiveCourseId) && Array.isArray(enrolledCourses) && enrolledCourses.includes(effectiveCourseId);
     const isActive = subscriptionStatus === 'active';
 
     // Se o aluno não tiver o curso matriculado ou se a permissão foi retirada em tempo real
-    if (!isEnrolled || !isActive) {
+    if (!effectiveCourseId || !isEnrolled || !isActive) {
       setVerification({
         isVerifying: false,
         isAuthorized: false,
