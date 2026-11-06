@@ -6,7 +6,7 @@ import fs from 'fs';
 import crypto from 'crypto';
 import { createServer as createViteServer } from 'vite';
 import { initializeApp, getApps } from 'firebase/app';
-import { getFirestore, doc, getDoc } from 'firebase/firestore';
+import { getFirestore, doc, getDoc, collection, query, where, getDocs } from 'firebase/firestore';
 
 const app = express();
 const PORT = 3000;
@@ -122,8 +122,19 @@ async function verifyAdminAuth(req: express.Request): Promise<boolean> {
   
   if (idToken) {
     const verified = await verifyFirebaseIdToken(idToken);
-    if (verified && isMasterEmail(verified.email)) {
-      return true;
+    if (verified) {
+      if (isMasterEmail(verified.email)) {
+        return true;
+      }
+      try {
+        const userSnap = await getDoc(doc(db, 'users', verified.uid));
+        if (userSnap.exists()) {
+          const uData = userSnap.data();
+          if (uData.role === 'admin' || (uData.role === 'producer' && uData.subscriptionStatus === 'active')) {
+            return true;
+          }
+        }
+      } catch (_) {}
     }
   }
 
@@ -145,7 +156,6 @@ async function verifyAdminAuth(req: express.Request): Promise<boolean> {
         }
       }
     } catch {
-      // Falha permissiva no client SDK caso não haja sessão backend, continua para falso
       return false;
     }
   }
@@ -312,7 +322,7 @@ app.post('/api/lessons/verify-access', async (req, res) => {
       }
     }
 
-    // Se não obteve via REST, tenta via SDK com captura segura de erro
+    // Se não obteve via REST, tenta via SDK por UID
     if (!remoteUserData && targetUid && targetUid !== 'user') {
       try {
         const userRef = doc(db, 'users', targetUid);
@@ -321,16 +331,32 @@ app.post('/api/lessons/verify-access', async (req, res) => {
           remoteUserData = userSnap.data();
         }
       } catch {
-        // Erro permissivo no backend caso SDK não tenha auth local
+        // Erro permissivo no backend
       }
     }
 
-    // Determina os dados do usuário a partir dos dados do servidor ou dos dados autenticados da requisição
-    const userRole = remoteUserData?.role || role || 'student';
-    const userStatus = remoteUserData?.subscriptionStatus || subscriptionStatus || 'active';
-    const serverEnrolled = Array.isArray(remoteUserData?.enrolledCourses) ? remoteUserData.enrolledCourses : [];
-    const clientEnrolled = Array.isArray(enrolledCourses) ? enrolledCourses : [];
-    let enrolledList: string[] = Array.from(new Set([...serverEnrolled, ...clientEnrolled]));
+    // 3.4 Busca autoritativa complementar por e-mail para cobrir registros salvos por e-mail
+    let emailUserData: any = null;
+    if (emailToCheck) {
+      try {
+        const q = query(collection(db, 'users'), where('email', '==', emailToCheck));
+        const qSnap = await getDocs(q);
+        if (!qSnap.empty) {
+          emailUserData = qSnap.docs[0].data();
+        }
+      } catch (_) {}
+    }
+
+    const mergedEnrolledCourses = [
+      ...(Array.isArray(remoteUserData?.enrolledCourses) ? remoteUserData.enrolledCourses : []),
+      ...(Array.isArray(emailUserData?.enrolledCourses) ? emailUserData.enrolledCourses : []),
+      ...(Array.isArray(enrolledCourses) ? enrolledCourses : [])
+    ];
+
+    // Determina os dados do usuário a partir dos dados do servidor (UID/Email) ou da requisição
+    const userRole = remoteUserData?.role || emailUserData?.role || role || 'student';
+    const userStatus = remoteUserData?.subscriptionStatus || emailUserData?.subscriptionStatus || subscriptionStatus || 'active';
+    let enrolledList: string[] = Array.from(new Set(mergedEnrolledCourses));
     if (enrolledList.includes('marks-trading-master') || enrolledList.includes('curso-cfa')) {
       if (!enrolledList.includes('c_1793470582310')) {
         enrolledList.push('c_1793470582310');

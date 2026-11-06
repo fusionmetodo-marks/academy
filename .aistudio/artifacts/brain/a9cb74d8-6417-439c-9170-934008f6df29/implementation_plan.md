@@ -1,74 +1,66 @@
-# Arquitetura de Proteção de Senhas, Contas e Dados dos Alunos
+# Implementation Plan: Student Playback Fix & Admin Route Security Obfuscation
 
-Estrutura detalhada de isolamento de credenciais, blindagem do banco de dados e mascaramento de dados pessoais (PII) entre Administrador Mestre e operadores da plataforma.
+## User Intent & Requirements
+1. **Student Playback Authorization Fix**:
+   - Resolve the issue where actively enrolled students click "Play", but video authorization fails with a server message stating they have no active enrollment.
+   - Verify Firebase Auth ID token on the server (`/api/lessons/verify-access`) and match enrolled courses across both UID and email records in Firestore.
 
-## Decisões Confirmadas com o Utilizador
+2. **Admin Panel Security & Obfuscation**:
+   - Hide and obfuscate administrative route paths to prevent exposure of sensitive management endpoints.
+   - Completely remove admin navigation triggers from student-facing interfaces.
+   - Enforce cryptographically verified Firebase ID Tokens (`verifyAdminAuth`) for all administrative backend API routes.
 
+---
+
+## User Review Required
 > [!IMPORTANT]
-> - **Proteção e Armazenamento de Senhas**: Manutenção estrita do padrão Google Firebase Auth com hashing Scrypt e separação total do Firestore (senhas nunca são salvas no banco de dados).
-> - **Mascaramento de Dados Pessoais (PII)**: E-mails e números de telefone dos estudantes mascarados de forma automática em todo o painel e tabelas de transação para operadores comuns e produtores, com visibilidade integral reservada unicamente ao Administrador Mestre.
+> The admin routes (`/dashboard`, `/directory`, `/content`, `/analytics`, `/broadcast`, `/messages`, `/settings`) will be guarded by role-based obfuscation and strict 404 fallbacks for non-admins. Admin API endpoints in `server.ts` will strictly require a valid Firebase ID Token signed by Google.
 
 ---
 
-## 1. Como as Senhas e Contas Já São Blindadas
+## Proposed Changes
 
-1. **Separadas Fisicamente do Banco de Dados**:
-   - As senhas dos estudantes **nunca são gravadas em texto plano nem em documentos do Firestore**.
-   - As contas utilizam o **Firebase Authentication**, serviço isolado do Google que armazena apenas hashes criptográficos de via única com algoritmo **Scrypt + salt**.
-   - Mesmo que um invasor tivesse acesso de leitura ao banco de dados, ele não encontrará nenhuma senha de nenhum aluno.
+### Backend Security & Verification (`server.ts`)
+- **Dual-Lookup Enrollment Verification (`/api/lessons/verify-access`)**:
+  - Extract and verify `idToken` via `verifyFirebaseIdToken`.
+  - Fetch Firestore user document by `uid` and query by `email`.
+  - Combine `enrolledCourses` arrays from both sources and apply backward-compatibility course mapping (`marks-trading-master` / `curso-cfa` -> `c_1793470582310`).
+  - Grant access if the target course ID exists in the merged enrollment list or if the user is a verified Admin/Master.
 
-2. **Isolamento de Acesso às Contas (`firestore.rules`)**:
-   - Cada aluno tem permissão restrita para ler e atualizar exclusivamente o seu próprio documento (`request.auth.uid == userId`).
-   - Tentativas de ler documentos de outros alunos resultam em bloqueio imediato (`permission-denied`).
-
-3. **Proteção de Chaves e Configurações Sensíveis**:
-   - Chaves de gateways de pagamento e tokens do Wistia são criptografados com **AES-256-GCM** no servidor antes de serem gravados.
-
----
-
-## 2. Aprimoramento de Privacidade: Mascaramento PII em Todo o Painel
-
-Para garantir que produtores, operadores ou colaboradores não tenham acesso a dados confidenciais dos alunos:
-
-1. **Tabelas de Validação e Histórico no Dashboard (`Dashboard.tsx`)**:
-   - E-mails: exibidos como `al***@gmail.com` para operadores; completos para o Mestre.
-   - Telefones: exibidos como `+244 92*** **12` para operadores; completos para o Mestre.
-2. **Diretório de Estudantes (`StudentDirectory.tsx`)**:
-   - Reforço do mascaramento nas visualizações mobile e desktop para qualquer usuário sem privilégio Mestre.
+- **Strict Admin Authentication Enforcement (`verifyAdminAuth`)**:
+  - Require a valid `Authorization: Bearer <idToken>` for all administrative endpoints (`/api/crypto/*`, `/api/push/send`, etc.).
+  - Verify that the decoded token email is a master admin email (`fusionmetodo@gmail.com`, `grupocassaminha@gmail.com`, `exportacoes.extras@gmail.com`) or has role `admin`/`producer` in Firestore.
 
 ---
 
-## 3. Diagrama da Arquitetura de Separação de Dados
+### Client Video Player & Services (`src/components/SecureVideoPlayer.tsx` & `src/services/enrollmentService.ts`)
+- **ID Token Passing in `SecureVideoPlayer.tsx`**:
+  - Retrieve fresh `getIdToken()` before calling `/api/lessons/verify-access`.
+  - Pass `Authorization: Bearer <token>` in the fetch header.
+  - Gracefully authorize playback when the server returns `allowed: true`.
 
-```
-┌─────────────────────────────────┐
-│ Dispositivo do Estudante / Admin │
-└────────────────┬────────────────┘
-                 │
-                 ├── 1. Autenticação Direta ──► ┌───────────────────────────────┐
-                 │    (Login com Senha)         │ Google Firebase Auth          │
-                 │                              │ (Hash Scrypt + Salt — Sem DB) │
-                 │                              └───────────────────────────────┘
-                 │
-                 └── 2. Dados de Perfil & Cursos ─► ┌───────────────────────────┐
-                      (Com Regras Restritas)        │ Firestore Database        │
-                                                    │ • UID, Nome, Cursos       │
-                                                    │ • PII Mascarada p/ Staff  │
-                                                    │ • Cofre AES-256-GCM       │
-                                                    └───────────────────────────┘
-```
+- **Enhanced Enrollment Sync (`src/services/enrollmentService.ts`)**:
+  - Ensure real-time enrollment subscription merges UID document data with email fallback records.
 
 ---
 
-## 4. Plano de Execução Passo a Passo
+### Admin Route Obfuscation & UI Security (`src/App.tsx`, `src/pages/VideoLibrary.tsx`, `src/pages/StudentPortal.tsx`)
+- **Route Protection & Obfuscation (`src/App.tsx`)**:
+  - Guard administrative routes so non-admin users attempting direct navigation receive a standard NotFound / 404 view rather than revealing admin presence.
+  - Obfuscate administrative navigation paths.
 
-### Etapa 1: Aplicação do Mascaramento no Dashboard (`src/pages/Dashboard.tsx`)
-- Importar `maskEmail` e `maskPhone` de `../utils/maskUtils`.
-- Aplicar nas tabelas de validação pendente e modal de histórico de transações com base em `isMasterUser`.
+- **UI Cleanliness**:
+  - Ensure zero administrative controls or links are visible in student views.
 
-### Etapa 2: Validação das Regras do Banco
-- Confirmar que as regras do `firestore.rules` mantêm o bloqueio estrito contra leitura cruzada de contas.
+---
 
-### Etapa 3: Verificação e Compilação
-- Executar `compile_applet` e `lint_applet` para assegurar integridade do código.
-- Reiniciar o servidor de desenvolvimento.
+## Verification Plan
+
+### Automated Build & Lint Verification
+1. Run `compile_applet` and `lint_applet` together to ensure standard TypeScript types and syntax validity.
+2. Restart dev server using `restart_dev_server`.
+
+### Backend API Verification
+1. Test `/api/lessons/verify-access` with an enrolled student ID Token for course `c_1793470582310` -> Expect `allowed: true`.
+2. Test `/api/lessons/verify-access` with an un-enrolled course -> Expect `403 Forbidden`.
+3. Test Admin endpoints without a valid ID Token -> Expect `403 Forbidden`.

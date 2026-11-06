@@ -526,7 +526,7 @@ export default function VideoLibrary({ courseId }: VideoLibraryProps = {}) {
         <div className="w-16 h-16 rounded-full bg-red-500/10 border border-red-500/30 flex items-center justify-center mb-4 text-red-400">
           <Lock className="w-8 h-8" />
         </div>
-        <h2 className="text-xl font-bold font-headline mb-2 text-white">Disciplina Não Matriculada</h2>
+        <h2 className="text-xl font-bold font-headline mb-2 text-white">Não Matriculada</h2>
         <p className="text-xs text-stone-400 max-w-md mb-6 leading-relaxed">
           Você não possui acesso a este curso ou sua assinatura não está ativa. As aulas são exclusivas para alunos devidamente matriculados nesta disciplina.
         </p>
