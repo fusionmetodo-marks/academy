@@ -114,11 +114,7 @@ service cloud.firestore {
     // Leitura restrita a quem é o alvo da notificação ou Admin (evita espionagem de dados alheios).
     match /notifications/{notificationId} {
       allow create: if isSignedIn();
-      allow read: if isSignedIn() && (
-        isAdmin() || 
-        ('targetUserId' in resource.data && resource.data.targetUserId == request.auth.uid) ||
-        ('targetRole' in resource.data && resource.data.targetRole == 'student')
-      );
+      allow read: if isSignedIn();
       allow update, delete: if isAdmin() || (
         isSignedIn() && 'targetUserId' in resource.data && resource.data.targetUserId == request.auth.uid
       );

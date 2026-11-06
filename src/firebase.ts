@@ -6,7 +6,10 @@ import {
   signInWithEmailAndPassword, 
   createUserWithEmailAndPassword, 
   signOut, 
-  sendPasswordResetEmail 
+  sendPasswordResetEmail,
+  setPersistence,
+  browserLocalPersistence,
+  inMemoryPersistence
 } from 'firebase/auth';
 import { 
   initializeFirestore,
@@ -33,6 +36,9 @@ setLogLevel('silent');
 
 const app = initializeApp(firebaseConfig);
 export const auth = getAuth(app);
+setPersistence(auth, browserLocalPersistence).catch(() => {
+  setPersistence(auth, inMemoryPersistence).catch(() => {});
+});
 
 // Firestore initialization with auto-detect long polling
 export const db = initializeFirestore(app, {
@@ -208,9 +214,18 @@ export const loginWithGoogle = async () => {
 
 export const loginWithEmail = async (email: string, pass: string) => {
   try {
-    const result = await signInWithEmailAndPassword(auth, email, pass);
+    const result = await signInWithEmailAndPassword(auth, email.trim(), pass);
     return result.user;
-  } catch (error) {
+  } catch (error: any) {
+    if (error?.code === 'auth/network-request-failed' || error?.message?.includes('network-request-failed')) {
+      try {
+        await setPersistence(auth, inMemoryPersistence);
+        const retryResult = await signInWithEmailAndPassword(auth, email.trim(), pass);
+        return retryResult.user;
+      } catch (retryErr) {
+        console.error('Retry after network error failed:', retryErr);
+      }
+    }
     console.error('Error signing in with email', error);
     throw error;
   }
@@ -218,9 +233,18 @@ export const loginWithEmail = async (email: string, pass: string) => {
 
 export const registerWithEmail = async (email: string, pass: string) => {
   try {
-    const result = await createUserWithEmailAndPassword(auth, email, pass);
+    const result = await createUserWithEmailAndPassword(auth, email.trim(), pass);
     return result.user;
-  } catch (error) {
+  } catch (error: any) {
+    if (error?.code === 'auth/network-request-failed' || error?.message?.includes('network-request-failed')) {
+      try {
+        await setPersistence(auth, inMemoryPersistence);
+        const retryResult = await createUserWithEmailAndPassword(auth, email.trim(), pass);
+        return retryResult.user;
+      } catch (retryErr) {
+        console.error('Retry registration after network error failed:', retryErr);
+      }
+    }
     console.error('Error registering with email', error);
     throw error;
   }
