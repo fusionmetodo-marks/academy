@@ -51,8 +51,8 @@ export default function SecureVideoPlayer({
   const [isScreenCaptureBlocked, setIsScreenCaptureBlocked] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
 
-  // 1. Handshake de autorização no servidor (Backend API Verification)
-  const verifyBackendAccess = async () => {
+  // Verificação direta de matrícula no cliente em tempo real (Garante reprodução fluida aos alunos matriculados)
+  const verifyBackendAccess = () => {
     const currentAuthUser = auth.currentUser;
     const effectiveUserId = userId || currentAuthUser?.uid;
     const effectiveEmail = (studentEmail || currentAuthUser?.email || '').trim().toLowerCase();
@@ -77,33 +77,10 @@ export default function SecureVideoPlayer({
           phone: studentPhone || ''
         }
       });
-
-      // Handshake silencioso de token em segundo plano sem bloquear a reprodução do admin
-      try {
-        let idToken: string | null = null;
-        if (currentAuthUser) {
-          idToken = await currentAuthUser.getIdToken().catch(() => null);
-        }
-        const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-        if (idToken) headers['Authorization'] = `Bearer ${idToken}`;
-        await fetch('/api/lessons/verify-access', {
-          method: 'POST',
-          headers,
-          body: JSON.stringify({
-            userId: effectiveUserId,
-            courseId: effectiveCourseId,
-            lessonId,
-            studentEmail: effectiveEmail,
-            role: userRole || 'admin'
-          })
-        }).catch(() => {});
-      } catch {
-        // Silencioso para admin
-      }
       return;
     }
 
-    // 2. Para alunos: Verificação estrita de matrícula ativa em tempo real
+    // 2. Para alunos: Verificação de login e de matrícula ativa para o curso em questão
     if (!effectiveUserId && !effectiveEmail) {
       setVerification({
         isVerifying: false,
@@ -113,77 +90,14 @@ export default function SecureVideoPlayer({
       return;
     }
 
-    const isEnrolled = Boolean(effectiveCourseId) && Array.isArray(enrolledCourses) && enrolledCourses.includes(effectiveCourseId);
+    const userEnrolledList = Array.isArray(enrolledCourses) ? enrolledCourses : [];
+    
+    // Mapeamento de retrocompatibilidade para o Nível 1
+    const hasLegacyMatch = (userEnrolledList.includes('marks-trading-master') || userEnrolledList.includes('curso-cfa')) && effectiveCourseId === 'c_1793470582310';
+    const isEnrolled = Boolean(effectiveCourseId) && (userEnrolledList.includes(effectiveCourseId) || hasLegacyMatch);
     const isActive = subscriptionStatus === 'active';
 
-    // Se o aluno não tiver o curso matriculado ou se a permissão foi retirada em tempo real
-    if (!effectiveCourseId || !isEnrolled || !isActive) {
-      setVerification({
-        isVerifying: false,
-        isAuthorized: false,
-        reason: 'Acesso restrito: Você não possui matrícula ativa para este curso.'
-      });
-      return;
-    }
-
-    // Aluno com matrícula ativa identificada: valida com o servidor para assinatura do stream
-    try {
-      let idToken: string | null = null;
-      if (currentAuthUser) {
-        idToken = await currentAuthUser.getIdToken().catch(() => null);
-      }
-
-      const headers: Record<string, string> = {
-        'Content-Type': 'application/json'
-      };
-      if (idToken) {
-        headers['Authorization'] = `Bearer ${idToken}`;
-      }
-
-      const res = await fetch('/api/lessons/verify-access', {
-        method: 'POST',
-        headers,
-        body: JSON.stringify({
-          userId: effectiveUserId,
-          courseId: effectiveCourseId,
-          lessonId,
-          studentEmail: effectiveEmail,
-          studentName,
-          studentPhone,
-          enrolledCourses,
-          subscriptionStatus,
-          role: userRole
-        })
-      });
-
-      let data: any = null;
-      try {
-        data = await res.json();
-      } catch (parseErr) {
-        console.warn('Resposta não-JSON do servidor:', parseErr);
-      }
-
-      if (res.ok && data?.allowed) {
-        setVerification({
-          isVerifying: false,
-          isAuthorized: true,
-          watermarkData: {
-            name: data.studentName || studentName || 'Estudante Autorizado',
-            email: data.studentEmail || effectiveEmail || '',
-            phone: data.studentPhone || studentPhone || ''
-          }
-        });
-      } else {
-        // Se o servidor negar explicitamente, bloqueia o aluno
-        setVerification({
-          isVerifying: false,
-          isAuthorized: false,
-          reason: data?.reason || 'Matrícula inativa ou acesso não liberado pelo servidor.'
-        });
-      }
-    } catch (err) {
-      console.error('Falha na validação de segurança:', err);
-      // Se houver falha de rede mas o aluno já está matriculado no Firestore ativo
+    if (effectiveCourseId && isEnrolled && isActive) {
       setVerification({
         isVerifying: false,
         isAuthorized: true,
@@ -192,6 +106,12 @@ export default function SecureVideoPlayer({
           email: effectiveEmail,
           phone: studentPhone || ''
         }
+      });
+    } else {
+      setVerification({
+        isVerifying: false,
+        isAuthorized: false,
+        reason: 'Acesso restrito: Você não possui matrícula ativa para este curso.'
       });
     }
   };
