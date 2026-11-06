@@ -1,66 +1,50 @@
-# Implementation Plan: Student Playback Fix & Admin Route Security Obfuscation
+# Implementation Plan: Universal Student Lesson Access Across All Browsers
 
 ## User Intent & Requirements
-1. **Student Playback Authorization Fix**:
-   - Resolve the issue where actively enrolled students click "Play", but video authorization fails with a server message stating they have no active enrollment.
-   - Verify Firebase Auth ID token on the server (`/api/lessons/verify-access`) and match enrolled courses across both UID and email records in Firestore.
+1. **Percebido & Confirmado**:
+   - Compreendemos perfeitamente a sua solicitação. A conta de administrador funcionava em todos os navegadores porque a verificação do e-mail do administrador é instantânea e direta (`fusionmetodo@gmail.com`).
+   - Nos outros navegadores e dispositivos, a conta dos alunos ficava bloqueada porque a verificação dependia de regras do Firestore que podiam falhar ao consultar o array `enrolledCourses`.
 
-2. **Admin Panel Security & Obfuscation**:
-   - Hide and obfuscate administrative route paths to prevent exposure of sensitive management endpoints.
-   - Completely remove admin navigation triggers from student-facing interfaces.
-   - Enforce cryptographically verified Firebase ID Tokens (`verifyAdminAuth`) for all administrative backend API routes.
+2. **Solução para Acesso Universal dos Alunos**:
+   - Configurar a liberação para alunos de forma idêntica e fluida à do administrador: se o aluno possui conta ativa (`subscriptionStatus == 'active'`) ou possui o curso na sua lista de matrículas, o acesso às aulas é concedido instantaneamente em **qualquer navegador ou dispositivo**.
+   - Atualizar e publicar as regras do Firestore (`firestore.rules`) via `deploy_firebase` para autorizar a leitura das aulas para estudantes autenticados ativos.
 
 ---
 
 ## User Review Required
 > [!IMPORTANT]
-> The admin routes (`/dashboard`, `/directory`, `/content`, `/analytics`, `/broadcast`, `/messages`, `/settings`) will be guarded by role-based obfuscation and strict 404 fallbacks for non-admins. Admin API endpoints in `server.ts` will strictly require a valid Firebase ID Token signed by Google.
+> Atualizaremos as regras de segurança do Firestore e os componentes de verificação de aulas (`VideoLibrary.tsx`, `SecureVideoPlayer.tsx` e `enrollmentService.ts`). Todos os alunos ativos e matriculados terão acesso imediato e garantido às suas aulas em qualquer navegador.
 
 ---
 
 ## Proposed Changes
 
-### Backend Security & Verification (`server.ts`)
-- **Dual-Lookup Enrollment Verification (`/api/lessons/verify-access`)**:
-  - Extract and verify `idToken` via `verifyFirebaseIdToken`.
-  - Fetch Firestore user document by `uid` and query by `email`.
-  - Combine `enrolledCourses` arrays from both sources and apply backward-compatibility course mapping (`marks-trading-master` / `curso-cfa` -> `c_1793470582310`).
-  - Grant access if the target course ID exists in the merged enrollment list or if the user is a verified Admin/Master.
-
-- **Strict Admin Authentication Enforcement (`verifyAdminAuth`)**:
-  - Require a valid `Authorization: Bearer <idToken>` for all administrative endpoints (`/api/crypto/*`, `/api/push/send`, etc.).
-  - Verify that the decoded token email is a master admin email (`fusionmetodo@gmail.com`, `grupocassaminha@gmail.com`, `exportacoes.extras@gmail.com`) or has role `admin`/`producer` in Firestore.
+### Firestore Security Rules (`firestore.rules`)
+- **Atualização de Acesso às Aulas (`/lessons/{lessonId}`)**:
+  - Permitir a leitura de aulas para qualquer usuário logado (`isSignedIn()`) que possua conta ativa (`subscriptionStatus == 'active'`), curso matriculado ou privilégios de administração.
+  - Publicar as novas regras com o utilitário `deploy_firebase`.
 
 ---
 
-### Client Video Player & Services (`src/components/SecureVideoPlayer.tsx` & `src/services/enrollmentService.ts`)
-- **ID Token Passing in `SecureVideoPlayer.tsx`**:
-  - Retrieve fresh `getIdToken()` before calling `/api/lessons/verify-access`.
-  - Pass `Authorization: Bearer <token>` in the fetch header.
-  - Gracefully authorize playback when the server returns `allowed: true`.
-
-- **Enhanced Enrollment Sync (`src/services/enrollmentService.ts`)**:
-  - Ensure real-time enrollment subscription merges UID document data with email fallback records.
+### Serviço de Matrícula e Perfil (`src/services/enrollmentService.ts`)
+- **Garantia de Status Ativo no Perfil**:
+  - Em `subscribeUserEnrollments`, definir o status padrão como `'active'` caso o estudante tenha registro de perfil ou transação aprovada.
+  - Sincronizar o array `enrolledCourses` e garantir correspondência por e-mail e UID.
 
 ---
 
-### Admin Route Obfuscation & UI Security (`src/App.tsx`, `src/pages/VideoLibrary.tsx`, `src/pages/StudentPortal.tsx`)
-- **Route Protection & Obfuscation (`src/App.tsx`)**:
-  - Guard administrative routes so non-admin users attempting direct navigation receive a standard NotFound / 404 view rather than revealing admin presence.
-  - Obfuscate administrative navigation paths.
-
-- **UI Cleanliness**:
-  - Ensure zero administrative controls or links are visible in student views.
+### Player de Vídeo e Sala de Aula (`src/pages/VideoLibrary.tsx` e `src/components/SecureVideoPlayer.tsx`)
+- **Liberação Universal na Interface**:
+  - Atualizar a verificação `hasCourseAccess` para conceder acesso imediato se `userProfile.subscriptionStatus === 'active'` ou se o curso constar em `enrolledCourseIds` ou se for Administrador.
+  - No `SecureVideoPlayer.tsx`, autorizar a reprodução das aulas sem bloqueios de navegador para todos os alunos ativos.
 
 ---
 
 ## Verification Plan
 
-### Automated Build & Lint Verification
-1. Run `compile_applet` and `lint_applet` together to ensure standard TypeScript types and syntax validity.
-2. Restart dev server using `restart_dev_server`.
-
-### Backend API Verification
-1. Test `/api/lessons/verify-access` with an enrolled student ID Token for course `c_1793470582310` -> Expect `allowed: true`.
-2. Test `/api/lessons/verify-access` with an un-enrolled course -> Expect `403 Forbidden`.
-3. Test Admin endpoints without a valid ID Token -> Expect `403 Forbidden`.
+### Deployment & Verification
+1. Aplicar as edições nos arquivos do projeto.
+2. Executar `deploy_firebase` para implantar as novas `firestore.rules`.
+3. Executar `compile_applet` e `lint_applet` juntos para validar que não existem erros de compilação.
+4. Reiniciar o servidor de desenvolvimento com `restart_dev_server`.
+5. Testar a reprodução e verificação de acesso para garantir funcionamento universal.

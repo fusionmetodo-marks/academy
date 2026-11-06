@@ -173,7 +173,9 @@ export default function VideoLibrary({ courseId }: VideoLibraryProps = {}) {
   // Verificar se o usuário possui acesso válido ao curso (Admin/Produtor tem auditoria; Aluno precisa estar matriculado)
   const isMasterUser = isMasterEmail(userProfile?.email) || isMasterEmail(auth.currentUser?.email);
   const isUserAdminOrProducer = (userProfile?.role === 'admin' || userProfile?.role === 'producer' || isMasterUser) && !isAdminSimulating;
-  const hasCourseAccess = isUserAdminOrProducer || (activeCourseId ? enrolledCourseIds.includes(activeCourseId) : false);
+  const isEnrolledInActiveCourse = activeCourseId ? enrolledCourseIds.includes(activeCourseId) : false;
+  const isLegacyCourseEnrolled = (enrolledCourseIds.includes('marks-trading-master') || enrolledCourseIds.includes('curso-cfa')) && activeCourseId === 'c_1793470582310';
+  const hasCourseAccess = isUserAdminOrProducer || isEnrolledInActiveCourse || isLegacyCourseEnrolled;
 
   // Monitor Course collection in Real-Time
   useEffect(() => {

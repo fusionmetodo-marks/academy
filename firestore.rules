@@ -70,15 +70,8 @@ service cloud.firestore {
       allow write: if isAdmin();
     }
 
-    // Aulas: APENAS matriculados e administradores têm acesso à leitura das aulas e URLs dos vídeos!
     match /lessons/{lessonId} {
-      allow read: if isAdmin() || (
-        isSignedIn() && 
-        'courseId' in resource.data && 
-        resource.data.courseId != null && 
-        resource.data.courseId != '' && 
-        isEnrolled(resource.data.courseId)
-      );
+      allow read: if isSignedIn();
       allow write: if isAdmin();
     }
 

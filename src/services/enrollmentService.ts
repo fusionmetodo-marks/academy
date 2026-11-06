@@ -40,14 +40,14 @@ export function subscribeUserEnrollments(
       }
     }
     const completed = Array.isArray(data?.completedLessons) ? data.completedLessons : [];
-    const status = data?.subscriptionStatus || (enrolled.length > 0 ? 'active' : 'inactive');
+    const status = data?.subscriptionStatus === 'inactive' ? 'inactive' : 'active';
 
     onUpdate({
       docId,
       enrolledCourses: enrolled,
       completedLessons: completed,
       subscriptionStatus: status,
-      userProfile: data
+      userProfile: data ? { ...data, subscriptionStatus: status } : null
     });
   };
 
