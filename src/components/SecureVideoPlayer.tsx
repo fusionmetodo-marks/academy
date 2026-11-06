@@ -41,6 +41,7 @@ export default function SecureVideoPlayer({
   });
 
   const [watermarkPos, setWatermarkPos] = useState({ top: 15, left: 15 });
+  const [isScreenCaptureBlocked, setIsScreenCaptureBlocked] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
 
   // 1. Handshake de autorização no servidor (Backend API Verification)
@@ -84,15 +85,11 @@ export default function SecureVideoPlayer({
       }
     } catch (err) {
       console.error('Falha no handshake de segurança do vídeo:', err);
-      // Fallback gracioso se userId estiver autenticado
+      // Blindagem estilo militar: FAIL-CLOSED estrito. Qualquer exceção ou erro bloqueia o acesso imediatamente.
       setVerification({
         isVerifying: false,
-        isAuthorized: true,
-        watermarkData: {
-          name: studentName || 'Estudante Registrado',
-          email: studentEmail || '',
-          phone: studentPhone || ''
-        }
+        isAuthorized: false,
+        reason: 'Falha na validação de segurança com o servidor. Acesso negado.'
       });
     }
   };
@@ -114,27 +111,47 @@ export default function SecureVideoPlayer({
     return () => clearInterval(interval);
   }, [verification.isAuthorized]);
 
-  // 3. Bloqueio de Teclas de Inspeção (F12, Ctrl+Shift+I, etc.) e Menu de Contexto
+  // 3. Bloqueio de Teclas de Inspeção, Atalhos de Captura de Tela e Menu de Contexto
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       const key = e.key.toLowerCase();
       const ctrlOrCmd = e.ctrlKey || e.metaKey;
 
+      // Atalhos DevTools e Visualização de Código-Fonte
       if (e.key === 'F12') {
         e.preventDefault();
         return false;
       }
 
-      if (ctrlOrCmd && (e.shiftKey || key === 'u' || key === 's')) {
-        if (['i', 'j', 'c', 'u', 's'].includes(key)) {
+      if (ctrlOrCmd && (e.shiftKey || key === 'u' || key === 's' || key === 'p')) {
+        if (['i', 'j', 'c', 'u', 's', 'p'].includes(key)) {
           e.preventDefault();
           return false;
         }
       }
+
+      // Atalho de Captura de Tela (PrintScreen / Win+Shift+S / Cmd+Shift+3/4)
+      if (e.key === 'PrintScreen' || (ctrlOrCmd && e.shiftKey && ['3', '4', 's'].includes(key))) {
+        e.preventDefault();
+        setIsScreenCaptureBlocked(true);
+        setTimeout(() => setIsScreenCaptureBlocked(false), 3000);
+        return false;
+      }
+    };
+
+    const handleKeyUp = (e: KeyboardEvent) => {
+      if (e.key === 'PrintScreen') {
+        setIsScreenCaptureBlocked(true);
+        setTimeout(() => setIsScreenCaptureBlocked(false), 3000);
+      }
     };
 
     window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
+    window.addEventListener('keyup', handleKeyUp);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('keyup', handleKeyUp);
+    };
   }, []);
 
   if (!videoData) {
@@ -155,7 +172,7 @@ export default function SecureVideoPlayer({
           <RefreshCw className="w-6 h-6 text-[#e9c349] animate-spin" />
         </div>
         <h4 className="text-sm font-bold text-white font-headline">
-          🔒 Verificando Autorização de Acesso
+          🔒 Verificando Autorização de Acesso (DRM)
         </h4>
         <p className="text-xs text-stone-400 max-w-xs mt-1 leading-relaxed">
           O servidor está a validar a sua matrícula e assinatura em tempo real...
@@ -172,7 +189,7 @@ export default function SecureVideoPlayer({
           <Lock className="w-7 h-7" />
         </div>
         <h4 className="text-base font-extrabold text-white font-headline">
-          🔒 Conteúdo Protegido — Acesso Bloqueado
+          🔒 Conteúdo Protegido por DRM — Acesso Bloqueado
         </h4>
         <p className="text-xs text-stone-300 max-w-md mt-2 leading-relaxed">
           {verification.reason || 'Você não possui uma matrícula ativa autorizada pelo servidor para assistir este conteúdo.'}
@@ -201,11 +218,32 @@ export default function SecureVideoPlayer({
       onContextMenu={(e) => e.preventDefault()}
       className="relative w-full aspect-video rounded-2xl overflow-hidden shadow-2xl border border-white/10 bg-black select-none group"
     >
+      {/* Cortina Anti-Captura de Tela (DRM Screen Protection Shield) */}
+      {isScreenCaptureBlocked && (
+        <div className="absolute inset-0 z-50 bg-black flex flex-col items-center justify-center p-6 text-center select-none animate-fadeIn">
+          <div className="w-16 h-16 rounded-2xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-center mb-3 text-amber-400">
+            <ShieldAlert className="w-8 h-8" />
+          </div>
+          <h4 className="text-base font-bold text-white font-headline">
+            🛡️ Captura de Tela Bloqueada por DRM
+          </h4>
+          <p className="text-xs text-stone-300 max-w-sm mt-1.5 leading-relaxed">
+            A gravação e captura de tela são estritamente proibidas para proteger os direitos autorais do Money Building.
+          </p>
+        </div>
+      )}
+
+      {/* Indicador de DRM Ativo */}
+      <div className="absolute top-3 right-3 pointer-events-none z-20 select-none bg-black/60 backdrop-blur-xs border border-white/10 px-2.5 py-1 rounded-full text-[9px] font-mono font-bold text-emerald-400 flex items-center gap-1.5 shadow-sm opacity-60 group-hover:opacity-100 transition-opacity">
+        <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+        <span>DRM Ativo • Stream Protegido</span>
+      </div>
+
       {/* 1. Player Wistia Protegido */}
       {isWistia && (
         <>
           <iframe
-            src={`https://fast.wistia.net/embed/iframe/${wistiaCleanId}?videoFoam=true&autoPlay=true`}
+            src={`https://fast.wistia.net/embed/iframe/${wistiaCleanId}?videoFoam=true&autoPlay=true&endVideoBehavior=pause&controlsVisibleOnLoad=false&wmode=transparent&playerColor=e9c349`}
             title="Money Building - ACADEMY Secure Player"
             allow="autoplay; fullscreen"
             frameBorder="0"
@@ -240,7 +278,7 @@ export default function SecureVideoPlayer({
         />
       )}
 
-      {/* Marca D'Água Dinâmica Anti-Vazamento (Anti-Screen Recording) */}
+      {/* Marca D'Água Dinâmica Forense Anti-Vazamento (Anti-Screen Recording) */}
       <div
         style={{
           top: `${watermarkPos.top}%`,

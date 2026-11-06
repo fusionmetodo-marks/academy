@@ -11,13 +11,24 @@ export interface EncryptedPayload {
 /**
  * Criptografa dados sensíveis (chaves de pagamento, tokens Wistia e segredos) no backend via AES-256-GCM.
  */
+import { auth } from '../firebase';
+
 export async function encryptSecret(plaintext: any): Promise<EncryptedPayload> {
   const textToEncrypt = typeof plaintext === 'string' ? plaintext : JSON.stringify(plaintext);
+  const user = auth.currentUser;
   try {
     const res = await fetch('/api/crypto/encrypt', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ plaintext: textToEncrypt })
+      headers: { 
+        'Content-Type': 'application/json',
+        'x-user-id': user?.uid || '',
+        'x-user-email': user?.email || ''
+      },
+      body: JSON.stringify({ 
+        plaintext: textToEncrypt,
+        userId: user?.uid,
+        userEmail: user?.email
+      })
     });
     if (!res.ok) {
       throw new Error('Falha na criptografia do servidor');
@@ -42,14 +53,21 @@ export async function decryptSecret(payload: EncryptedPayload): Promise<any> {
   if (!payload || !payload.ciphertext || !payload.iv || !payload.authTag) {
     return null;
   }
+  const user = auth.currentUser;
   try {
     const res = await fetch('/api/crypto/decrypt', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 
+        'Content-Type': 'application/json',
+        'x-user-id': user?.uid || '',
+        'x-user-email': user?.email || ''
+      },
       body: JSON.stringify({
         ciphertext: payload.ciphertext,
         iv: payload.iv,
-        authTag: payload.authTag
+        authTag: payload.authTag,
+        userId: user?.uid,
+        userEmail: user?.email
       })
     });
     if (!res.ok) {

@@ -45,7 +45,7 @@ service cloud.firestore {
       allow create: if isSignedIn() && (
         isAdmin() || 
         (request.auth.uid == userId && 
-         (!('role' in request.resource.data) || request.resource.data.role == 'student' || request.resource.data.role == 'producer') &&
+         (!('role' in request.resource.data) || request.resource.data.role == 'student') &&
          (!('subscriptionStatus' in request.resource.data) || request.resource.data.subscriptionStatus != 'active' || isMaster()))
       );
 
@@ -84,7 +84,8 @@ service cloud.firestore {
 
     // 4. Configurações da plataforma, métodos de pagamento e cupões
     match /settings/{settingId} {
-      allow read: if true;
+      // Bloqueio estrito: O cofre de chaves ('secureVaultConfig') e credenciais sensíveis NUNCA são públicos
+      allow read: if isAdmin() || (settingId != 'secureVaultConfig' && settingId != 'keys' && settingId != 'secrets');
       allow write: if isAdmin();
     }
 

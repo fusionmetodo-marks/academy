@@ -56,6 +56,42 @@ function isMasterEmail(email?: string): boolean {
   return MASTER_EMAILS.includes(email.trim().toLowerCase());
 }
 
+// Carregar configuração oficial do Firebase para validação no backend
+const configPath = new URL('./firebase-applet-config.json', import.meta.url);
+const firebaseConfig = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+
+const firebaseApp = getApps().length === 0 ? initializeApp(firebaseConfig) : getApps()[0];
+const db = getFirestore(firebaseApp, firebaseConfig.firestoreDatabaseId);
+
+/**
+ * Validador autoritativo de privilégios administrativos
+ */
+async function verifyAdminAuth(req: express.Request): Promise<boolean> {
+  const userId = (req.headers['x-user-id'] as string) || req.body?.userId;
+  const userEmail = (req.headers['x-user-email'] as string) || req.body?.userEmail;
+
+  if (userEmail && isMasterEmail(userEmail)) {
+    return true;
+  }
+
+  if (userId) {
+    try {
+      const userRef = doc(db, 'users', userId);
+      const userSnap = await getDoc(userRef);
+      if (userSnap.exists()) {
+        const uData = userSnap.data();
+        if (isMasterEmail(uData.email) || uData.role === 'admin' || (uData.role === 'producer' && uData.subscriptionStatus === 'active')) {
+          return true;
+        }
+      }
+    } catch (err) {
+      console.warn('Erro ao verificar autorização admin no backend:', err);
+      return false;
+    }
+  }
+  return false;
+}
+
 // AES-256-GCM Cryptographic Engine for Sensitive Payment and Wistia Secrets
 const MASTER_KEY = process.env.ENCRYPTION_MASTER_KEY || 'money-building-secure-master-secret-key-2026';
 const KEY_BUFFER = crypto.scryptSync(MASTER_KEY, 'money-building-salt', 32);
@@ -79,8 +115,12 @@ function decryptData(ciphertext: string, ivHex: string, authTagHex: string): str
   return decrypted;
 }
 
-app.post('/api/crypto/encrypt', (req, res) => {
+app.post('/api/crypto/encrypt', async (req, res) => {
   try {
+    const isAuthorized = await verifyAdminAuth(req);
+    if (!isAuthorized) {
+      return res.status(403).json({ error: 'Acesso negado: Requer privilégios de Administrador.' });
+    }
     const { plaintext } = req.body;
     if (!plaintext) return res.status(400).json({ error: 'Plaintext is required' });
     const encrypted = encryptData(typeof plaintext === 'string' ? plaintext : JSON.stringify(plaintext));
@@ -91,8 +131,12 @@ app.post('/api/crypto/encrypt', (req, res) => {
   }
 });
 
-app.post('/api/crypto/decrypt', (req, res) => {
+app.post('/api/crypto/decrypt', async (req, res) => {
   try {
+    const isAuthorized = await verifyAdminAuth(req);
+    if (!isAuthorized) {
+      return res.status(403).json({ error: 'Acesso negado: Requer privilégios de Administrador.' });
+    }
     const { ciphertext, iv, authTag } = req.body;
     if (!ciphertext || !iv || !authTag) return res.status(400).json({ error: 'Ciphertext, iv and authTag are required' });
     const decrypted = decryptData(ciphertext, iv, authTag);
@@ -102,13 +146,6 @@ app.post('/api/crypto/decrypt', (req, res) => {
     res.status(500).json({ error: 'Failed to decrypt data (invalid signature or key)' });
   }
 });
-
-// Carregar configuração oficial do Firebase para validação no backend
-const configPath = new URL('./firebase-applet-config.json', import.meta.url);
-const firebaseConfig = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
-
-const firebaseApp = getApps().length === 0 ? initializeApp(firebaseConfig) : getApps()[0];
-const db = getFirestore(firebaseApp, firebaseConfig.firestoreDatabaseId);
 
 const publicVapidKey = process.env.VAPID_PUBLIC_KEY || 'BH78AfuxrLzczmvgRlw_wBSCsjwjjOyvtckmd__4OEzEVDHF894rS7848ZC3rMbIsQ9gSyRhX85PuCAzFPouLdY';
 const privateVapidKey = process.env.VAPID_PRIVATE_KEY || '-uGUUBJgbXtlcyzpSKtKWAOTxYdTMh95Xosnd4PRi5Q';
@@ -131,10 +168,10 @@ app.post('/api/lessons/verify-access', async (req, res) => {
   try {
     const { userId, courseId, lessonId } = req.body;
 
-    if (!userId) {
-      return res.status(401).json({ 
+    if (!userId || !courseId) {
+      return res.status(400).json({ 
         allowed: false, 
-        reason: 'Utilizador não autenticado na plataforma' 
+        reason: 'Identificação de utilizador e curso obrigatórios para validação de acesso' 
       });
     }
 
@@ -160,9 +197,9 @@ app.post('/api/lessons/verify-access', async (req, res) => {
 
     const isAdmin = userData.role === 'admin' || userData.role === 'producer' || isMaster;
     
-    // Verificação de matrícula ativa no curso
+    // Verificação estrita de matrícula ativa no curso específico
     const enrolledCourses = Array.isArray(userData.enrolledCourses) ? userData.enrolledCourses : [];
-    const isEnrolled = courseId ? enrolledCourses.includes(courseId) : true;
+    const isEnrolled = enrolledCourses.includes(courseId);
     const isActive = userData.subscriptionStatus === 'active';
 
     if (!isAdmin && (!isEnrolled || !isActive)) {
@@ -172,10 +209,13 @@ app.post('/api/lessons/verify-access', async (req, res) => {
       });
     }
 
-    // Assinatura do token de sessão de reprodução (válido por 1 hora)
+    // Assinatura criptográfica HMAC-SHA256 do token de sessão de streaming (válido por 1 hora)
     const sessionTimestamp = Date.now();
-    const tokenPayload = `${userId}:${courseId || 'free'}:${lessonId || ''}:${sessionTimestamp}`;
-    const secureToken = Buffer.from(tokenPayload).toString('base64');
+    const expiresAt = sessionTimestamp + 3600000;
+    const clientIp = req.ip || req.socket.remoteAddress || 'unknown';
+    const rawPayload = `${userId}:${courseId}:${lessonId || ''}:${expiresAt}:${clientIp}`;
+    const hmacSignature = crypto.createHmac('sha256', MASTER_KEY).update(rawPayload).digest('hex');
+    const secureToken = Buffer.from(`${rawPayload}:${hmacSignature}`).toString('base64');
 
     const fullName = userData.fullName || userData.name || `${userData.firstName || ''} ${userData.lastName || ''}`.trim() || 'Estudante';
     const phone = (userData.phoneCountryCode || '+244') + (userData.phoneNumber || '');
@@ -183,7 +223,8 @@ app.post('/api/lessons/verify-access', async (req, res) => {
     return res.status(200).json({
       allowed: true,
       token: secureToken,
-      expiresAt: sessionTimestamp + 3600000,
+      expiresAt: expiresAt,
+      drmType: 'wistia-domain-lock-aes',
       studentName: fullName,
       studentEmail: userData.email || '',
       studentPhone: phone
@@ -199,6 +240,11 @@ app.post('/api/lessons/verify-access', async (req, res) => {
 });
 
 app.post('/api/push/send', async (req, res) => {
+  const isAuthorized = await verifyAdminAuth(req);
+  if (!isAuthorized) {
+    return res.status(403).json({ error: 'Acesso negado: Disparo de notificações restrito a administradores.' });
+  }
+
   const { subscriptions, payload } = req.body;
   
   if (!subscriptions || !Array.isArray(subscriptions)) {

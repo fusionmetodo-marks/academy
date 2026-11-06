@@ -228,6 +228,44 @@ export default function AdminSettings() {
           {isVaultLoading ? 'Criptografando e Salvando...' : 'Criptografar e Salvar no Cofre Seguro'}
         </button>
       </div>
+
+      {/* Guia de Restrição de Domínio Wistia (DRM) */}
+      <div className="p-6 bg-[#131313] rounded-2xl border border-sky-500/30 shadow-xl relative overflow-hidden">
+        <div className="flex items-center gap-3 mb-4">
+          <div className="w-10 h-10 rounded-xl bg-sky-500/10 border border-sky-500/30 flex items-center justify-center text-sky-400">
+            <ShieldCheck className="w-5 h-5" />
+          </div>
+          <div>
+            <h2 className="text-xl font-bold text-white font-headline flex items-center gap-2">
+              <span>Restrição de Domínio Wistia (DRM)</span>
+              <span className="text-[10px] font-bold px-2 py-0.5 bg-sky-500/20 text-sky-400 rounded-full border border-sky-500/40">Domain Locking</span>
+            </h2>
+            <p className="text-xs text-stone-400">Impede que os vídeos sejam baixados por extensões ou incorporados em sites de terceiros</p>
+          </div>
+        </div>
+
+        <div className="space-y-3 text-xs text-stone-300 leading-relaxed mb-4">
+          <p>
+            Para garantir que nenhum vídeo seja baixado por extensões ou reproduzido fora da sua plataforma, ative a <strong>Restrição de Domínio</strong> no painel da sua conta Wistia:
+          </p>
+          <div className="bg-black/60 p-3.5 rounded-xl border border-white/10 space-y-2 font-mono text-[11px]">
+            <p className="text-sky-400 font-bold">1. Aceda a: Wistia Dashboard &gt; Account &gt; Settings &gt; Security &gt; Domain Restriction</p>
+            <p className="text-stone-300">2. Adicione os seus domínios autorizados:</p>
+            <div className="pl-3 space-y-1 text-emerald-400">
+              <p>• {typeof window !== 'undefined' ? window.location.hostname : 'localhost'}</p>
+              <p>• ais-dev-z7mimgemzuky3hzusez2s6-36146607816.europe-west1.run.app</p>
+              <p>• ais-pre-z7mimgemzuky3hzusez2s6-36146607816.europe-west1.run.app</p>
+              <p>• o-mosntro-academy.vercel.app</p>
+            </div>
+            <p className="text-stone-300">3. Em <strong>Video Customizations &gt; Controls</strong>, certifique-se de que a opção de Download está <strong>desmarcada</strong>.</p>
+          </div>
+        </div>
+
+        <div className="p-3 bg-sky-500/10 border border-sky-500/20 rounded-xl text-[11px] text-sky-300 flex items-center gap-2">
+          <CheckCircle2 className="w-4 h-4 shrink-0 text-sky-400" />
+          <span>Com este bloqueio ativado, mesmo que alguém consiga copiar o link do vídeo, o Wistia recusará a reprodução fora dos seus domínios.</span>
+        </div>
+      </div>
     </div>
   );
 }
