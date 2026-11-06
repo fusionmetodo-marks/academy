@@ -40,9 +40,9 @@ setPersistence(auth, browserLocalPersistence).catch(() => {
   setPersistence(auth, inMemoryPersistence).catch(() => {});
 });
 
-// Firestore initialization with auto-detect long polling
+// Firestore initialization with forced long polling to prevent gRPC stream timeouts in iframe preview
 export const db = initializeFirestore(app, {
-  experimentalAutoDetectLongPolling: true,
+  experimentalForceLongPolling: true,
 }, firebaseConfig.firestoreDatabaseId);
 
 export const googleProvider = new GoogleAuthProvider();
