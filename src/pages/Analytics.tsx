@@ -4,6 +4,7 @@ import Sidebar from '../components/Sidebar';
 import { collection, onSnapshot, doc, getDoc } from 'firebase/firestore';
 import { db, auth } from '../firebase';
 import { isMasterEmail } from '../utils/constants';
+import { maskEmail, maskPhone } from '../utils/maskUtils';
 import { subscribeToLessonPlaybacks } from '../services/playbackService';
 import { LessonPlaybackLog, StudentLessonPlaybackSummary } from '../types';
 import { onAuthStateChanged } from 'firebase/auth';
@@ -26,7 +27,9 @@ import {
   ChevronRight,
   Clock,
   History,
-  UserCheck
+  UserCheck,
+  Mail,
+  Phone
 } from 'lucide-react';
 
 interface LessonStats {
@@ -91,6 +94,13 @@ export default function Analytics() {
   const [lessonSearchQuery, setLessonSearchQuery] = useState('');
   const [selectedLessonId, setSelectedLessonId] = useState<string>('all');
   const [modalLessonPlaybackMode, setModalLessonPlaybackMode] = useState<'summary' | 'timeline'>('summary');
+
+  // Individual Student Playback Modal States
+  const [selectedStudentId, setSelectedStudentId] = useState<string | null>(null);
+  const [selectedStudentFallback, setSelectedStudentFallback] = useState<{ name: string; email: string } | null>(null);
+  const [studentModalTab, setStudentModalTab] = useState<'by_course' | 'timeline'>('by_course');
+  const [studentModalCourseFilter, setStudentModalCourseFilter] = useState<string>('all');
+  const [studentModalSearch, setStudentModalSearch] = useState('');
 
   // Pagination & Accordion states
   const [currentPage, setCurrentPage] = useState(1);
@@ -814,6 +824,300 @@ export default function Analytics() {
     showNotification('Histórico cronológico exportado em CSV!');
   };
 
+  const openStudentDetailModal = (userId: string, fallbackName?: string, fallbackEmail?: string) => {
+    if (!userId) return;
+    setSelectedStudentId(userId);
+    setSelectedStudentFallback({
+      name: (fallbackName || '').trim() || 'Estudante',
+      email: (fallbackEmail || '').trim(),
+    });
+    setStudentModalTab('by_course');
+    setStudentModalCourseFilter('all');
+    setStudentModalSearch('');
+  };
+
+  // Dados individuais isolados do estudante selecionado (sem mistura com outros alunos)
+  const studentDetailData = useMemo(() => {
+    if (!selectedStudentId) return null;
+
+    const studentUser = usersById.get(selectedStudentId) || null;
+    const rawEmail = (studentUser?.email || selectedStudentFallback?.email || '').trim();
+    const rawName = (
+      studentUser?.fullName ||
+      studentUser?.name ||
+      `${studentUser?.firstName || ''} ${studentUser?.lastName || ''}`.trim() ||
+      studentUser?.displayName ||
+      selectedStudentFallback?.name ||
+      (rawEmail.includes('@') ? rawEmail.split('@')[0] : 'Estudante')
+    ).trim();
+
+    const completedLessons: string[] = Array.isArray(studentUser?.completedLessons)
+      ? studentUser.completedLessons
+      : [];
+    const completedSet = new Set(completedLessons);
+
+    const enrolledRaw: string[] = Array.isArray(studentUser?.enrolledCourses)
+      ? studentUser.enrolledCourses
+      : [];
+    const visibleEnrolledIds = isProducerMode
+      ? enrolledRaw.filter((cid) => isolatedCourseIds.has(cid))
+      : enrolledRaw;
+
+    const parseDateVal = (val: any): number => {
+      if (!val) return 0;
+      if (typeof val.toMillis === 'function') return val.toMillis();
+      if (typeof val.toDate === 'function') return val.toDate().getTime();
+      if (typeof val === 'object' && typeof val.seconds === 'number') return val.seconds * 1000;
+      if (typeof val === 'number') return val;
+      if (typeof val === 'string') {
+        const ms = new Date(val).getTime();
+        return isNaN(ms) ? 0 : ms;
+      }
+      return 0;
+    };
+
+    const registeredAtMs =
+      parseDateVal(studentUser?.createdAt) ||
+      parseDateVal(studentUser?.registeredAt) ||
+      parseDateVal(studentUser?.joinedAt);
+
+    // Todos os eventos cronológicos APENAS deste estudante (respeitando isolamento de produtor)
+    const studentTimeline = playbackLogs
+      .map((log) => {
+        const meta = lessonCatalogMap.get(log.lessonId);
+        return {
+          ...log,
+          courseTitle: meta?.courseTitle || log.courseTitle || 'Curso',
+          moduleId: meta?.moduleId || log.moduleId || '',
+          moduleTitle: meta?.moduleTitle || log.moduleTitle || 'Módulo',
+          lessonTitle: meta?.lessonTitle || log.lessonTitle || 'Aula',
+        };
+      })
+      .filter((log) => {
+        if (log.userId !== selectedStudentId) return false;
+        if (isProducerMode && !isolatedCourseIds.has(log.courseId)) return false;
+        return true;
+      })
+      .sort((a, b) => b.createdAtMs - a.createdAtMs);
+
+    // Agregar todas as aulas reproduzidas APENAS por este estudante
+    const summaryMap = new Map<string, StudentLessonPlaybackSummary>();
+
+    studentTimeline.forEach((log) => {
+      const existing = summaryMap.get(log.lessonId);
+      if (!existing) {
+        summaryMap.set(log.lessonId, {
+          key: `${log.userId}::${log.lessonId}`,
+          userId: log.userId,
+          studentName: rawName || 'Estudante',
+          studentEmail: rawEmail,
+          courseId: log.courseId,
+          courseTitle: log.courseTitle || 'Curso',
+          moduleId: log.moduleId || '',
+          moduleTitle: log.moduleTitle || 'Módulo',
+          lessonId: log.lessonId,
+          lessonTitle: log.lessonTitle || 'Aula',
+          playCount: 1,
+          lastPlayedAtMs: log.createdAtMs || 0,
+          firstPlayedAtMs: log.createdAtMs || 0,
+          isCompleted: completedSet.has(log.lessonId),
+          isLegacyOnly: false,
+        });
+      } else {
+        existing.playCount += 1;
+        if (log.createdAtMs > existing.lastPlayedAtMs) existing.lastPlayedAtMs = log.createdAtMs;
+        if (log.createdAtMs > 0 && (existing.firstPlayedAtMs === 0 || log.createdAtMs < existing.firstPlayedAtMs)) {
+          existing.firstPlayedAtMs = log.createdAtMs;
+        }
+      }
+    });
+
+    // Reconciliar reproduções legadas armazenadas em users/{uid}.lessonViews
+    if (studentUser?.lessonViews && typeof studentUser.lessonViews === 'object') {
+      const lastPlayedMap = studentUser.lessonLastPlayedAt || {};
+      Object.entries(studentUser.lessonViews).forEach(([lessonId, rawCount]) => {
+        const legacyCount = Number(rawCount) || 0;
+        if (legacyCount <= 0) return;
+        const meta = lessonCatalogMap.get(lessonId);
+        if (!meta) return;
+        if (isProducerMode && !isolatedCourseIds.has(meta.courseId)) return;
+
+        const existing = summaryMap.get(lessonId);
+        const legacyLastMs = Number(lastPlayedMap[lessonId]) || 0;
+        if (existing) {
+          if (legacyCount > existing.playCount) existing.playCount = legacyCount;
+          if (legacyLastMs > existing.lastPlayedAtMs) existing.lastPlayedAtMs = legacyLastMs;
+        } else {
+          summaryMap.set(lessonId, {
+            key: `${selectedStudentId}::${lessonId}`,
+            userId: selectedStudentId,
+            studentName: rawName || 'Estudante',
+            studentEmail: rawEmail,
+            courseId: meta.courseId,
+            courseTitle: meta.courseTitle,
+            moduleId: meta.moduleId,
+            moduleTitle: meta.moduleTitle,
+            lessonId,
+            lessonTitle: meta.lessonTitle,
+            playCount: legacyCount,
+            lastPlayedAtMs: legacyLastMs,
+            firstPlayedAtMs: legacyLastMs,
+            isCompleted: completedSet.has(lessonId),
+            isLegacyOnly: true,
+          });
+        }
+      });
+    }
+
+    const allSummaries = Array.from(summaryMap.values()).sort(
+      (a, b) => b.lastPlayedAtMs - a.lastPlayedAtMs || b.playCount - a.playCount
+    );
+
+    // Lista de cursos disponíveis para filtro dentro da ficha
+    const courseOptionsMap = new Map<string, string>();
+    allSummaries.forEach((s) => {
+      if (s.courseId) courseOptionsMap.set(s.courseId, s.courseTitle);
+    });
+    visibleEnrolledIds.forEach((cid) => {
+      if (!courseOptionsMap.has(cid)) {
+        const foundCourse = isolatedCourses.find((c) => c.id === cid);
+        if (foundCourse) courseOptionsMap.set(cid, foundCourse.title);
+      }
+    });
+
+    const totalPlays = allSummaries.reduce((acc, s) => acc + s.playCount, 0);
+    const totalCompletedInScope = allSummaries.filter((s) => s.isCompleted).length;
+
+    return {
+      userId: selectedStudentId,
+      name: rawName || 'Estudante',
+      maskedEmail: rawEmail ? maskEmail(rawEmail, isMasterUser) : 'E-mail não informado',
+      maskedPhone: maskPhone(
+        studentUser?.phoneNumber || studentUser?.phone || studentUser?.producerWhatsApp,
+        isMasterUser,
+        studentUser?.phoneCountryCode || '+244'
+      ),
+      subscriptionStatus: studentUser?.subscriptionStatus === 'active' ? 'Ativo' : 'Cadastrado / Inativo',
+      isSubscriptionActive: studentUser?.subscriptionStatus === 'active',
+      registeredAtMs,
+      enrolledCoursesCount: visibleEnrolledIds.length,
+      totalPlays,
+      lessonsPlayedCount: allSummaries.length,
+      completedCount: totalCompletedInScope,
+      coursesAccessedCount: new Set(allSummaries.map((s) => s.courseId).filter(Boolean)).size,
+      courseOptions: Array.from(courseOptionsMap.entries()).map(([id, title]) => ({ id, title })),
+      allSummaries,
+      studentTimeline,
+    };
+  }, [
+    selectedStudentId,
+    selectedStudentFallback,
+    usersById,
+    isProducerMode,
+    isolatedCourseIds,
+    isolatedCourses,
+    playbackLogs,
+    lessonCatalogMap,
+    isMasterUser,
+  ]);
+
+  const studentFilteredSummaries = useMemo(() => {
+    if (!studentDetailData) return [];
+    const q = studentModalSearch.trim().toLowerCase();
+    return studentDetailData.allSummaries.filter((item) => {
+      if (studentModalCourseFilter !== 'all' && item.courseId !== studentModalCourseFilter) return false;
+      if (q) {
+        return (
+          item.lessonTitle.toLowerCase().includes(q) ||
+          item.courseTitle.toLowerCase().includes(q) ||
+          item.moduleTitle.toLowerCase().includes(q)
+        );
+      }
+      return true;
+    });
+  }, [studentDetailData, studentModalCourseFilter, studentModalSearch]);
+
+  const studentGroupedByCourse = useMemo(() => {
+    const groups = new Map<
+      string,
+      {
+        courseId: string;
+        courseTitle: string;
+        totalPlays: number;
+        completedCount: number;
+        lastPlayedAtMs: number;
+        lessons: StudentLessonPlaybackSummary[];
+      }
+    >();
+
+    studentFilteredSummaries.forEach((item) => {
+      const cid = item.courseId || 'outros';
+      let g = groups.get(cid);
+      if (!g) {
+        g = {
+          courseId: cid,
+          courseTitle: item.courseTitle || 'Curso',
+          totalPlays: 0,
+          completedCount: 0,
+          lastPlayedAtMs: 0,
+          lessons: [],
+        };
+        groups.set(cid, g);
+      }
+      g.lessons.push(item);
+      g.totalPlays += item.playCount;
+      if (item.isCompleted) g.completedCount += 1;
+      if (item.lastPlayedAtMs > g.lastPlayedAtMs) g.lastPlayedAtMs = item.lastPlayedAtMs;
+    });
+
+    return Array.from(groups.values()).sort(
+      (a, b) => b.lastPlayedAtMs - a.lastPlayedAtMs || b.totalPlays - a.totalPlays
+    );
+  }, [studentFilteredSummaries]);
+
+  const studentFilteredTimeline = useMemo(() => {
+    if (!studentDetailData) return [];
+    const q = studentModalSearch.trim().toLowerCase();
+    return studentDetailData.studentTimeline.filter((log) => {
+      if (studentModalCourseFilter !== 'all' && log.courseId !== studentModalCourseFilter) return false;
+      if (q) {
+        return (
+          log.lessonTitle.toLowerCase().includes(q) ||
+          (log.courseTitle || '').toLowerCase().includes(q) ||
+          (log.moduleTitle || '').toLowerCase().includes(q)
+        );
+      }
+      return true;
+    });
+  }, [studentDetailData, studentModalCourseFilter, studentModalSearch]);
+
+  const handleExportSingleStudentCSV = () => {
+    if (!studentDetailData) return;
+    if (studentFilteredSummaries.length === 0 && studentFilteredTimeline.length === 0) {
+      showNotification('Nenhum registro deste estudante para exportar.');
+      return;
+    }
+    const headers = ['Estudante', 'Email', 'Curso', 'Módulo', 'Aula', 'Reproduções', 'Último Play', 'Conclusão'];
+    const rows = studentFilteredSummaries.map((item) => [
+      `"${studentDetailData.name.replace(/"/g, '""')}"`,
+      `"${studentDetailData.maskedEmail.replace(/"/g, '""')}"`,
+      `"${item.courseTitle.replace(/"/g, '""')}"`,
+      `"${item.moduleTitle.replace(/"/g, '""')}"`,
+      `"${item.lessonTitle.replace(/"/g, '""')}"`,
+      item.playCount,
+      `"${formatPlaybackTimestamp(item.lastPlayedAtMs)}"`,
+      `"${item.isCompleted ? 'Concluída' : 'Não concluída'}"`,
+    ]);
+    const csvContent = 'data:text/csv;charset=utf-8,' + [headers.join(','), ...rows.map((e) => e.join(','))].join('\n');
+    const link = document.createElement('a');
+    link.setAttribute('href', encodeURI(csvContent));
+    link.setAttribute('download', `ficha_estudante_${studentDetailData.userId}_${Date.now()}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    showNotification(`Relatório individual de ${studentDetailData.name} exportado!`);
+  };
+
   return (
     <div className="flex h-screen bg-background text-on-surface font-body overflow-hidden selection:bg-primary/30 selection:text-primary">
       <Sidebar />
@@ -1192,10 +1496,8 @@ export default function Analytics() {
                     {paginatedPlaybackSummaries.map((item) => (
                       <tr
                         key={item.key}
-                        onClick={() => {
-                          setSelectedLessonId(item.lessonId);
-                          setIsPerformanceModalOpen(true);
-                        }}
+                        onClick={() => openStudentDetailModal(item.userId, item.studentName, item.studentEmail)}
+                        title={`Ver ficha individual de ${item.studentName}`}
                         className="hover:bg-surface-container-highest/30 transition-colors cursor-pointer"
                       >
                         <td className="px-6 py-3.5">
@@ -1204,7 +1506,7 @@ export default function Analytics() {
                           </div>
                           {item.studentEmail && (
                             <div className="text-[11px] text-stone-400 font-mono truncate max-w-[220px]">
-                              {item.studentEmail}
+                              {maskEmail(item.studentEmail, isMasterUser)}
                             </div>
                           )}
                         </td>
@@ -1258,10 +1560,8 @@ export default function Analytics() {
                     {paginatedPlaybackTimeline.map((log) => (
                       <tr
                         key={log.id}
-                        onClick={() => {
-                          setSelectedLessonId(log.lessonId);
-                          setIsPerformanceModalOpen(true);
-                        }}
+                        onClick={() => openStudentDetailModal(log.userId, log.studentName, log.studentEmail)}
+                        title={`Ver ficha individual de ${log.studentName}`}
                         className="hover:bg-surface-container-highest/30 transition-colors cursor-pointer"
                       >
                         <td className="px-6 py-3.5">
@@ -1272,7 +1572,7 @@ export default function Analytics() {
                           </div>
                           {log.studentEmail && (
                             <div className="text-[11px] text-stone-400 font-mono mt-0.5">
-                              {log.studentEmail}
+                              {maskEmail(log.studentEmail, isMasterUser)}
                             </div>
                           )}
                         </td>
@@ -1729,6 +2029,316 @@ export default function Analytics() {
                       Fechar
                     </button>
                   </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Modal Ficha Individual de Reproduções do Estudante */}
+          {selectedStudentId && studentDetailData && (
+            <div
+              className="fixed inset-0 z-[999] bg-black/80 backdrop-blur-md flex items-center justify-center p-4 sm:p-6 overflow-y-auto animate-in fade-in duration-200"
+              onClick={() => setSelectedStudentId(null)}
+            >
+              <div
+                className="bg-[#181818] border border-outline-variant/20 rounded-3xl w-full max-w-5xl overflow-hidden shadow-2xl my-8 flex flex-col max-h-[90vh]"
+                onClick={(e) => e.stopPropagation()}
+              >
+                {/* Header com dados exclusivamente do estudante selecionado */}
+                <div className="p-6 border-b border-outline-variant/10 bg-surface-container flex items-start justify-between gap-4">
+                  <div className="flex items-start gap-4 min-w-0">
+                    <div className="w-12 h-12 rounded-2xl bg-[#e9c349]/15 text-[#e9c349] border border-[#e9c349]/30 flex items-center justify-center font-headline font-extrabold text-lg shrink-0">
+                      {studentDetailData.name.charAt(0).toUpperCase()}
+                    </div>
+                    <div className="min-w-0">
+                      <span className="text-[10px] font-mono uppercase tracking-widest text-[#e9c349] font-bold block">
+                        Ficha Individual do Estudante
+                      </span>
+                      <h3 className="text-xl font-extrabold font-headline text-white truncate mt-0.5">
+                        {studentDetailData.name}
+                      </h3>
+                      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-1.5 text-xs text-stone-300">
+                        <span className="inline-flex items-center gap-1.5 font-mono">
+                          <Mail className="w-3.5 h-3.5 text-stone-400" />
+                          {studentDetailData.maskedEmail}
+                        </span>
+                        <span className="text-stone-600" aria-hidden="true">·</span>
+                        <span className="inline-flex items-center gap-1.5 font-mono tabular-nums">
+                          <Phone className="w-3.5 h-3.5 text-stone-400" />
+                          {studentDetailData.maskedPhone}
+                        </span>
+                        <span className="text-stone-600" aria-hidden="true">·</span>
+                        <span
+                          className={`font-semibold ${
+                            studentDetailData.isSubscriptionActive ? 'text-emerald-400' : 'text-stone-400'
+                          }`}
+                        >
+                          {studentDetailData.subscriptionStatus}
+                        </span>
+                        <span className="text-stone-600" aria-hidden="true">·</span>
+                        <span className="text-stone-400 font-mono tabular-nums">
+                          {studentDetailData.enrolledCoursesCount}{' '}
+                          {studentDetailData.enrolledCoursesCount === 1 ? 'curso matriculado' : 'cursos matriculados'}
+                        </span>
+                        {studentDetailData.registeredAtMs > 0 && (
+                          <>
+                            <span className="text-stone-600" aria-hidden="true">·</span>
+                            <span className="text-stone-400 font-mono tabular-nums">
+                              Cadastro: {formatPlaybackTimestamp(studentDetailData.registeredAtMs)}
+                            </span>
+                          </>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+
+                  <button
+                    onClick={() => setSelectedStudentId(null)}
+                    aria-label="Fechar ficha do estudante"
+                    className="w-9 h-9 rounded-full bg-surface-container-high hover:bg-surface-container-highest text-stone-400 hover:text-white flex items-center justify-center transition-colors cursor-pointer shrink-0"
+                  >
+                    <X className="w-5 h-5" />
+                  </button>
+                </div>
+
+                {/* KPIs Individuais */}
+                <div className="px-6 py-4 bg-surface-container-high/30 border-b border-outline-variant/10 grid grid-cols-2 sm:grid-cols-4 gap-4">
+                  <div>
+                    <span className="text-[11px] text-stone-400 font-mono uppercase block">Total de Reproduções</span>
+                    <span className="text-2xl font-black font-mono tabular-nums text-[#e9c349] mt-0.5 block">
+                      {studentDetailData.totalPlays}
+                    </span>
+                  </div>
+                  <div>
+                    <span className="text-[11px] text-stone-400 font-mono uppercase block">Aulas Reproduzidas</span>
+                    <span className="text-2xl font-black font-mono tabular-nums text-white mt-0.5 block">
+                      {studentDetailData.lessonsPlayedCount}
+                    </span>
+                  </div>
+                  <div>
+                    <span className="text-[11px] text-stone-400 font-mono uppercase block">Aulas Concluídas</span>
+                    <span className="text-2xl font-black font-mono tabular-nums text-emerald-400 mt-0.5 block">
+                      {studentDetailData.completedCount}
+                    </span>
+                  </div>
+                  <div>
+                    <span className="text-[11px] text-stone-400 font-mono uppercase block">Cursos Acessados</span>
+                    <span className="text-2xl font-black font-mono tabular-nums text-secondary mt-0.5 block">
+                      {studentDetailData.coursesAccessedCount}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Toolbar Interna (Abas + Filtro por Curso + Busca + Exportar) */}
+                <div className="px-6 py-4 border-b border-outline-variant/10 bg-black/30 flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+                  <div className="flex flex-wrap items-center gap-2.5">
+                    <div className="flex bg-black/60 p-1 rounded-xl border border-outline-variant/20">
+                      <button
+                        onClick={() => setStudentModalTab('by_course')}
+                        className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-colors cursor-pointer flex items-center gap-1.5 whitespace-nowrap ${
+                          studentModalTab === 'by_course'
+                            ? 'bg-[#e9c349] text-black'
+                            : 'text-stone-400 hover:text-white'
+                        }`}
+                      >
+                        <BookOpen className="w-3.5 h-3.5" />
+                        <span>Por Curso e Aula</span>
+                      </button>
+                      <button
+                        onClick={() => setStudentModalTab('timeline')}
+                        className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-colors cursor-pointer flex items-center gap-1.5 whitespace-nowrap ${
+                          studentModalTab === 'timeline'
+                            ? 'bg-[#e9c349] text-black'
+                            : 'text-stone-400 hover:text-white'
+                        }`}
+                      >
+                        <History className="w-3.5 h-3.5" />
+                        <span>Linha do Tempo Individual</span>
+                      </button>
+                    </div>
+
+                    <div className="flex items-center bg-black/60 border border-outline-variant/20 rounded-xl px-3 py-1.5 text-xs">
+                      <BookOpen className="w-3.5 h-3.5 text-[#e9c349] mr-2 shrink-0" />
+                      <select
+                        value={studentModalCourseFilter}
+                        onChange={(e) => setStudentModalCourseFilter(e.target.value)}
+                        className="bg-transparent text-white font-semibold text-xs focus:outline-none cursor-pointer pr-1 max-w-[200px]"
+                      >
+                        <option value="all" className="bg-[#181818] text-white">
+                          Todos os Cursos ({studentDetailData.courseOptions.length})
+                        </option>
+                        {studentDetailData.courseOptions.map((c) => (
+                          <option key={c.id} value={c.id} className="bg-[#181818] text-white">
+                            {c.title}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-2.5 flex-1 lg:max-w-md justify-end">
+                    <div className="relative flex-1">
+                      <Search className="w-3.5 h-3.5 text-stone-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                      <input
+                        type="text"
+                        value={studentModalSearch}
+                        onChange={(e) => setStudentModalSearch(e.target.value)}
+                        placeholder="Filtrar aula, módulo ou curso..."
+                        className="w-full bg-black/60 border border-outline-variant/20 rounded-xl pl-8 pr-7 py-1.5 text-xs text-white outline-none focus:border-[#e9c349]"
+                      />
+                      {studentModalSearch && (
+                        <button
+                          onClick={() => setStudentModalSearch('')}
+                          aria-label="Limpar busca na ficha"
+                          className="absolute right-2.5 top-1/2 -translate-y-1/2 text-stone-400 hover:text-white cursor-pointer"
+                        >
+                          <X className="w-3 h-3" />
+                        </button>
+                      )}
+                    </div>
+
+                    <button
+                      onClick={handleExportSingleStudentCSV}
+                      className="bg-surface-container-high hover:bg-surface-container-highest text-white border border-outline-variant/20 px-3 py-1.5 rounded-xl text-xs font-bold transition-colors flex items-center gap-1.5 cursor-pointer whitespace-nowrap shrink-0"
+                    >
+                      <Download className="w-3.5 h-3.5 text-[#e9c349]" />
+                      <span>Exportar CSV</span>
+                    </button>
+                  </div>
+                </div>
+
+                {/* Corpo da Ficha Individual */}
+                <div className="flex-1 overflow-y-auto p-6 space-y-6">
+                  {studentModalTab === 'by_course' ? (
+                    studentGroupedByCourse.length === 0 ? (
+                      <div className="p-10 text-center text-stone-400">
+                        <PlayCircle className="w-10 h-10 mx-auto mb-3 text-[#e9c349]/40" />
+                        <p className="font-bold text-white text-sm">Nenhuma aula reproduzida encontrada</p>
+                        <p className="text-xs text-stone-500 mt-1">
+                          Tente limpar os filtros internos ou selecione outro curso.
+                        </p>
+                      </div>
+                    ) : (
+                      studentGroupedByCourse.map((group) => (
+                        <div
+                          key={group.courseId}
+                          className="rounded-2xl border border-outline-variant/15 bg-surface-container overflow-hidden"
+                        >
+                          <div className="px-5 py-3.5 bg-surface-container-high/50 border-b border-outline-variant/10 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                            <div>
+                              <h4 className="font-bold text-white text-sm sm:text-base">{group.courseTitle}</h4>
+                              <p className="text-[11px] text-stone-400 font-mono tabular-nums mt-0.5">
+                                {group.lessons.length} {group.lessons.length === 1 ? 'aula reproduzida' : 'aulas reproduzidas'}
+                                <span aria-hidden="true"> · </span>
+                                <span className="text-[#e9c349] font-bold">{group.totalPlays} reproduções</span>
+                                <span aria-hidden="true"> · </span>
+                                <span className="text-emerald-400 font-bold">{group.completedCount} concluídas</span>
+                              </p>
+                            </div>
+                            <span className="text-[11px] text-stone-400 font-mono tabular-nums whitespace-nowrap">
+                              Último acesso: {formatPlaybackTimestamp(group.lastPlayedAtMs)}
+                            </span>
+                          </div>
+
+                          <div className="overflow-x-auto">
+                            <table className="w-full text-left text-xs sm:text-sm">
+                              <thead className="bg-black/30 text-stone-400 font-label uppercase tracking-wider text-[10px] border-b border-outline-variant/10">
+                                <tr>
+                                  <th className="px-5 py-2.5 font-semibold">Aula & Módulo</th>
+                                  <th className="px-5 py-2.5 font-semibold">Reproduções</th>
+                                  <th className="px-5 py-2.5 font-semibold text-right">Último Play</th>
+                                  <th className="px-5 py-2.5 font-semibold text-right">Conclusão</th>
+                                </tr>
+                              </thead>
+                              <tbody className="divide-y divide-outline-variant/10">
+                                {group.lessons.map((lesson) => (
+                                  <tr key={lesson.key} className="hover:bg-surface-container-highest/25 transition-colors">
+                                    <td className="px-5 py-3">
+                                      <div className="font-semibold text-white leading-snug">{lesson.lessonTitle}</div>
+                                      <div className="text-[11px] text-stone-400 mt-0.5">{lesson.moduleTitle}</div>
+                                    </td>
+                                    <td className="px-5 py-3 text-stone-200 whitespace-nowrap">
+                                      Reproduziu{' '}
+                                      <span className="font-mono tabular-nums font-bold text-[#e9c349]">
+                                        {formatPlaysPhrase(lesson.playCount)}
+                                      </span>
+                                    </td>
+                                    <td className="px-5 py-3 text-right font-mono tabular-nums text-xs text-stone-300 whitespace-nowrap">
+                                      {formatPlaybackTimestamp(lesson.lastPlayedAtMs)}
+                                    </td>
+                                    <td className="px-5 py-3 text-right whitespace-nowrap">
+                                      <span
+                                        className={`inline-flex items-center gap-1.5 text-xs font-semibold ${
+                                          lesson.isCompleted ? 'text-emerald-400' : 'text-stone-400'
+                                        }`}
+                                      >
+                                        {lesson.isCompleted && <CheckCircle2 className="w-3.5 h-3.5" />}
+                                        {lesson.isCompleted ? 'Concluída' : 'Não concluída'}
+                                      </span>
+                                    </td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        </div>
+                      ))
+                    )
+                  ) : studentFilteredTimeline.length === 0 ? (
+                    <div className="p-10 text-center text-stone-400">
+                      <History className="w-10 h-10 mx-auto mb-3 text-[#e9c349]/40" />
+                      <p className="font-bold text-white text-sm">Nenhum evento cronológico encontrado</p>
+                      <p className="text-xs text-stone-500 mt-1">
+                        Os cliques em Play deste estudante aparecerão aqui em ordem cronológica.
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="rounded-2xl border border-outline-variant/15 bg-surface-container overflow-hidden">
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-left text-xs sm:text-sm">
+                          <thead className="bg-black/40 text-stone-400 font-label uppercase tracking-wider text-[10px] border-b border-outline-variant/10">
+                            <tr>
+                              <th className="px-5 py-3 font-semibold">Aula Reproduzida</th>
+                              <th className="px-5 py-3 font-semibold">Curso & Módulo</th>
+                              <th className="px-5 py-3 font-semibold text-right">Sequência</th>
+                              <th className="px-5 py-3 font-semibold text-right">Data e Hora</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-outline-variant/10">
+                            {studentFilteredTimeline.map((ev) => (
+                              <tr key={ev.id} className="hover:bg-surface-container-highest/25 transition-colors">
+                                <td className="px-5 py-3 font-semibold text-white">{ev.lessonTitle}</td>
+                                <td className="px-5 py-3 text-xs text-stone-400">
+                                  <span className="text-[#e9c349] font-medium">{ev.courseTitle}</span>
+                                  <span aria-hidden="true"> · </span>
+                                  <span>{ev.moduleTitle}</span>
+                                </td>
+                                <td className="px-5 py-3 text-right font-mono tabular-nums font-bold text-[#e9c349] whitespace-nowrap">
+                                  {ev.playNumber}ª vez
+                                </td>
+                                <td className="px-5 py-3 text-right font-mono tabular-nums text-xs text-stone-300 whitespace-nowrap">
+                                  {formatPlaybackTimestamp(ev.createdAtMs)}
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Footer */}
+                <div className="px-6 py-4 bg-surface-container border-t border-outline-variant/10 flex items-center justify-between gap-4">
+                  <span className="text-xs text-stone-400 font-mono tabular-nums">
+                    Exibindo exclusivamente registros de {studentDetailData.name}
+                  </span>
+                  <button
+                    onClick={() => setSelectedStudentId(null)}
+                    className="bg-stone-800 hover:bg-stone-700 text-white font-bold text-xs px-4 py-2 rounded-xl transition-colors cursor-pointer"
+                  >
+                    Fechar
+                  </button>
                 </div>
               </div>
             </div>
