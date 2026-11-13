@@ -99,6 +99,7 @@ export default function Dashboard() {
   const [txToApprove, setTxToApprove] = useState<Transaction | null>(null);
   const [txToReject, setTxToReject] = useState<Transaction | null>(null);
   const [activePendingDropdownTxId, setActivePendingDropdownTxId] = useState<string | null>(null);
+  const [pendingDropdownCoords, setPendingDropdownCoords] = useState<{ bottom: number; right: number } | null>(null);
   const [pendingSearch, setPendingSearch] = useState('');
 
   const showNotification = (msg: string) => {
@@ -968,7 +969,19 @@ export default function Dashboard() {
                           <div className="relative inline-block text-left">
                             <button
                               type="button"
-                              onClick={() => setActivePendingDropdownTxId(activePendingDropdownTxId === tx.id ? null : tx.id)}
+                              onClick={(e) => {
+                                if (activePendingDropdownTxId === tx.id) {
+                                  setActivePendingDropdownTxId(null);
+                                  setPendingDropdownCoords(null);
+                                } else {
+                                  const rect = e.currentTarget.getBoundingClientRect();
+                                  setPendingDropdownCoords({
+                                    bottom: window.innerHeight - rect.top + 6,
+                                    right: Math.max(12, window.innerWidth - rect.right),
+                                  });
+                                  setActivePendingDropdownTxId(tx.id);
+                                }
+                              }}
                               className="p-1.5 text-stone-400 hover:text-white hover:bg-stone-800 rounded-lg transition-colors cursor-pointer inline-flex items-center"
                             >
                               <span className="material-symbols-outlined text-base">more_vert</span>
@@ -976,8 +989,21 @@ export default function Dashboard() {
 
                             {activePendingDropdownTxId === tx.id && (
                               <>
-                                <div className="fixed inset-0 z-40" onClick={() => setActivePendingDropdownTxId(null)} />
-                                <div className="absolute right-0 mt-1 w-48 bg-[#1e1e1e] border border-stone-800 rounded-xl shadow-2xl z-50 py-1 overflow-hidden animate-in fade-in zoom-in-95 duration-100 text-left">
+                                <div
+                                  className="fixed inset-0 z-40"
+                                  onClick={() => {
+                                    setActivePendingDropdownTxId(null);
+                                    setPendingDropdownCoords(null);
+                                  }}
+                                />
+                                <div
+                                  style={
+                                    pendingDropdownCoords
+                                      ? { bottom: `${pendingDropdownCoords.bottom}px`, right: `${pendingDropdownCoords.right}px` }
+                                      : undefined
+                                  }
+                                  className="fixed w-48 bg-[#1e1e1e] border border-stone-800 rounded-xl shadow-2xl z-50 py-1 overflow-hidden animate-in fade-in zoom-in-95 duration-100 text-left"
+                                >
                                   <button
                                     type="button"
                                     onClick={() => {

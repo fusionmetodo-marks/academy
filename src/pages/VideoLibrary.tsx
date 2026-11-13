@@ -15,6 +15,7 @@ import { LessonLink } from '../types';
 import NotificationCenter from '../components/NotificationCenter';
 import { CertificateModal } from '../components/CertificateModal';
 import { isMasterEmail } from '../utils/constants';
+import { recordLessonPlayback } from '../services/playbackService';
 
 interface Lesson {
   id: string;
@@ -304,31 +305,48 @@ export default function VideoLibrary({ courseId }: VideoLibraryProps = {}) {
     return () => unsubscribeCourse();
   }, [activeCourseId]);
 
-  // Record Lesson view automatically on active lesson selection
-  useEffect(() => {
-    if (!activeLesson || !currentUserId || !userProfile) return;
+  // Registrar reprodução exclusivamente quando o estudante clicar em Play
+  const handleStartPlayback = (lesson: Lesson) => {
+    setIsPlaying(true);
 
-    const recordLessonView = async () => {
-      try {
-        const userRef = doc(db, 'users', currentUserId);
-        const currentViews = userProfile.lessonViews || {};
-        const previousPlays = currentViews[activeLesson.id] || 0;
-        
-        const updatedViews = {
-          ...currentViews,
-          [activeLesson.id]: previousPlays + 1
-        };
+    const uid = auth.currentUser?.uid || currentUserId;
+    const targetCourseId = course.id || activeCourseId || lesson.courseId || '';
+    if (!uid || !targetCourseId || !lesson?.id) return;
 
-        await updateDoc(userRef, {
-          lessonViews: updatedViews
-        });
-      } catch (err) {
-        console.error("Failed to record play status in database:", err);
-      }
-    };
+    const profileAny = userProfile as any;
+    const resolvedStudentName = (
+      profileAny?.fullName ||
+      profileAny?.name ||
+      `${profileAny?.firstName || ''} ${profileAny?.lastName || ''}`.trim() ||
+      auth.currentUser?.displayName ||
+      ''
+    ).trim();
+    const resolvedStudentEmail = (userProfile?.email || auth.currentUser?.email || '').trim();
 
-    recordLessonView();
-  }, [activeLesson?.id, currentUserId]);
+    const matchedModule =
+      course.structureType === 'single_lesson'
+        ? { id: 'single_lesson_module', title: 'Aula Única' }
+        : course.modules.find(
+            (m) =>
+              m.id === (lesson.moduleId || activeModuleId) ||
+              m.lessons?.some((l) => l.id === lesson.id)
+          );
+
+    recordLessonPlayback({
+      userId: uid,
+      studentName: resolvedStudentName,
+      studentEmail: resolvedStudentEmail,
+      courseId: targetCourseId,
+      courseTitle: course.title || 'Curso',
+      moduleId: matchedModule?.id || activeModuleId || 'module',
+      moduleTitle: matchedModule?.title || 'Módulo',
+      lessonId: lesson.id,
+      lessonTitle: lesson.title || 'Aula',
+      currentViews: userProfile?.lessonViews || {},
+    }).catch((err) => {
+      console.error('Erro ao registrar reprodução da aula:', err);
+    });
+  };
 
   const handleLogout = async (e: React.MouseEvent) => {
     e.preventDefault();
@@ -465,8 +483,8 @@ export default function VideoLibrary({ courseId }: VideoLibraryProps = {}) {
           <span className="material-symbols-outlined text-[#e9c349] text-6xl mb-4">smart_display</span>
           <p className="text-gray-400 font-medium pb-2">O player de vídeo está pronto.</p>
           <button 
-            onClick={() => setIsPlaying(true)}
-            className="px-6 py-2 bg-[#e9c349] text-[#131313] hover:opacity-90 rounded-lg text-sm font-bold transition-all flex items-center gap-2"
+            onClick={() => handleStartPlayback(lesson)}
+            className="px-6 py-2 bg-[#e9c349] text-[#131313] hover:opacity-90 rounded-lg text-sm font-bold transition-all flex items-center gap-2 cursor-pointer"
           >
             <span className="material-symbols-outlined text-[18px]">play_arrow</span>
             Assistir Aula
@@ -501,7 +519,7 @@ export default function VideoLibrary({ courseId }: VideoLibraryProps = {}) {
         <img src={coverUrl} alt={course.title || "Video Cover"} className="absolute inset-0 w-full h-full object-cover opacity-60 group-hover:scale-105 transition-transform duration-700" />
         <div className="absolute inset-0 bg-black/40 flex items-center justify-center">
           <button 
-            onClick={() => setIsPlaying(true)}
+            onClick={() => handleStartPlayback(lesson)}
             className="w-20 h-20 rounded-full bg-[#e9c349]/20 backdrop-blur-md flex items-center justify-center border border-[#e9c349]/50 hover:scale-110 transition-transform cursor-pointer"
           >
             <span className="material-symbols-outlined text-[#e9c349] text-4xl" style={{ fontVariationSettings: "'FILL' 1" }}>play_arrow</span>

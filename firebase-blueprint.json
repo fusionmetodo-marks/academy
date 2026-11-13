@@ -134,6 +134,26 @@
         "platformName": { "type": "string" },
         "updatedAt": { "type": "string", "format": "date-time" }
       }
+    },
+    "LessonPlayback": {
+      "title": "LessonPlayback",
+      "description": "Records an individual video playback event initiated when a student clicks Play on a lesson.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "maxLength": 128 },
+        "studentName": { "type": "string", "maxLength": 200 },
+        "studentEmail": { "type": "string", "format": "email", "maxLength": 200 },
+        "courseId": { "type": "string", "maxLength": 128 },
+        "courseTitle": { "type": "string", "maxLength": 250 },
+        "moduleId": { "type": "string", "maxLength": 128 },
+        "moduleTitle": { "type": "string", "maxLength": 250 },
+        "lessonId": { "type": "string", "maxLength": 128 },
+        "lessonTitle": { "type": "string", "maxLength": 250 },
+        "playNumber": { "type": "number" },
+        "createdAtMs": { "type": "number" },
+        "playedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "studentName", "studentEmail", "courseId", "lessonId", "lessonTitle", "playNumber", "createdAtMs"]
     }
   },
   "firestore": {
@@ -160,6 +180,12 @@
         "$ref": "#/entities/Lesson"
       },
       "description": "Stores video lessons accessible strictly to enrolled students."
+    },
+    "/lessonPlaybacks/{playbackId}": {
+      "schema": {
+        "$ref": "#/entities/LessonPlayback"
+      },
+      "description": "Stores chronological video playback events per student and lesson for administrative analytics."
     },
     "/transactions/{transactionId}": {
       "schema": {

@@ -4,6 +4,9 @@ import Sidebar from '../components/Sidebar';
 import { collection, onSnapshot, doc, getDoc } from 'firebase/firestore';
 import { db, auth } from '../firebase';
 import { isMasterEmail } from '../utils/constants';
+import { subscribeToLessonPlaybacks } from '../services/playbackService';
+import { LessonPlaybackLog, StudentLessonPlaybackSummary } from '../types';
+import { onAuthStateChanged } from 'firebase/auth';
 import { 
   BarChart3, 
   Layers, 
@@ -20,7 +23,10 @@ import {
   AlertCircle,
   X,
   Search,
-  ChevronRight
+  ChevronRight,
+  Clock,
+  History,
+  UserCheck
 } from 'lucide-react';
 
 interface LessonStats {
@@ -64,6 +70,8 @@ export default function Analytics() {
   // Real-time Firestore states
   const [courses, setCourses] = useState<CourseData[]>([]);
   const [users, setUsers] = useState<any[]>([]);
+  const [playbackLogs, setPlaybackLogs] = useState<LessonPlaybackLog[]>([]);
+  const [playbackLogsLoading, setPlaybackLogsLoading] = useState(true);
   const [currentUserProfile, setCurrentUserProfile] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [selectedCourseId, setSelectedCourseId] = useState<string>('all');
@@ -71,10 +79,18 @@ export default function Analytics() {
   const [timeFilter, setTimeFilter] = useState<string>('all');
   const [sortBy, setSortBy] = useState<'views' | 'completions' | 'rate'>('views');
 
+  // Playback Registry UI States
+  const [playbackViewMode, setPlaybackViewMode] = useState<'summary' | 'timeline'>('summary');
+  const [playbackSearchQuery, setPlaybackSearchQuery] = useState('');
+  const [playbackSortBy, setPlaybackSortBy] = useState<'recent' | 'count'>('recent');
+  const [playbackPage, setPlaybackPage] = useState(1);
+  const playbackItemsPerPage = 10;
+
   // Performance Modal & Lesson Filter States
   const [isPerformanceModalOpen, setIsPerformanceModalOpen] = useState(false);
   const [lessonSearchQuery, setLessonSearchQuery] = useState('');
   const [selectedLessonId, setSelectedLessonId] = useState<string>('all');
+  const [modalLessonPlaybackMode, setModalLessonPlaybackMode] = useState<'summary' | 'timeline'>('summary');
 
   // Pagination & Accordion states
   const [currentPage, setCurrentPage] = useState(1);
@@ -128,6 +144,35 @@ export default function Analytics() {
     });
 
     return () => unsubUsers();
+  }, []);
+
+  // 3. Listen to Lesson Playbacks Collection when authenticated
+  useEffect(() => {
+    let unsubPlaybacks = () => {};
+
+    const unsubAuth = onAuthStateChanged(auth, (user) => {
+      unsubPlaybacks();
+      if (user) {
+        setPlaybackLogsLoading(true);
+        unsubPlaybacks = subscribeToLessonPlaybacks(
+          (logs) => {
+            setPlaybackLogs(logs);
+            setPlaybackLogsLoading(false);
+          },
+          () => {
+            setPlaybackLogsLoading(false);
+          }
+        );
+      } else {
+        setPlaybackLogs([]);
+        setPlaybackLogsLoading(false);
+      }
+    });
+
+    return () => {
+      unsubAuth();
+      unsubPlaybacks();
+    };
   }, []);
 
   const currentAuthUser = auth.currentUser;
@@ -206,7 +251,8 @@ export default function Analytics() {
   // Reset page when filters change
   useEffect(() => {
     setCurrentPage(1);
-  }, [selectedCourseId, selectedModuleId, sortBy]);
+    setPlaybackPage(1);
+  }, [selectedCourseId, selectedModuleId, sortBy, timeFilter, playbackSearchQuery, playbackSortBy, playbackViewMode]);
 
   // Aggregate All Modules from active courses
   const modulesList = useMemo<ModuleInfo[]>(() => {
@@ -245,70 +291,397 @@ export default function Analytics() {
     return list;
   }, [activeCourses, selectedModuleId]);
 
+  // Catalog map for resolving lesson/module/course titles cleanly
+  const lessonCatalogMap = useMemo(() => {
+    const map = new Map<
+      string,
+      {
+        lessonId: string;
+        lessonTitle: string;
+        moduleId: string;
+        moduleTitle: string;
+        courseId: string;
+        courseTitle: string;
+        duration: string;
+      }
+    >();
+
+    isolatedCourses.forEach((course: any) => {
+      const courseTitle = course.title || 'Curso CFA';
+      const courseModules = Array.isArray(course.modules) ? course.modules : [];
+
+      if (course.structureType === 'single_lesson' && courseModules.length === 0) {
+        map.set(course.id, {
+          lessonId: course.id,
+          lessonTitle: course.title || 'Aula Única',
+          moduleId: 'single_lesson_module',
+          moduleTitle: 'Aula Única',
+          courseId: course.id,
+          courseTitle,
+          duration: 'Aula Única',
+        });
+      }
+
+      courseModules.forEach((mod: any) => {
+        const lessons = Array.isArray(mod.lessons) ? mod.lessons : [];
+        lessons.forEach((lesson: any) => {
+          map.set(lesson.id, {
+            lessonId: lesson.id,
+            lessonTitle: lesson.title || 'Aula sem título',
+            moduleId: mod.id || '',
+            moduleTitle: mod.title || 'Módulo',
+            courseId: course.id,
+            courseTitle,
+            duration: lesson.duration || '00:00',
+          });
+        });
+      });
+    });
+
+    return map;
+  }, [isolatedCourses]);
+
+  const usersById = useMemo(() => {
+    const map = new Map<string, any>();
+    users.forEach((u) => {
+      map.set(u.id, u);
+    });
+    return map;
+  }, [users]);
+
+  // Cutoff timestamp for timeFilter ('all' | '30d' | '7d')
+  const timeCutoffMs = useMemo(() => {
+    if (timeFilter === '7d') return Date.now() - 7 * 24 * 60 * 60 * 1000;
+    if (timeFilter === '30d') return Date.now() - 30 * 24 * 60 * 60 * 1000;
+    return 0;
+  }, [timeFilter]);
+
+  // Playbacks filtered by producer isolation, course, module, and time period
+  const scopedPlaybackLogs = useMemo(() => {
+    return playbackLogs
+      .map((log) => {
+        const meta = lessonCatalogMap.get(log.lessonId);
+        return {
+          ...log,
+          courseTitle: meta?.courseTitle || log.courseTitle || 'Curso',
+          moduleId: meta?.moduleId || log.moduleId || '',
+          moduleTitle: meta?.moduleTitle || log.moduleTitle || 'Módulo',
+          lessonTitle: meta?.lessonTitle || log.lessonTitle || 'Aula',
+        };
+      })
+      .filter((log) => {
+        if (isProducerMode && !isolatedCourseIds.has(log.courseId)) return false;
+        if (selectedCourseId !== 'all' && log.courseId !== selectedCourseId) return false;
+        if (selectedModuleId !== 'all' && log.moduleId !== selectedModuleId) return false;
+        if (timeCutoffMs > 0 && log.createdAtMs < timeCutoffMs) return false;
+        return true;
+      });
+  }, [playbackLogs, lessonCatalogMap, isProducerMode, isolatedCourseIds, selectedCourseId, selectedModuleId, timeCutoffMs]);
+
   // Compute Lesson Statistics from active courses and real student interactions
   const lessonStats = useMemo<LessonStats[]>(() => {
     if (activeCourses.length === 0) return [];
 
     const stats: LessonStats[] = [];
 
-    activeCourses.forEach(course => {
-      // Determine student audience for this course
-      const enrolledStudents = realStudents.filter(s => {
+    // Pre-aggregate scoped playback log counts by (lessonId -> userId -> count)
+    const logCountsByLessonAndUser = new Map<string, Map<string, number>>();
+    scopedPlaybackLogs.forEach((log) => {
+      let userMap = logCountsByLessonAndUser.get(log.lessonId);
+      if (!userMap) {
+        userMap = new Map<string, number>();
+        logCountsByLessonAndUser.set(log.lessonId, userMap);
+      }
+      userMap.set(log.userId, (userMap.get(log.userId) || 0) + 1);
+    });
+
+    const pushLessonStat = (
+      lessonId: string,
+      lessonTitle: string,
+      moduleTitle: string,
+      course: CourseData,
+      duration: string,
+      videoType?: string
+    ) => {
+      const enrolledStudents = realStudents.filter((s) => {
         if (selectedCourseId === 'all') return true;
         const enrolled = Array.isArray(s.enrolledCourses) ? s.enrolledCourses : [];
         return enrolled.includes(course.id) || s.subscriptionStatus === 'active';
       });
       const audienceCount = enrolledStudents.length || realStudents.length || 1;
 
+      let totalCompletions = 0;
+      const seenUserIds = new Set<string>();
+      const lessonLogMap = logCountsByLessonAndUser.get(lessonId);
+      let totalViews = 0;
+
+      users.forEach((u) => {
+        seenUserIds.add(u.id);
+        const completedList = Array.isArray(u.completedLessons) ? u.completedLessons : [];
+        if (completedList.includes(lessonId)) {
+          totalCompletions += 1;
+        }
+
+        const logCount = lessonLogMap?.get(u.id) || 0;
+        if (timeFilter === 'all') {
+          const legacyViews = Number(u.lessonViews?.[lessonId]) || 0;
+          totalViews += Math.max(logCount, legacyViews);
+        } else {
+          totalViews += logCount;
+        }
+      });
+
+      // Include any playback logs whose user doc was not in users snapshot
+      if (lessonLogMap) {
+        lessonLogMap.forEach((cnt, uid) => {
+          if (!seenUserIds.has(uid)) {
+            totalViews += cnt;
+          }
+        });
+      }
+
+      const rawRate = audienceCount > 0 ? Math.round((totalCompletions / audienceCount) * 100) : 0;
+      const rate = Math.min(100, Math.max(0, rawRate));
+
+      stats.push({
+        id: lessonId,
+        title: lessonTitle || 'Aula sem título',
+        moduleTitle: moduleTitle || 'Módulo',
+        courseTitle: course.title || 'Curso CFA',
+        courseId: course.id,
+        duration: duration || '00:00',
+        videoType: videoType || 'youtube',
+        views: totalViews,
+        completions: totalCompletions,
+        completionRate: rate,
+      });
+    };
+
+    activeCourses.forEach((course: any) => {
       const courseModules = Array.isArray(course.modules) ? course.modules : [];
+
+      if (course.structureType === 'single_lesson' && courseModules.length === 0 && selectedModuleId === 'all') {
+        pushLessonStat(
+          course.id,
+          course.title || 'Aula Única',
+          'Aula Única',
+          course,
+          'Aula Única',
+          course.singleLessonVideoSource || 'youtube'
+        );
+      }
+
       courseModules.forEach((mod: any) => {
         if (selectedModuleId !== 'all' && mod.id !== selectedModuleId) {
           return;
         }
         const lessons = Array.isArray(mod.lessons) ? mod.lessons : [];
         lessons.forEach((lesson: any) => {
-          let totalViews = 0;
-          let totalCompletions = 0;
-
-          users.forEach((u) => {
-            // Count completions
-            const completedList = Array.isArray(u.completedLessons) ? u.completedLessons : [];
-            if (completedList.includes(lesson.id)) {
-              totalCompletions += 1;
-            }
-
-            // Count views/clicks
-            const viewsMap = u.lessonViews || {};
-            const viewsForLesson = Number(viewsMap[lesson.id]) || 0;
-            totalViews += viewsForLesson;
-          });
-
-          const rawRate = audienceCount > 0 ? Math.round((totalCompletions / audienceCount) * 100) : 0;
-          const rate = Math.min(100, Math.max(0, rawRate));
-
-          stats.push({
-            id: lesson.id,
-            title: lesson.title || 'Aula sem título',
-            moduleTitle: mod.title || 'Módulo',
-            courseTitle: course.title || 'Curso CFA',
-            courseId: course.id,
-            duration: lesson.duration || '00:00',
-            videoType: lesson.videoType || 'youtube',
-            views: totalViews,
-            completions: totalCompletions,
-            completionRate: rate
-          });
+          pushLessonStat(
+            lesson.id,
+            lesson.title || 'Aula sem título',
+            mod.title || 'Módulo',
+            course,
+            lesson.duration || '00:00',
+            lesson.videoType || lesson.videoSource || 'youtube'
+          );
         });
       });
     });
 
-    // Sort according to active sort criteria
     return stats.sort((a, b) => {
       if (sortBy === 'views') return b.views - a.views || b.completions - a.completions;
       if (sortBy === 'completions') return b.completions - a.completions || b.views - a.views;
       return b.completionRate - a.completionRate || b.views - a.views;
     });
-  }, [activeCourses, realStudents, users, selectedCourseId, selectedModuleId, sortBy]);
+  }, [activeCourses, realStudents, users, scopedPlaybackLogs, timeFilter, selectedCourseId, selectedModuleId, sortBy]);
+
+  // Build grouped Student -> Lesson summaries (combining real-time playbackLogs + legacy lessonViews when timeFilter === 'all')
+  const allStudentLessonSummaries = useMemo<StudentLessonPlaybackSummary[]>(() => {
+    const summaryMap = new Map<string, StudentLessonPlaybackSummary>();
+    const activeLessonIds = new Set(lessonStats.map((s) => s.id));
+
+    const resolveStudentIdentity = (uid: string, fallbackName?: string, fallbackEmail?: string) => {
+      const u = usersById.get(uid);
+      const email = (u?.email || fallbackEmail || '').trim();
+      const fullName = (
+        u?.fullName ||
+        u?.name ||
+        `${u?.firstName || ''} ${u?.lastName || ''}`.trim() ||
+        u?.displayName ||
+        fallbackName ||
+        (email.includes('@') ? email.split('@')[0] : 'Estudante')
+      ).trim();
+      const completedLessons: string[] = Array.isArray(u?.completedLessons) ? u.completedLessons : [];
+      return { name: fullName || 'Estudante', email, completedLessons };
+    };
+
+    // 1. Aggregate from scoped chronological playback logs
+    scopedPlaybackLogs.forEach((log) => {
+      const key = `${log.userId}::${log.lessonId}`;
+      const identity = resolveStudentIdentity(log.userId, log.studentName, log.studentEmail);
+      const existing = summaryMap.get(key);
+
+      if (!existing) {
+        summaryMap.set(key, {
+          key,
+          userId: log.userId,
+          studentName: identity.name,
+          studentEmail: identity.email,
+          courseId: log.courseId,
+          courseTitle: log.courseTitle || 'Curso',
+          moduleId: log.moduleId || '',
+          moduleTitle: log.moduleTitle || 'Módulo',
+          lessonId: log.lessonId,
+          lessonTitle: log.lessonTitle || 'Aula',
+          playCount: 1,
+          lastPlayedAtMs: log.createdAtMs || 0,
+          firstPlayedAtMs: log.createdAtMs || 0,
+          isCompleted: identity.completedLessons.includes(log.lessonId),
+          isLegacyOnly: false,
+        });
+      } else {
+        existing.playCount += 1;
+        if (log.createdAtMs > existing.lastPlayedAtMs) existing.lastPlayedAtMs = log.createdAtMs;
+        if (log.createdAtMs > 0 && (existing.firstPlayedAtMs === 0 || log.createdAtMs < existing.firstPlayedAtMs)) {
+          existing.firstPlayedAtMs = log.createdAtMs;
+        }
+      }
+    });
+
+    // 2. Reconcile legacy lessonViews counts when viewing 'all' time
+    if (timeFilter === 'all') {
+      const sourceUsers = isProducerMode ? effectiveUsers : users;
+      sourceUsers.forEach((u) => {
+        const viewsMap = u.lessonViews || {};
+        const lastPlayedMap = u.lessonLastPlayedAt || {};
+        Object.entries(viewsMap).forEach(([lessonId, rawCount]) => {
+          const legacyCount = Number(rawCount) || 0;
+          if (legacyCount <= 0) return;
+
+          const meta = lessonCatalogMap.get(lessonId);
+          if (!meta && !activeLessonIds.has(lessonId)) return;
+          if (selectedCourseId !== 'all' && meta?.courseId !== selectedCourseId) return;
+          if (selectedModuleId !== 'all' && meta?.moduleId !== selectedModuleId) return;
+          if (isProducerMode && meta && !isolatedCourseIds.has(meta.courseId)) return;
+
+          const key = `${u.id}::${lessonId}`;
+          const existing = summaryMap.get(key);
+          const legacyLastMs = Number(lastPlayedMap[lessonId]) || 0;
+
+          if (existing) {
+            if (legacyCount > existing.playCount) {
+              existing.playCount = legacyCount;
+            }
+            if (legacyLastMs > existing.lastPlayedAtMs) {
+              existing.lastPlayedAtMs = legacyLastMs;
+            }
+          } else if (meta) {
+            const identity = resolveStudentIdentity(u.id);
+            summaryMap.set(key, {
+              key,
+              userId: u.id,
+              studentName: identity.name,
+              studentEmail: identity.email,
+              courseId: meta.courseId,
+              courseTitle: meta.courseTitle,
+              moduleId: meta.moduleId,
+              moduleTitle: meta.moduleTitle,
+              lessonId,
+              lessonTitle: meta.lessonTitle,
+              playCount: legacyCount,
+              lastPlayedAtMs: legacyLastMs,
+              firstPlayedAtMs: legacyLastMs,
+              isCompleted: identity.completedLessons.includes(lessonId),
+              isLegacyOnly: true,
+            });
+          }
+        });
+      });
+    }
+
+    return Array.from(summaryMap.values()).sort((a, b) => {
+      if (playbackSortBy === 'count') {
+        return b.playCount - a.playCount || b.lastPlayedAtMs - a.lastPlayedAtMs;
+      }
+      return b.lastPlayedAtMs - a.lastPlayedAtMs || b.playCount - a.playCount;
+    });
+  }, [
+    scopedPlaybackLogs,
+    lessonStats,
+    usersById,
+    timeFilter,
+    isProducerMode,
+    effectiveUsers,
+    users,
+    lessonCatalogMap,
+    selectedCourseId,
+    selectedModuleId,
+    isolatedCourseIds,
+    playbackSortBy,
+  ]);
+
+  const filteredStudentLessonSummaries = useMemo(() => {
+    const q = playbackSearchQuery.trim().toLowerCase();
+    if (!q) return allStudentLessonSummaries;
+    return allStudentLessonSummaries.filter(
+      (item) =>
+        item.studentName.toLowerCase().includes(q) ||
+        item.studentEmail.toLowerCase().includes(q) ||
+        item.lessonTitle.toLowerCase().includes(q) ||
+        item.courseTitle.toLowerCase().includes(q) ||
+        item.moduleTitle.toLowerCase().includes(q)
+    );
+  }, [allStudentLessonSummaries, playbackSearchQuery]);
+
+  const filteredPlaybackTimeline = useMemo(() => {
+    const q = playbackSearchQuery.trim().toLowerCase();
+    const list = !q
+      ? scopedPlaybackLogs
+      : scopedPlaybackLogs.filter(
+          (log) =>
+            log.studentName.toLowerCase().includes(q) ||
+            log.studentEmail.toLowerCase().includes(q) ||
+            log.lessonTitle.toLowerCase().includes(q) ||
+            (log.courseTitle || '').toLowerCase().includes(q) ||
+            (log.moduleTitle || '').toLowerCase().includes(q)
+        );
+    if (playbackSortBy === 'count') {
+      return [...list].sort((a, b) => b.playNumber - a.playNumber || b.createdAtMs - a.createdAtMs);
+    }
+    return list;
+  }, [scopedPlaybackLogs, playbackSearchQuery, playbackSortBy]);
+
+  const paginatedPlaybackSummaries = useMemo(() => {
+    const start = (playbackPage - 1) * playbackItemsPerPage;
+    return filteredStudentLessonSummaries.slice(start, start + playbackItemsPerPage);
+  }, [filteredStudentLessonSummaries, playbackPage]);
+
+  const paginatedPlaybackTimeline = useMemo(() => {
+    const start = (playbackPage - 1) * playbackItemsPerPage;
+    return filteredPlaybackTimeline.slice(start, start + playbackItemsPerPage);
+  }, [filteredPlaybackTimeline, playbackPage]);
+
+  const playbackTotalCount =
+    playbackViewMode === 'summary'
+      ? filteredStudentLessonSummaries.length
+      : filteredPlaybackTimeline.length;
+  const playbackTotalPages = Math.max(1, Math.ceil(playbackTotalCount / playbackItemsPerPage));
+
+  const formatPlaybackTimestamp = (ms: number) => {
+    if (!ms || ms <= 0) return 'Registro anterior';
+    return new Intl.DateTimeFormat('pt-PT', {
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+    }).format(new Date(ms));
+  };
+
+  const formatPlaysPhrase = (count: number) => {
+    return count === 1 ? '1 vez' : `${count} vezes`;
+  };
 
   // Modal Filtered Lesson Statistics
   const modalFilteredLessons = useMemo(() => {
@@ -386,6 +759,59 @@ export default function Analytics() {
     document.body.removeChild(link);
 
     showNotification('Relatório CSV baixado com sucesso!');
+  };
+
+  // Export Student Playback Registry to CSV
+  const handleExportPlaybackCSV = () => {
+    if (playbackViewMode === 'summary') {
+      if (filteredStudentLessonSummaries.length === 0) {
+        showNotification('Nenhum registro de reprodução por estudante para exportar.');
+        return;
+      }
+      const headers = ['Estudante', 'Email', 'Aula', 'Módulo', 'Curso', 'Total de Reproduções', 'Última Reprodução', 'Status'];
+      const rows = filteredStudentLessonSummaries.map((item) => [
+        `"${item.studentName.replace(/"/g, '""')}"`,
+        `"${item.studentEmail.replace(/"/g, '""')}"`,
+        `"${item.lessonTitle.replace(/"/g, '""')}"`,
+        `"${item.moduleTitle.replace(/"/g, '""')}"`,
+        `"${item.courseTitle.replace(/"/g, '""')}"`,
+        item.playCount,
+        `"${formatPlaybackTimestamp(item.lastPlayedAtMs)}"`,
+        `"${item.isCompleted ? 'Concluída' : 'Em andamento'}"`,
+      ]);
+      const csvContent = 'data:text/csv;charset=utf-8,' + [headers.join(','), ...rows.map((e) => e.join(','))].join('\n');
+      const link = document.createElement('a');
+      link.setAttribute('href', encodeURI(csvContent));
+      link.setAttribute('download', `reproducoes_por_estudante_${Date.now()}.csv`);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      showNotification('Registros por estudante exportados em CSV!');
+      return;
+    }
+
+    if (filteredPlaybackTimeline.length === 0) {
+      showNotification('Nenhum evento cronológico para exportar.');
+      return;
+    }
+    const headers = ['Estudante', 'Email', 'Aula', 'Módulo', 'Curso', 'Ordem (Vez)', 'Data e Hora'];
+    const rows = filteredPlaybackTimeline.map((log) => [
+      `"${log.studentName.replace(/"/g, '""')}"`,
+      `"${log.studentEmail.replace(/"/g, '""')}"`,
+      `"${log.lessonTitle.replace(/"/g, '""')}"`,
+      `"${(log.moduleTitle || '').replace(/"/g, '""')}"`,
+      `"${(log.courseTitle || '').replace(/"/g, '""')}"`,
+      `${log.playNumber}ª vez`,
+      `"${formatPlaybackTimestamp(log.createdAtMs)}"`,
+    ]);
+    const csvContent = 'data:text/csv;charset=utf-8,' + [headers.join(','), ...rows.map((e) => e.join(','))].join('\n');
+    const link = document.createElement('a');
+    link.setAttribute('href', encodeURI(csvContent));
+    link.setAttribute('download', `historico_cronologico_reproducoes_${Date.now()}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    showNotification('Histórico cronológico exportado em CSV!');
   };
 
   return (
@@ -576,7 +1002,7 @@ export default function Analytics() {
 
 
           {/* Quadro de Desempenho (Compact Trigger Card) */}
-          <div className="bg-surface-container rounded-2xl border border-outline-variant/10 p-6 mb-12 shadow-xl hover:border-[#e9c349]/30 transition-all flex flex-col md:flex-row items-center justify-between gap-6">
+          <div className="bg-surface-container rounded-2xl border border-outline-variant/10 p-6 mb-8 flex flex-col md:flex-row items-center justify-between gap-6 hover:border-[#e9c349]/30 transition-colors">
             <div className="flex items-center gap-4">
               <div className="w-12 h-12 rounded-2xl bg-[#e9c349]/10 text-[#e9c349] border border-[#e9c349]/20 flex items-center justify-center shrink-0">
                 <BarChart3 className="w-6 h-6" />
@@ -584,15 +1010,13 @@ export default function Analytics() {
               <div>
                 <h3 className="font-bold font-headline text-lg text-white">Quadro de Desempenho por Aula e Curso</h3>
                 <p className="text-xs text-stone-400 mt-0.5">
-                  Consulte retenção, cliques e conclusões por cada aula ou curso individualmente.
+                  Consulte retenção, reproduções e conclusões por cada aula ou curso individualmente.
                 </p>
-                <div className="flex flex-wrap items-center gap-3 mt-2 text-[11px] font-mono text-stone-400">
-                  <span className="bg-surface-container-high px-2.5 py-0.5 rounded-full border border-outline-variant/10 text-stone-300">
-                    {totalLessonsCount} Aulas Rastreáveis
-                  </span>
-                  <span>•</span>
-                  <span className="text-primary font-bold">{totalViewsCount} Clicks Totais</span>
-                  <span>•</span>
+                <div className="flex flex-wrap items-center gap-2.5 mt-2 text-[11px] font-mono tabular-nums text-stone-400">
+                  <span className="text-stone-300">{totalLessonsCount} Aulas Rastreáveis</span>
+                  <span aria-hidden="true">·</span>
+                  <span className="text-primary font-bold">{totalViewsCount} Reproduções Totais</span>
+                  <span aria-hidden="true">·</span>
                   <span className="text-emerald-400 font-bold">{totalCompletionsCount} Conclusões</span>
                 </div>
               </div>
@@ -601,12 +1025,307 @@ export default function Analytics() {
             <button
               id="btn-open-performance-modal"
               onClick={() => setIsPerformanceModalOpen(true)}
-              className="bg-[#e9c349] hover:bg-[#d4b03f] text-black font-extrabold px-6 py-3 rounded-xl flex items-center gap-2 text-sm shadow-md transition-all cursor-pointer hover:scale-105 shrink-0"
+              className="bg-[#e9c349] hover:bg-[#d4b03f] text-black font-extrabold px-6 py-3 rounded-xl flex items-center gap-2 text-sm transition-colors cursor-pointer shrink-0 whitespace-nowrap"
             >
               <BarChart3 className="w-4 h-4" />
               <span>Ver Desempenho Detalhado</span>
             </button>
           </div>
+
+          {/* Registro de Reproduções por Estudante */}
+          <section className="bg-surface-container rounded-2xl border border-outline-variant/10 mb-12 overflow-hidden">
+            {/* Section Header */}
+            <div className="p-6 border-b border-outline-variant/10 flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+              <div>
+                <div className="flex items-center gap-2 text-[#e9c349] mb-1">
+                  <UserCheck className="w-4 h-4" />
+                  <span className="text-[11px] font-bold uppercase tracking-widest font-label">
+                    Auditoria Individual de Reprodução
+                  </span>
+                </div>
+                <h3 className="text-xl font-extrabold font-headline text-on-surface">
+                  Registro de Reproduções por Estudante
+                </h3>
+                <p className="text-xs text-stone-400 mt-1">
+                  Registra exclusivamente quando o estudante clica em Play para assistir, contabilizando quantas vezes reproduziu cada aula.
+                </p>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2.5">
+                <div className="flex bg-black/50 p-1 rounded-xl border border-outline-variant/20">
+                  <button
+                    onClick={() => setPlaybackViewMode('summary')}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-colors cursor-pointer flex items-center gap-1.5 whitespace-nowrap ${
+                      playbackViewMode === 'summary'
+                        ? 'bg-[#e9c349] text-black'
+                        : 'text-stone-400 hover:text-white'
+                    }`}
+                  >
+                    <Users className="w-3.5 h-3.5" />
+                    <span>Resumo por Estudante e Aula</span>
+                  </button>
+                  <button
+                    onClick={() => setPlaybackViewMode('timeline')}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-colors cursor-pointer flex items-center gap-1.5 whitespace-nowrap ${
+                      playbackViewMode === 'timeline'
+                        ? 'bg-[#e9c349] text-black'
+                        : 'text-stone-400 hover:text-white'
+                    }`}
+                  >
+                    <History className="w-3.5 h-3.5" />
+                    <span>Histórico Cronológico</span>
+                  </button>
+                </div>
+
+                <button
+                  onClick={handleExportPlaybackCSV}
+                  className="bg-surface-container-high hover:bg-surface-container-highest text-on-surface border border-outline-variant/20 px-3.5 py-2 rounded-xl text-xs font-bold transition-colors flex items-center gap-1.5 cursor-pointer whitespace-nowrap"
+                >
+                  <Download className="w-3.5 h-3.5 text-[#e9c349]" />
+                  <span>Exportar Registros</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Search & Sort Toolbar */}
+            <div className="px-6 py-4 bg-surface-container-high/30 border-b border-outline-variant/10 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div className="relative flex-1 max-w-md">
+                <Search className="w-4 h-4 text-stone-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                <input
+                  type="text"
+                  value={playbackSearchQuery}
+                  onChange={(e) => setPlaybackSearchQuery(e.target.value)}
+                  placeholder="Buscar por nome do estudante, e-mail ou aula..."
+                  className="w-full bg-black/50 border border-outline-variant/20 rounded-xl pl-9 pr-8 py-2 text-xs text-white outline-none focus:border-[#e9c349]"
+                />
+                {playbackSearchQuery && (
+                  <button
+                    onClick={() => setPlaybackSearchQuery('')}
+                    aria-label="Limpar busca"
+                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-stone-400 hover:text-white cursor-pointer"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                )}
+              </div>
+
+              <div className="flex flex-wrap items-center gap-3 text-xs">
+                <span className="text-stone-400 font-mono tabular-nums">
+                  {filteredStudentLessonSummaries.length} combinações aluno/aula · {scopedPlaybackLogs.length} eventos Play
+                </span>
+                <div className="flex items-center gap-1.5">
+                  <span className="text-[11px] text-stone-400 uppercase font-mono">Ordenar:</span>
+                  <div className="flex bg-black/50 p-1 rounded-xl border border-outline-variant/20">
+                    <button
+                      onClick={() => setPlaybackSortBy('recent')}
+                      className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition-colors cursor-pointer ${
+                        playbackSortBy === 'recent' ? 'bg-[#e9c349] text-black' : 'text-stone-400 hover:text-white'
+                      }`}
+                    >
+                      Mais Recentes
+                    </button>
+                    <button
+                      onClick={() => setPlaybackSortBy('count')}
+                      className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition-colors cursor-pointer ${
+                        playbackSortBy === 'count' ? 'bg-[#e9c349] text-black' : 'text-stone-400 hover:text-white'
+                      }`}
+                    >
+                      Mais Reproduções
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Table Content */}
+            {playbackLogsLoading && loading ? (
+              <div className="divide-y divide-outline-variant/10">
+                {[1, 2, 3, 4].map((row) => (
+                  <div key={row} className="px-6 py-4 flex items-center justify-between gap-4">
+                    <div className="space-y-2 flex-1">
+                      <div className="h-3.5 w-44 bg-surface-container-high rounded animate-pulse" />
+                      <div className="h-2.5 w-64 bg-surface-container-high/60 rounded animate-pulse" />
+                    </div>
+                    <div className="h-3.5 w-24 bg-surface-container-high rounded animate-pulse" />
+                    <div className="h-3.5 w-28 bg-surface-container-high rounded animate-pulse" />
+                  </div>
+                ))}
+              </div>
+            ) : playbackTotalCount === 0 ? (
+              <div className="p-12 text-center">
+                <PlayCircle className="w-10 h-10 mx-auto mb-3 text-[#e9c349]/40" />
+                <p className="font-bold text-white text-sm">
+                  {playbackSearchQuery || selectedCourseId !== 'all' || timeFilter !== 'all'
+                    ? 'Nenhum registro de reprodução encontrado para os filtros aplicados'
+                    : 'Nenhuma reprodução registrada ainda'}
+                </p>
+                <p className="text-xs text-stone-400 mt-1 max-w-md mx-auto">
+                  Os registros aparecerão aqui em tempo real assim que os estudantes clicarem em Play para assistir às aulas.
+                </p>
+                {(playbackSearchQuery || selectedCourseId !== 'all' || timeFilter !== 'all') && (
+                  <button
+                    onClick={() => {
+                      setPlaybackSearchQuery('');
+                      setSelectedCourseId('all');
+                      setSelectedModuleId('all');
+                      setTimeFilter('all');
+                    }}
+                    className="mt-4 px-4 py-2 rounded-xl bg-surface-container-high hover:bg-surface-container-highest border border-outline-variant/20 text-xs font-bold text-white cursor-pointer"
+                  >
+                    Limpar filtros
+                  </button>
+                )}
+              </div>
+            ) : playbackViewMode === 'summary' ? (
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-sm">
+                  <thead className="bg-surface-container-highest/40 text-on-surface-variant font-label uppercase tracking-wider text-[11px] border-b border-outline-variant/10">
+                    <tr>
+                      <th className="px-6 py-3 font-semibold">Estudante</th>
+                      <th className="px-6 py-3 font-semibold">Aula & Curso</th>
+                      <th className="px-6 py-3 font-semibold">Registro de Reprodução</th>
+                      <th className="px-6 py-3 font-semibold text-right">Último Play</th>
+                      <th className="px-6 py-3 font-semibold text-right">Estado</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-outline-variant/10">
+                    {paginatedPlaybackSummaries.map((item) => (
+                      <tr
+                        key={item.key}
+                        onClick={() => {
+                          setSelectedLessonId(item.lessonId);
+                          setIsPerformanceModalOpen(true);
+                        }}
+                        className="hover:bg-surface-container-highest/30 transition-colors cursor-pointer"
+                      >
+                        <td className="px-6 py-3.5">
+                          <div className="font-semibold text-white text-xs sm:text-sm leading-snug">
+                            {item.studentName}
+                          </div>
+                          {item.studentEmail && (
+                            <div className="text-[11px] text-stone-400 font-mono truncate max-w-[220px]">
+                              {item.studentEmail}
+                            </div>
+                          )}
+                        </td>
+                        <td className="px-6 py-3.5">
+                          <div className="font-semibold text-stone-200 text-xs sm:text-sm leading-snug">
+                            {item.lessonTitle}
+                          </div>
+                          <div className="text-[11px] text-stone-400 mt-0.5">
+                            <span className="text-[#e9c349] font-medium">{item.courseTitle}</span>
+                            <span aria-hidden="true"> · </span>
+                            <span>{item.moduleTitle}</span>
+                          </div>
+                        </td>
+                        <td className="px-6 py-3.5">
+                          <div className="text-xs sm:text-sm text-stone-200">
+                            Reproduziu{' '}
+                            <span className="font-mono tabular-nums font-bold text-[#e9c349]">
+                              {formatPlaysPhrase(item.playCount)}
+                            </span>
+                          </div>
+                        </td>
+                        <td className="px-6 py-3.5 text-right font-mono tabular-nums text-xs text-stone-300 whitespace-nowrap">
+                          {formatPlaybackTimestamp(item.lastPlayedAtMs)}
+                        </td>
+                        <td className="px-6 py-3.5 text-right whitespace-nowrap">
+                          <span
+                            className={`text-xs font-semibold ${
+                              item.isCompleted ? 'text-emerald-400' : 'text-stone-400'
+                            }`}
+                          >
+                            {item.isCompleted ? 'Concluída' : 'Em andamento'}
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-sm">
+                  <thead className="bg-surface-container-highest/40 text-on-surface-variant font-label uppercase tracking-wider text-[11px] border-b border-outline-variant/10">
+                    <tr>
+                      <th className="px-6 py-3 font-semibold">Evento de Reprodução</th>
+                      <th className="px-6 py-3 font-semibold">Curso & Módulo</th>
+                      <th className="px-6 py-3 font-semibold text-right">Sequência</th>
+                      <th className="px-6 py-3 font-semibold text-right">Data e Hora</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-outline-variant/10">
+                    {paginatedPlaybackTimeline.map((log) => (
+                      <tr
+                        key={log.id}
+                        onClick={() => {
+                          setSelectedLessonId(log.lessonId);
+                          setIsPerformanceModalOpen(true);
+                        }}
+                        className="hover:bg-surface-container-highest/30 transition-colors cursor-pointer"
+                      >
+                        <td className="px-6 py-3.5">
+                          <div className="text-xs sm:text-sm text-stone-200 leading-snug">
+                            <span className="font-bold text-white">{log.studentName}</span>{' '}
+                            reproduziu a aula{' '}
+                            <span className="font-semibold text-[#e9c349]">{log.lessonTitle}</span>
+                          </div>
+                          {log.studentEmail && (
+                            <div className="text-[11px] text-stone-400 font-mono mt-0.5">
+                              {log.studentEmail}
+                            </div>
+                          )}
+                        </td>
+                        <td className="px-6 py-3.5 text-xs text-stone-400">
+                          <span className="text-stone-200 font-medium">{log.courseTitle}</span>
+                          <span aria-hidden="true"> · </span>
+                          <span>{log.moduleTitle}</span>
+                        </td>
+                        <td className="px-6 py-3.5 text-right font-mono tabular-nums text-xs font-bold text-[#e9c349] whitespace-nowrap">
+                          {log.playNumber}ª vez
+                        </td>
+                        <td className="px-6 py-3.5 text-right font-mono tabular-nums text-xs text-stone-300 whitespace-nowrap">
+                          {formatPlaybackTimestamp(log.createdAtMs)}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+
+            {/* Playback Section Footer / Pagination */}
+            {playbackTotalCount > 0 && (
+              <div className="px-6 py-3.5 bg-surface-container-high/20 border-t border-outline-variant/10 flex flex-col sm:flex-row items-center justify-between gap-3">
+                <span className="text-xs text-stone-400 font-mono tabular-nums">
+                  Mostrando {Math.min(playbackTotalCount, (playbackPage - 1) * playbackItemsPerPage + 1)}-
+                  {Math.min(playbackTotalCount, playbackPage * playbackItemsPerPage)} de {playbackTotalCount} registros
+                </span>
+
+                {playbackTotalPages > 1 && (
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => setPlaybackPage((prev) => Math.max(1, prev - 1))}
+                      disabled={playbackPage === 1}
+                      className="p-1.5 rounded-lg bg-[#282828] border border-outline-variant/10 text-stone-400 hover:text-white disabled:opacity-40 transition-colors cursor-pointer"
+                    >
+                      <span className="material-symbols-outlined text-[18px]">chevron_left</span>
+                    </button>
+                    <span className="text-xs text-white font-bold font-mono tabular-nums">
+                      Pág. {playbackPage} de {playbackTotalPages}
+                    </span>
+                    <button
+                      onClick={() => setPlaybackPage((prev) => Math.min(playbackTotalPages, prev + 1))}
+                      disabled={playbackPage === playbackTotalPages}
+                      className="p-1.5 rounded-lg bg-[#282828] border border-outline-variant/10 text-stone-400 hover:text-white disabled:opacity-40 transition-colors cursor-pointer"
+                    >
+                      <span className="material-symbols-outlined text-[18px]">chevron_right</span>
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
+          </section>
 
           {/* Modal Quadro de Desempenho */}
           {isPerformanceModalOpen && (
@@ -756,36 +1475,140 @@ export default function Analytics() {
                     (() => {
                       const selectedLesson = lessonStats.find(s => s.id === selectedLessonId);
                       if (!selectedLesson) return null;
+
+                      const lessonStudentSummaries = allStudentLessonSummaries.filter(
+                        (item) => item.lessonId === selectedLesson.id
+                      );
+                      const lessonTimelineEvents = scopedPlaybackLogs.filter(
+                        (log) => log.lessonId === selectedLesson.id
+                      );
+
                       return (
-                        <div className="mb-6 bg-gradient-to-r from-[#e9c349]/10 via-surface-container to-surface-container border border-[#e9c349]/30 rounded-2xl p-6">
+                        <div className="mb-6 bg-surface-container border border-[#e9c349]/30 rounded-2xl p-6">
                           <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-4">
                             <div>
                               <span className="text-[10px] font-mono uppercase tracking-widest text-[#e9c349] font-bold">
-                                {selectedLesson.courseTitle} • {selectedLesson.moduleTitle}
+                                {selectedLesson.courseTitle} · {selectedLesson.moduleTitle}
                               </span>
                               <h4 className="text-xl font-extrabold text-white mt-1 flex items-center gap-2">
                                 <PlayCircle className="w-5 h-5 text-[#e9c349]" />
                                 {selectedLesson.title}
                               </h4>
                             </div>
-                            <span className="text-xs font-mono text-stone-300 bg-black/40 px-3 py-1 rounded-full border border-white/10 self-start md:self-auto">
-                              ⏱ Duração: {selectedLesson.duration}
+                            <span className="text-xs font-mono tabular-nums text-stone-300 self-start md:self-auto">
+                              Duração: {selectedLesson.duration}
                             </span>
                           </div>
 
                           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 pt-4 border-t border-white/10">
-                            <div className="bg-black/50 p-4 rounded-xl border border-white/5">
-                              <span className="text-[11px] text-stone-400 uppercase font-mono block">Visualizações (Clicks)</span>
-                              <span className="text-2xl font-black font-mono text-primary mt-1 block">{selectedLesson.views}</span>
+                            <div className="bg-black/40 p-4 rounded-xl border border-white/5">
+                              <span className="text-[11px] text-stone-400 uppercase font-mono block">Reproduções (Play)</span>
+                              <span className="text-2xl font-black font-mono tabular-nums text-primary mt-1 block">{selectedLesson.views}</span>
                             </div>
-                            <div className="bg-black/50 p-4 rounded-xl border border-white/5">
+                            <div className="bg-black/40 p-4 rounded-xl border border-white/5">
                               <span className="text-[11px] text-stone-400 uppercase font-mono block">Alunos com Conclusão</span>
-                              <span className="text-2xl font-black font-mono text-white mt-1 block">{selectedLesson.completions}</span>
+                              <span className="text-2xl font-black font-mono tabular-nums text-white mt-1 block">{selectedLesson.completions}</span>
                             </div>
-                            <div className="bg-black/50 p-4 rounded-xl border border-white/5">
+                            <div className="bg-black/40 p-4 rounded-xl border border-white/5">
                               <span className="text-[11px] text-stone-400 uppercase font-mono block">Taxa de Conclusão</span>
-                              <span className="text-2xl font-black font-mono text-emerald-400 mt-1 block">{selectedLesson.completionRate}%</span>
+                              <span className="text-2xl font-black font-mono tabular-nums text-emerald-400 mt-1 block">{selectedLesson.completionRate}%</span>
                             </div>
+                          </div>
+
+                          {/* Estudantes que Reproduziram esta Aula */}
+                          <div className="mt-5 pt-5 border-t border-white/10">
+                            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-3">
+                              <div>
+                                <h5 className="text-sm font-bold text-white flex items-center gap-2">
+                                  <UserCheck className="w-4 h-4 text-[#e9c349]" />
+                                  <span>Estudantes que Reproduziram esta Aula</span>
+                                </h5>
+                                <p className="text-[11px] text-stone-400 font-mono tabular-nums mt-0.5">
+                                  {lessonStudentSummaries.length} estudantes · {lessonTimelineEvents.length} registros cronológicos
+                                </p>
+                              </div>
+
+                              <div className="flex bg-black/60 p-1 rounded-xl border border-outline-variant/20 self-start sm:self-auto">
+                                <button
+                                  onClick={() => setModalLessonPlaybackMode('summary')}
+                                  className={`px-2.5 py-1 text-[11px] font-bold rounded-lg transition-colors cursor-pointer ${
+                                    modalLessonPlaybackMode === 'summary'
+                                      ? 'bg-[#e9c349] text-black'
+                                      : 'text-stone-400 hover:text-white'
+                                  }`}
+                                >
+                                  Por Estudante
+                                </button>
+                                <button
+                                  onClick={() => setModalLessonPlaybackMode('timeline')}
+                                  className={`px-2.5 py-1 text-[11px] font-bold rounded-lg transition-colors cursor-pointer ${
+                                    modalLessonPlaybackMode === 'timeline'
+                                      ? 'bg-[#e9c349] text-black'
+                                      : 'text-stone-400 hover:text-white'
+                                  }`}
+                                >
+                                  Linha do Tempo
+                                </button>
+                              </div>
+                            </div>
+
+                            {modalLessonPlaybackMode === 'summary' ? (
+                              lessonStudentSummaries.length === 0 ? (
+                                <p className="text-xs text-stone-400 py-3">
+                                  Nenhum estudante clicou em Play nesta aula até o momento.
+                                </p>
+                              ) : (
+                                <div className="max-h-56 overflow-y-auto rounded-xl border border-white/10 bg-black/40 divide-y divide-white/5">
+                                  {lessonStudentSummaries.map((student) => (
+                                    <div
+                                      key={student.key}
+                                      className="px-4 py-2.5 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs"
+                                    >
+                                      <div>
+                                        <span className="font-bold text-white">{student.studentName}</span>
+                                        {student.studentEmail && (
+                                          <span className="text-stone-400 font-mono ml-2">{student.studentEmail}</span>
+                                        )}
+                                      </div>
+                                      <div className="flex flex-wrap items-center gap-2 font-mono tabular-nums text-[11px]">
+                                        <span className="text-[#e9c349] font-bold">
+                                          Reproduziu {formatPlaysPhrase(student.playCount)}
+                                        </span>
+                                        <span className="text-stone-500" aria-hidden="true">·</span>
+                                        <span className="text-stone-300">
+                                          Último: {formatPlaybackTimestamp(student.lastPlayedAtMs)}
+                                        </span>
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+                              )
+                            ) : lessonTimelineEvents.length === 0 ? (
+                              <p className="text-xs text-stone-400 py-3">
+                                Nenhum evento cronológico registrado para esta aula no período selecionado.
+                              </p>
+                            ) : (
+                              <div className="max-h-56 overflow-y-auto rounded-xl border border-white/10 bg-black/40 divide-y divide-white/5">
+                                {lessonTimelineEvents.map((ev) => (
+                                  <div
+                                    key={ev.id}
+                                    className="px-4 py-2.5 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs"
+                                  >
+                                    <div>
+                                      <span className="font-bold text-white">{ev.studentName}</span>
+                                      {ev.studentEmail && (
+                                        <span className="text-stone-400 font-mono ml-2">{ev.studentEmail}</span>
+                                      )}
+                                    </div>
+                                    <div className="flex items-center gap-2 font-mono tabular-nums text-[11px]">
+                                      <span className="text-[#e9c349] font-bold">{ev.playNumber}ª reprodução</span>
+                                      <span className="text-stone-500" aria-hidden="true">·</span>
+                                      <span className="text-stone-300">{formatPlaybackTimestamp(ev.createdAtMs)}</span>
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
                           </div>
                         </div>
                       );
@@ -811,9 +1634,10 @@ export default function Analytics() {
                             <th className="p-3.5 font-semibold">Aula & Duração</th>
                             <th className="p-3.5 font-semibold">Módulo</th>
                             <th className="p-3.5 font-semibold">Curso Pertencente</th>
-                            <th className="p-3.5 font-semibold text-center">Visualizações (Clicks)</th>
+                            <th className="p-3.5 font-semibold text-center">Reproduções (Play)</th>
                             <th className="p-3.5 font-semibold text-center">Alunos Concluíram</th>
                             <th className="p-3.5 font-semibold text-center">Taxa (%)</th>
+                            <th className="p-3.5 font-semibold text-right">Estudantes</th>
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-outline-variant/5">
@@ -832,27 +1656,33 @@ export default function Analytics() {
                                   </div>
                                   <div>
                                     <span className="font-semibold text-white block leading-snug">{stat.title}</span>
-                                    <span className="text-[10px] font-mono text-stone-400">⏱ {stat.duration}</span>
+                                    <span className="text-[10px] font-mono tabular-nums text-stone-400">{stat.duration}</span>
                                   </div>
                                 </div>
                               </td>
                               <td className="p-3.5 text-xs text-stone-300">{stat.moduleTitle}</td>
                               <td className="p-3.5 text-xs">
-                                <span className="font-semibold text-[#e9c349] bg-[#e9c349]/10 px-2 py-0.5 rounded border border-[#e9c349]/20">
+                                <span className="font-semibold text-[#e9c349]">
                                   {stat.courseTitle}
                                 </span>
                               </td>
-                              <td className="p-3.5 text-center font-bold font-mono text-primary">{stat.views}</td>
-                              <td className="p-3.5 text-center font-bold font-mono text-white">{stat.completions}</td>
+                              <td className="p-3.5 text-center font-bold font-mono tabular-nums text-primary">{stat.views}</td>
+                              <td className="p-3.5 text-center font-bold font-mono tabular-nums text-white">{stat.completions}</td>
                               <td className="p-3.5 text-center">
-                                <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-bold font-mono ${
+                                <span className={`font-bold font-mono tabular-nums text-xs ${
                                   stat.completionRate >= 50 
-                                    ? 'bg-secondary/15 text-secondary border border-secondary/30' 
+                                    ? 'text-secondary' 
                                     : stat.completionRate > 0 
-                                    ? 'bg-yellow-500/15 text-yellow-400 border border-yellow-500/30'
-                                    : 'bg-stone-800 text-stone-400'
+                                    ? 'text-yellow-400' 
+                                    : 'text-stone-400'
                                 }`}>
                                   {stat.completionRate}%
+                                </span>
+                              </td>
+                              <td className="p-3.5 text-right">
+                                <span className="text-[11px] font-semibold text-[#e9c349] inline-flex items-center gap-1 whitespace-nowrap">
+                                  Ver alunos
+                                  <ChevronRight className="w-3.5 h-3.5" />
                                 </span>
                               </td>
                             </tr>

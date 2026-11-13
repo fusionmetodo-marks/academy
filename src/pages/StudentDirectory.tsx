@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { collection, onSnapshot, updateDoc, doc, deleteDoc, getDocs, getDoc, arrayUnion, arrayRemove, query, where, addDoc, serverTimestamp } from 'firebase/firestore';
+import { onAuthStateChanged } from 'firebase/auth';
 import { db, adminCreateStudentAccount, auth } from '../firebase';
 import Sidebar from '../components/Sidebar';
 import { ProducerContractModal } from '../components/ProducerContractModal';
@@ -70,36 +71,68 @@ export const getDisplayFullName = (u: any): string => {
   return 'Estudante';
 };
 
+export const parseTimestampValue = (val: any): number => {
+  if (!val) return 0;
+  if (typeof val.toMillis === 'function') return val.toMillis();
+  if (typeof val.toDate === 'function') return val.toDate().getTime();
+  if (typeof val === 'object' && typeof val.seconds === 'number') {
+    return val.seconds * 1000 + (typeof val.nanoseconds === 'number' ? Math.floor(val.nanoseconds / 1e6) : 0);
+  }
+  if (typeof val === 'number') return val;
+  if (typeof val === 'string') {
+    const parsed = new Date(val).getTime();
+    if (!isNaN(parsed) && parsed > 0) return parsed;
+  }
+  return 0;
+};
+
 export const getUserRegistrationTime = (u: any): number => {
   if (!u) return 0;
 
-  if (u.createdAt) {
-    if (typeof u.createdAt.toMillis === 'function') return u.createdAt.toMillis();
-    if (typeof u.createdAt.toDate === 'function') return u.createdAt.toDate().getTime();
-    if (typeof u.createdAt === 'number') return u.createdAt;
-    if (typeof u.createdAt === 'string') {
-      const parsed = new Date(u.createdAt).getTime();
-      if (!isNaN(parsed) && parsed > 0) return parsed;
-    }
+  // Priorizar estritamente os campos de cadastro inicial
+  for (const field of ['createdAt', 'registeredAt', 'joinedAt', 'timestamp']) {
+    const parsed = parseTimestampValue(u[field]);
+    if (parsed > 0) return parsed;
   }
 
-  for (const field of ['registeredAt', 'joinedAt', 'approvedAt', 'updatedAt', 'timestamp']) {
-    if (u[field]) {
-      if (typeof u[field].toMillis === 'function') return u[field].toMillis();
-      if (typeof u[field].toDate === 'function') return u[field].toDate().getTime();
-      if (typeof u[field] === 'number') return u[field];
-      if (typeof u[field] === 'string') {
-        const parsed = new Date(u[field]).getTime();
-        if (!isNaN(parsed) && parsed > 0) return parsed;
-      }
-    }
+  for (const field of ['approvedAt', 'updatedAt']) {
+    const parsed = parseTimestampValue(u[field]);
+    if (parsed > 0) return parsed;
   }
 
   return 0;
 };
 
-export const formatRegistrationDateTime = (u: any): string => {
-  const time = getUserRegistrationTime(u);
+export const getUserSubscriptionActivatedTime = (
+  u: any,
+  approvedTxTimeByUser: Record<string, number> = {}
+): number => {
+  if (!u) return 0;
+
+  const cleanEmail = (u.email || '').trim().toLowerCase();
+  const txTime = Math.max(
+    approvedTxTimeByUser[u.id] || 0,
+    approvedTxTimeByUser[u.uid] || 0,
+    cleanEmail ? approvedTxTimeByUser[`email:${cleanEmail}`] || 0 : 0
+  );
+
+  const bestExplicit = Math.max(
+    parseTimestampValue(u.subscriptionActivatedAt),
+    parseTimestampValue(u.activatedAt),
+    parseTimestampValue(u.lastCourseGrantedAt),
+    parseTimestampValue(u.approvedAt),
+    txTime
+  );
+
+  if (bestExplicit > 0) return bestExplicit;
+
+  const updatedFallback = parseTimestampValue(u.updatedAt);
+  if (updatedFallback > 0) return updatedFallback;
+
+  return getUserRegistrationTime(u);
+};
+
+export const formatTimestampDateTime = (time: number): string => {
   if (!time || time <= 0) return 'Data não informada';
   try {
     return new Intl.DateTimeFormat('pt-PT', {
@@ -114,8 +147,13 @@ export const formatRegistrationDateTime = (u: any): string => {
   }
 };
 
+export const formatRegistrationDateTime = (u: any): string => {
+  return formatTimestampDateTime(getUserRegistrationTime(u));
+};
+
 export default function StudentDirectory() {
   const [users, setUsers] = useState<any[]>([]);
+  const [approvedTxTimeByUser, setApprovedTxTimeByUser] = useState<Record<string, number>>({});
   const [availableCourses, setAvailableCourses] = useState<CourseOption[]>([]);
   const [currentUserProfile, setCurrentUserProfile] = useState<any>(null);
   const [loading, setLoading] = useState(true);
@@ -316,6 +354,49 @@ export default function StudentDirectory() {
     return () => unsub();
   }, []);
 
+  // Escutar Transações Aprovadas para reconstruir a data exata da última confirmação de assinatura
+  useEffect(() => {
+    let unsubTx = () => {};
+
+    const unsubAuth = onAuthStateChanged(auth, (user) => {
+      unsubTx();
+      if (!user) {
+        setApprovedTxTimeByUser({});
+        return;
+      }
+
+      const approvedTxQuery = query(collection(db, 'transactions'), where('status', '==', 'approved'));
+      unsubTx = onSnapshot(approvedTxQuery, (snapshot) => {
+        const timeMap: Record<string, number> = {};
+        snapshot.forEach((docSnap) => {
+          const d = docSnap.data();
+          const txTime =
+            parseTimestampValue(d.approvedAt) ||
+            parseTimestampValue(d.updatedAt) ||
+            parseTimestampValue(d.createdAt);
+          if (txTime <= 0) return;
+
+          if (d.userId && !String(d.userId).startsWith('guest_')) {
+            timeMap[d.userId] = Math.max(timeMap[d.userId] || 0, txTime);
+          }
+          const txEmail = (d.userEmail || d.studentEmail || d.email || '').trim().toLowerCase();
+          if (txEmail) {
+            const emailKey = `email:${txEmail}`;
+            timeMap[emailKey] = Math.max(timeMap[emailKey] || 0, txTime);
+          }
+        });
+        setApprovedTxTimeByUser(timeMap);
+      }, (err) => {
+        console.warn("Aviso ao escutar histórico de transações aprovadas:", err);
+      });
+    });
+
+    return () => {
+      unsubAuth();
+      unsubTx();
+    };
+  }, []);
+
   // Gerar senha aleatória segura para o aluno
   const generateRandomPassword = () => {
     const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789!@#$%';
@@ -439,7 +520,10 @@ export default function StudentDirectory() {
   const toggleStatus = async (userId: string, currentStatus: string) => {
     const newStatus = currentStatus === 'active' ? 'inactive' : 'active';
     try {
-      await updateDoc(doc(db, 'users', userId), { subscriptionStatus: newStatus });
+      await updateDoc(doc(db, 'users', userId), {
+        subscriptionStatus: newStatus,
+        ...(newStatus === 'active' ? { subscriptionActivatedAt: serverTimestamp() } : {})
+      });
       showNotification(`Status alterado para ${newStatus === 'active' ? 'Ativo' : 'Inativo'}.`);
     } catch (error) {
       console.error("Erro ao alterar status:", error);
@@ -464,10 +548,14 @@ export default function StudentDirectory() {
         : [];
       const newlyAddedCourses = studentEnrolledCourses.filter(c => !previouslyEnrolled.includes(c));
       const removedCourses = previouslyEnrolled.filter(c => !studentEnrolledCourses.includes(c));
+      const shouldStampActivation =
+        newlyAddedCourses.length > 0 ||
+        (hasEnrolled && selectedStudentForCourses.subscriptionStatus !== 'active');
 
       await updateDoc(doc(db, 'users', selectedStudentForCourses.id), {
         enrolledCourses: studentEnrolledCourses,
-        subscriptionStatus: hasEnrolled ? 'active' : 'inactive'
+        subscriptionStatus: hasEnrolled ? 'active' : 'inactive',
+        ...(shouldStampActivation ? { subscriptionActivatedAt: serverTimestamp() } : {})
       });
 
       // Se cursos foram desmarcados/removidos, revoga transações ativas aprovadas associadas
@@ -530,7 +618,8 @@ export default function StudentDirectory() {
           if (docSnap.id !== selectedStudentForCourses.id) {
             await updateDoc(doc(db, 'users', docSnap.id), {
               enrolledCourses: studentEnrolledCourses,
-              subscriptionStatus: hasEnrolled ? 'active' : 'inactive'
+              subscriptionStatus: hasEnrolled ? 'active' : 'inactive',
+              ...(shouldStampActivation ? { subscriptionActivatedAt: serverTimestamp() } : {})
             });
           }
         }
@@ -667,37 +756,69 @@ export default function StudentDirectory() {
     return true;
   });
 
-  // Ordenação garantida: Administrador Master SEMPRE no topo, seguido pela ordem selecionada
+  // Ordenação contextual por segmento:
+  // - Em 'Assinaturas Ativas': Mais Recentes / Mais Antigos ordenam pela data da última confirmação ou liberação de curso.
+  // - Em 'Total de Estudantes' e demais visões: Mais Recentes / Mais Antigos ordenam pela data de cadastro na plataforma.
+  // - Em 'Ordem Alfabética (A - Z)': ordena sempre de A a Z pelo nome.
   const sortedFilteredUsers = useMemo(() => {
+    const isActiveSubscriptionsTab = roleFilter === 'active_students';
+    const shouldPinMaster = roleFilter === 'all' || roleFilter === 'producers';
+
     return [...filteredUsers].sort((a, b) => {
-      const cleanEmailA = (a.email || '').trim().toLowerCase();
-      const cleanEmailB = (b.email || '').trim().toLowerCase();
+      if (shouldPinMaster) {
+        const cleanEmailA = (a.email || '').trim().toLowerCase();
+        const cleanEmailB = (b.email || '').trim().toLowerCase();
 
-      const aIsMaster = isMasterEmail(cleanEmailA) || a.role === 'master_admin' || a.roleType === 'master_admin' || a.isMaster === true;
-      const bIsMaster = isMasterEmail(cleanEmailB) || b.role === 'master_admin' || b.roleType === 'master_admin' || b.isMaster === true;
+        const aIsMaster = isMasterEmail(cleanEmailA) || a.role === 'master_admin' || a.roleType === 'master_admin' || a.isMaster === true;
+        const bIsMaster = isMasterEmail(cleanEmailB) || b.role === 'master_admin' || b.roleType === 'master_admin' || b.isMaster === true;
 
-      if (aIsMaster && !bIsMaster) return -1;
-      if (!aIsMaster && bIsMaster) return 1;
+        if (aIsMaster && !bIsMaster) return -1;
+        if (!aIsMaster && bIsMaster) return 1;
+      }
 
-      const timeA = getUserRegistrationTime(a);
-      const timeB = getUserRegistrationTime(b);
+      if (sortOrder === 'alphabetical') {
+        const nameA = getDisplayFullName(a).toLowerCase();
+        const nameB = getDisplayFullName(b).toLowerCase();
+        return nameA.localeCompare(nameB, 'pt', { sensitivity: 'base' });
+      }
 
+      const regTimeA = getUserRegistrationTime(a);
+      const regTimeB = getUserRegistrationTime(b);
+
+      if (isActiveSubscriptionsTab) {
+        const subTimeA = getUserSubscriptionActivatedTime(a, approvedTxTimeByUser);
+        const subTimeB = getUserSubscriptionActivatedTime(b, approvedTxTimeByUser);
+
+        if (sortOrder === 'newest') {
+          if (subTimeA !== subTimeB) return subTimeB - subTimeA;
+          if (regTimeA !== regTimeB) return regTimeB - regTimeA;
+          return getDisplayFullName(a).localeCompare(getDisplayFullName(b), 'pt', { sensitivity: 'base' });
+        }
+
+        // Mais Antigos em Assinaturas Ativas (com data válida no topo, sem data ao final)
+        const effA = subTimeA > 0 ? subTimeA : Number.MAX_SAFE_INTEGER;
+        const effB = subTimeB > 0 ? subTimeB : Number.MAX_SAFE_INTEGER;
+        if (effA !== effB) return effA - effB;
+
+        const effRegA = regTimeA > 0 ? regTimeA : Number.MAX_SAFE_INTEGER;
+        const effRegB = regTimeB > 0 ? regTimeB : Number.MAX_SAFE_INTEGER;
+        if (effRegA !== effRegB) return effRegA - effRegB;
+        return getDisplayFullName(a).localeCompare(getDisplayFullName(b), 'pt', { sensitivity: 'base' });
+      }
+
+      // Todos os Estudantes / Base Geral: estritamente por tempo de cadastro
       if (sortOrder === 'newest') {
-        if (timeA !== timeB) return timeB - timeA;
+        if (regTimeA !== regTimeB) return regTimeB - regTimeA;
         return getDisplayFullName(a).localeCompare(getDisplayFullName(b), 'pt', { sensitivity: 'base' });
       }
 
-      if (sortOrder === 'oldest') {
-        if (timeA !== timeB) return timeA - timeB;
-        return getDisplayFullName(a).localeCompare(getDisplayFullName(b), 'pt', { sensitivity: 'base' });
-      }
-
-      // Ordem Alfabética (A-Z)
-      const nameA = getDisplayFullName(a).toLowerCase();
-      const nameB = getDisplayFullName(b).toLowerCase();
-      return nameA.localeCompare(nameB, 'pt', { sensitivity: 'base' });
+      // Mais Antigos por cadastro (primeiros cadastrados no topo, mais recentes e sem data no final)
+      const effRegA = regTimeA > 0 ? regTimeA : Number.MAX_SAFE_INTEGER;
+      const effRegB = regTimeB > 0 ? regTimeB : Number.MAX_SAFE_INTEGER;
+      if (effRegA !== effRegB) return effRegA - effRegB;
+      return getDisplayFullName(a).localeCompare(getDisplayFullName(b), 'pt', { sensitivity: 'base' });
     });
-  }, [filteredUsers, sortOrder]);
+  }, [filteredUsers, sortOrder, roleFilter, approvedTxTimeByUser]);
 
   // Paginação: Máximo de 50 estudantes por página
   const totalPages = Math.ceil(sortedFilteredUsers.length / ITEMS_PER_PAGE) || 1;
@@ -930,9 +1051,18 @@ export default function StudentDirectory() {
                   <option value="oldest">Mais Antigos</option>
                   <option value="alphabetical">Ordem Alfabética (A - Z)</option>
                 </select>
+                <span className={`text-[10px] font-mono hidden sm:inline ${
+                  roleFilter === 'active_students' && sortOrder !== 'alphabetical' ? 'text-emerald-400' : 'text-gray-500'
+                }`}>
+                  · {sortOrder === 'alphabetical'
+                    ? 'A - Z'
+                    : roleFilter === 'active_students'
+                    ? 'por confirmação'
+                    : 'por cadastro'}
+                </span>
               </div>
 
-              <span className="text-xs text-gray-400 font-mono">
+              <span className="text-xs text-gray-400 font-mono tabular-nums">
                 Mostrando {paginatedUsers.length} de {sortedFilteredUsers.length} usuários
               </span>
             </div>
@@ -981,7 +1111,14 @@ export default function StudentDirectory() {
                             )}
                           </div>
                           <p className="text-xs text-gray-400 font-mono truncate">{maskEmail(userItem.email, isMasterUser)}</p>
-                          <p className="text-[10px] text-gray-500 font-mono truncate mt-0.5">Cadastrado em: {formatRegistrationDateTime(userItem)}</p>
+                          <p className="text-[10px] text-gray-500 font-mono tabular-nums truncate mt-0.5">
+                            Cadastrado em: {formatRegistrationDateTime(userItem)}
+                          </p>
+                          {roleFilter === 'active_students' && (
+                            <p className="text-[10px] text-emerald-400/90 font-mono tabular-nums truncate mt-0.5">
+                              Assinatura confirmada em: {formatTimestampDateTime(getUserSubscriptionActivatedTime(userItem, approvedTxTimeByUser))}
+                            </p>
+                          )}
                         </div>
                       </div>
 
@@ -1260,7 +1397,14 @@ export default function StudentDirectory() {
                                   )}
                                 </div>
                                 <span className="text-xs text-gray-400 font-mono block">{maskEmail(userItem.email, isMasterUser)}</span>
-                                <span className="text-[10px] text-gray-500 font-mono block mt-0.5">Cadastrado em: {formatRegistrationDateTime(userItem)}</span>
+                                <span className="text-[10px] text-gray-500 font-mono tabular-nums block mt-0.5">
+                                  Cadastrado em: {formatRegistrationDateTime(userItem)}
+                                </span>
+                                {roleFilter === 'active_students' && (
+                                  <span className="text-[10px] text-emerald-400/90 font-mono tabular-nums block mt-0.5">
+                                    Assinatura confirmada em: {formatTimestampDateTime(getUserSubscriptionActivatedTime(userItem, approvedTxTimeByUser))}
+                                  </span>
+                                )}
                               </div>
                             </div>
                           </td>

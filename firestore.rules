@@ -112,5 +112,35 @@ service cloud.firestore {
         isSignedIn() && 'targetUserId' in resource.data && resource.data.targetUserId == request.auth.uid
       );
     }
+
+    // 7. Registros Cronológicos de Reprodução de Aulas:
+    // Alunos só podem gravar registros vinculados ao próprio UID; leitura global restrita a Admin / Produtor.
+    function isValidPlaybackId(id) {
+      return id is string && id.size() > 0 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function isValidLessonPlayback(data) {
+      return data.keys().hasAll(['userId', 'studentName', 'studentEmail', 'courseId', 'lessonId', 'lessonTitle', 'playNumber', 'createdAtMs']) &&
+        data.keys().hasOnly(['userId', 'studentName', 'studentEmail', 'courseId', 'courseTitle', 'moduleId', 'moduleTitle', 'lessonId', 'lessonTitle', 'playNumber', 'createdAtMs', 'playedAt']) &&
+        data.userId is string && data.userId == request.auth.uid && data.userId.size() <= 128 &&
+        data.studentName is string && data.studentName.size() <= 200 &&
+        data.studentEmail is string && data.studentEmail.size() <= 200 &&
+        data.courseId is string && data.courseId.size() > 0 && data.courseId.size() <= 128 &&
+        (!('courseTitle' in data) || (data.courseTitle is string && data.courseTitle.size() <= 250)) &&
+        (!('moduleId' in data) || (data.moduleId is string && data.moduleId.size() <= 128)) &&
+        (!('moduleTitle' in data) || (data.moduleTitle is string && data.moduleTitle.size() <= 250)) &&
+        data.lessonId is string && data.lessonId.size() > 0 && data.lessonId.size() <= 128 &&
+        data.lessonTitle is string && data.lessonTitle.size() <= 250 &&
+        data.playNumber is number && data.playNumber >= 1 && data.playNumber <= 100000 &&
+        data.createdAtMs is number && data.createdAtMs > 0 &&
+        (!('playedAt' in data) || data.playedAt == request.time);
+    }
+
+    match /lessonPlaybacks/{playbackId} {
+      allow get: if isValidPlaybackId(playbackId) && (isAdmin() || (isSignedIn() && resource.data.userId == request.auth.uid));
+      allow list: if isAdmin() || (isSignedIn() && resource.data.userId == request.auth.uid);
+      allow create: if isValidPlaybackId(playbackId) && isSignedIn() && isValidLessonPlayback(request.resource.data);
+      allow update, delete: if isValidPlaybackId(playbackId) && isAdmin();
+    }
   }
 }

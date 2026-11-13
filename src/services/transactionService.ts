@@ -1,4 +1,4 @@
-import { doc, writeBatch, arrayUnion } from 'firebase/firestore';
+import { doc, writeBatch, arrayUnion, serverTimestamp } from 'firebase/firestore';
 import { db } from '../firebase';
 
 /**
@@ -18,14 +18,18 @@ export const handleApproveTransaction = async (
 
     // 1. Muda o status da transação para aprovado
     const transactionRef = doc(db, 'transactions', transactionId);
-    batch.update(transactionRef, { status: 'approved' });
+    batch.update(transactionRef, {
+      status: 'approved',
+      approvedAt: serverTimestamp()
+    });
 
     // 2. Destranca o curso inserindo o ID na lista do aluno
     if (userId && !userId.startsWith('guest_')) {
       const userRef = doc(db, 'users', userId);
       batch.update(userRef, { 
         enrolledCourses: arrayUnion(courseId),
-        subscriptionStatus: 'active'
+        subscriptionStatus: 'active',
+        subscriptionActivatedAt: serverTimestamp()
       });
     }
 

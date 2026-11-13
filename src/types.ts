@@ -116,6 +116,7 @@ export interface UserProfile {
   plan?: string;
   phone?: string;
   registeredAt?: string;
+  subscriptionActivatedAt?: any;
   // Campos específicos de Produtor e Contrato Digital
   producerPlan?: 'monthly' | 'quarterly' | 'semiannual' | 'none'; // 'monthly' ou 'semiannual'
   producerPlanStatus?: 'active' | 'pending' | 'expired';
@@ -145,3 +146,38 @@ export interface RegisteredDevice {
   lastLoginAt: string;
   ipHint?: string;
 }
+
+export interface LessonPlaybackLog {
+  id: string;
+  userId: string;
+  studentName: string;
+  studentEmail: string;
+  courseId: string;
+  courseTitle?: string;
+  moduleId?: string;
+  moduleTitle?: string;
+  lessonId: string;
+  lessonTitle: string;
+  playNumber: number;
+  createdAtMs: number;
+  playedAt?: any;
+}
+
+export interface StudentLessonPlaybackSummary {
+  key: string;
+  userId: string;
+  studentName: string;
+  studentEmail: string;
+  courseId: string;
+  courseTitle: string;
+  moduleId: string;
+  moduleTitle: string;
+  lessonId: string;
+  lessonTitle: string;
+  playCount: number;
+  lastPlayedAtMs: number;
+  firstPlayedAtMs: number;
+  isCompleted: boolean;
+  isLegacyOnly?: boolean;
+}
+

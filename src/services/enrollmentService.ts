@@ -1,4 +1,4 @@
-import { doc, onSnapshot, collection, query, where, updateDoc, arrayUnion, arrayRemove, setDoc, getDocs } from 'firebase/firestore';
+import { doc, onSnapshot, collection, query, where, updateDoc, arrayUnion, arrayRemove, setDoc, getDocs, serverTimestamp } from 'firebase/firestore';
 import { db } from '../firebase';
 
 export interface UserEnrollmentData {
@@ -107,7 +107,8 @@ export async function addCourseToUser(userId: string, userEmail: string | null, 
       const uRef = doc(db, 'users', userId);
       await setDoc(uRef, {
         enrolledCourses: arrayUnion(courseId),
-        subscriptionStatus: 'active'
+        subscriptionStatus: 'active',
+        subscriptionActivatedAt: serverTimestamp()
       }, { merge: true });
     }
 
@@ -119,7 +120,8 @@ export async function addCourseToUser(userId: string, userEmail: string | null, 
         if (docSnap.id !== userId) {
           await updateDoc(doc(db, 'users', docSnap.id), {
             enrolledCourses: arrayUnion(courseId),
-            subscriptionStatus: 'active'
+            subscriptionStatus: 'active',
+            subscriptionActivatedAt: serverTimestamp()
           });
         }
       }

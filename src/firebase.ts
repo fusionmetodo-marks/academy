@@ -101,6 +101,7 @@ export const adminCreateStudentAccount = async (
       plan: hasCourses ? (studentData.plan || 'Estudante Matriculado') : 'Estudante Cadastrado (Sem Curso)',
       profileCompleted: true,
       createdAt: serverTimestamp(),
+      ...(hasCourses ? { subscriptionActivatedAt: serverTimestamp() } : {}),
       createdBy: auth.currentUser?.email || 'admin'
     });
 
@@ -142,7 +143,8 @@ export const approveStudentTransaction = async (
         if (userSnap.exists()) {
           await updateDoc(userRef, {
             enrolledCourses: arrayUnion(targetCourseId),
-            subscriptionStatus: 'active'
+            subscriptionStatus: 'active',
+            subscriptionActivatedAt: serverTimestamp()
           });
         } else {
           console.warn(`User document ${userId} not found, skipping course enrollment.`);
@@ -159,7 +161,8 @@ export const approveStudentTransaction = async (
           const foundDoc = snap.docs[0];
           await updateDoc(doc(db, 'users', foundDoc.id), {
             enrolledCourses: arrayUnion(targetCourseId),
-            subscriptionStatus: 'active'
+            subscriptionStatus: 'active',
+            subscriptionActivatedAt: serverTimestamp()
           });
         }
       } catch (userErr) {
