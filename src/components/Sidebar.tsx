@@ -103,12 +103,13 @@ export default function Sidebar() {
 
   const toggleStudentView = () => {
     const current = localStorage.getItem('viewAsStudent') === 'true';
-    localStorage.setItem('viewAsStudent', String(!current));
+    const nextState = !current;
+    localStorage.setItem('viewAsStudent', String(nextState));
     window.dispatchEvent(new Event('student-view-changed'));
-    if (!current) {
-      navigate('/library');
+    if (nextState) {
+      window.location.href = '/library';
     } else {
-      navigate('/dashboard');
+      window.location.href = '/dashboard';
     }
   };
 

@@ -27,6 +27,7 @@ export interface Transaction {
   id: string;
   userId: string;
   userEmail?: string;
+  userPhone?: string;
   userName: string;
   courseId: string;
   courseTitle: string;

@@ -22,6 +22,9 @@ export interface ChatLessonContext {
   courseId?: string;
   courseTitle?: string;
   lessonTitle?: string;
+  paymentPending?: boolean;
+  paymentAmount?: string;
+  paymentMethod?: string;
 }
 
 interface StudentChatViewProps {
@@ -80,9 +83,24 @@ export default function StudentChatView({
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [activeContext, setActiveContext] = useState<ChatLessonContext | null>(initialContext);
   const listEndRef = useRef<HTMLDivElement>(null);
+  const prefilledPaymentRef = useRef<string | null>(null);
 
   useEffect(() => {
     setActiveContext(initialContext || null);
+    if (initialContext?.paymentPending && initialContext.courseTitle) {
+      const key = `${initialContext.courseId || ''}|${initialContext.courseTitle}|${initialContext.paymentAmount || ''}`;
+      if (prefilledPaymentRef.current !== key) {
+        prefilledPaymentRef.current = key;
+        setDraft((prev) => {
+          if (prev.trim()) return prev;
+          const amountPart = initialContext.paymentAmount && initialContext.paymentAmount !== 'A confirmar'
+            ? ` (${initialContext.paymentAmount})`
+            : '';
+          const methodPart = initialContext.paymentMethod ? ` via ${initialContext.paymentMethod}` : '';
+          return `Olá Administrador! Acabei de realizar o pagamento do curso "${initialContext.courseTitle}"${amountPart}${methodPart} e gostaria de entrar em comunicação para validar o meu acesso.`;
+        });
+      }
+    }
   }, [initialContext]);
 
   useEffect(() => {
@@ -293,16 +311,20 @@ export default function StudentChatView({
         <div ref={listEndRef} />
       </div>
 
-      {/* Referência de Aula (quando aberto a partir de comentário em aula) */}
-      {activeContext?.lessonTitle && (
+      {/* Referência de Aula ou Pagamento */}
+      {(activeContext?.lessonTitle || activeContext?.courseTitle) && (
         <div className="px-4 py-2 bg-[#161616] border-t border-white/10 flex items-center justify-between gap-2 text-[11px] text-stone-300 shrink-0">
           <div className="flex items-center gap-2 min-w-0">
             <BookOpen className="w-3.5 h-3.5 text-[#e9c349] shrink-0" />
             <span className="truncate">
-              Referência:{' '}
+              {activeContext.paymentPending ? 'Pagamento / Validação: ' : 'Referência: '}
               <strong className="text-white">
-                {activeContext.courseTitle ? `${activeContext.courseTitle} — ` : ''}
-                {activeContext.lessonTitle}
+                {activeContext.courseTitle ? activeContext.courseTitle : ''}
+                {activeContext.courseTitle && activeContext.lessonTitle ? ' — ' : ''}
+                {activeContext.lessonTitle || ''}
+                {activeContext.paymentPending && activeContext.paymentAmount && activeContext.paymentAmount !== 'A confirmar'
+                  ? ` (${activeContext.paymentAmount})`
+                  : ''}
               </strong>
             </span>
           </div>
@@ -312,7 +334,7 @@ export default function StudentChatView({
               setActiveContext(null);
               onClearContext?.();
             }}
-            aria-label="Remover referência da aula"
+            aria-label="Remover referência"
             className="text-stone-400 hover:text-white p-1 cursor-pointer shrink-0"
           >
             <X className="w-3.5 h-3.5" />

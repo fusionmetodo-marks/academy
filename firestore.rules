@@ -184,16 +184,50 @@ service cloud.firestore {
     }
 
     // 8. Chat Privado 1-para-1 (Estudante <-> Administrador):
-    // Cada estudante tem um canal único indexado pelo seu UID (/chats/{studentId}).
-    // Leitura e escrita estritamente isoladas ao próprio estudante ou à administração.
+    // Suporta alunos cadastrados (/chats/{uid}) e contatos pré-cadastro (/chats/pre_...) com vinculação automática por e-mail ou telefone.
     function isValidDocId(id) {
       return id is string && id.size() > 0 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function isChatOwnerByContact(chatData) {
+      return (
+        ('linkedUserId' in chatData && chatData.linkedUserId == request.auth.uid) ||
+        ('studentEmail' in chatData &&
+         chatData.studentEmail is string &&
+         chatData.studentEmail.size() > 0 &&
+         'email' in request.auth.token &&
+         request.auth.token.email != null &&
+         chatData.studentEmail == request.auth.token.email.lower()) ||
+        ('normalizedPhone' in chatData &&
+         chatData.normalizedPhone is string &&
+         chatData.normalizedPhone.size() >= 6 &&
+         exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+         'normalizedPhone' in get(/databases/$(database)/documents/users/$(request.auth.uid)).data &&
+         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.normalizedPhone is string &&
+         chatData.normalizedPhone == get(/databases/$(database)/documents/users/$(request.auth.uid)).data.normalizedPhone)
+      );
+    }
+
+    function isValidChatClaim(data, claimId) {
+      return data.keys().hasAll(['chatId', 'matchKey', 'createdAtMs']) &&
+        data.keys().hasOnly(['chatId', 'matchKey', 'createdAtMs', 'updatedAt']) &&
+        data.chatId is string && data.chatId.size() > 0 && data.chatId.size() <= 128 && isValidDocId(data.chatId) &&
+        data.matchKey is string && data.matchKey == claimId && data.matchKey.size() <= 128 &&
+        data.createdAtMs is number && data.createdAtMs > 0;
+    }
+
+    match /chatClaims/{claimId} {
+      allow get: if isValidDocId(claimId) && isSignedIn();
+      allow list: if isAdmin();
+      allow create, update: if isValidDocId(claimId) && isAdmin() && isValidChatClaim(request.resource.data, claimId);
+      allow delete: if isValidDocId(claimId) && isAdmin();
     }
 
     function isValidChatThread(data, studentId) {
       return data.keys().hasAll(['studentId', 'studentName', 'lastMessage', 'lastSenderRole', 'lastSenderId', 'lastMessageAtMs', 'unreadByAdmin', 'unreadByStudent']) &&
         data.keys().hasOnly([
-          'studentId', 'studentName', 'studentEmail', 'studentPhone',
+          'studentId', 'studentName', 'studentEmail', 'studentPhone', 'normalizedPhone',
+          'isPreRegistered', 'linkedUserId', 'mergedIntoChatId', 'sourcePreChatId',
           'lastMessage', 'lastSenderRole', 'lastSenderId', 'lastMessageAtMs',
           'updatedAt', 'unreadByAdmin', 'unreadByStudent',
           'lastAdminBellAtMs', 'lastStudentBellAtMs'
@@ -202,6 +236,11 @@ service cloud.firestore {
         data.studentName is string && data.studentName.size() > 0 && data.studentName.size() <= 200 &&
         (!('studentEmail' in data) || data.studentEmail == null || (data.studentEmail is string && data.studentEmail.size() <= 200)) &&
         (!('studentPhone' in data) || data.studentPhone == null || (data.studentPhone is string && data.studentPhone.size() <= 64)) &&
+        (!('normalizedPhone' in data) || data.normalizedPhone == null || (data.normalizedPhone is string && data.normalizedPhone.size() <= 32)) &&
+        (!('isPreRegistered' in data) || data.isPreRegistered is bool) &&
+        (!('linkedUserId' in data) || data.linkedUserId == null || (data.linkedUserId is string && data.linkedUserId.size() <= 128)) &&
+        (!('mergedIntoChatId' in data) || data.mergedIntoChatId == null || (data.mergedIntoChatId is string && data.mergedIntoChatId.size() <= 128)) &&
+        (!('sourcePreChatId' in data) || data.sourcePreChatId == null || (data.sourcePreChatId is string && data.sourcePreChatId.size() <= 128 && isValidDocId(data.sourcePreChatId))) &&
         data.lastMessage is string && data.lastMessage.size() <= 2000 &&
         data.lastSenderRole in ['admin', 'student'] &&
         data.lastSenderId is string && data.lastSenderId.size() > 0 && data.lastSenderId.size() <= 128 &&
@@ -217,44 +256,84 @@ service cloud.firestore {
         data.keys().hasOnly([
           'chatId', 'senderId', 'senderName', 'senderRole', 'text',
           'contextLessonTitle', 'contextCourseTitle', 'contextCourseId',
-          'createdAtMs', 'createdAt'
+          'migratedFromChatId', 'createdAtMs', 'createdAt'
         ]) &&
         data.chatId is string && data.chatId == studentId && data.chatId.size() <= 128 &&
-        data.senderId is string && data.senderId == request.auth.uid && data.senderId.size() <= 128 &&
+        data.senderId is string && data.senderId.size() > 0 && data.senderId.size() <= 128 &&
         data.senderName is string && data.senderName.size() > 0 && data.senderName.size() <= 200 &&
         data.senderRole in ['admin', 'student'] &&
         data.text is string && data.text.size() > 0 && data.text.size() <= 2000 &&
         (!('contextLessonTitle' in data) || data.contextLessonTitle == null || (data.contextLessonTitle is string && data.contextLessonTitle.size() <= 250)) &&
         (!('contextCourseTitle' in data) || data.contextCourseTitle == null || (data.contextCourseTitle is string && data.contextCourseTitle.size() <= 250)) &&
         (!('contextCourseId' in data) || data.contextCourseId == null || (data.contextCourseId is string && data.contextCourseId.size() <= 128)) &&
+        (!('migratedFromChatId' in data) || data.migratedFromChatId == null || (data.migratedFromChatId is string && data.migratedFromChatId.size() <= 128 && isValidDocId(data.migratedFromChatId))) &&
         data.createdAtMs is number && data.createdAtMs > 0;
     }
 
+    function canStudentMigrateFrom(preChatId) {
+      return preChatId is string &&
+        isValidDocId(preChatId) &&
+        exists(/databases/$(database)/documents/chats/$(preChatId)) &&
+        isChatOwnerByContact(get(/databases/$(database)/documents/chats/$(preChatId)).data);
+    }
+
     match /chats/{studentId} {
-      allow get: if isValidDocId(studentId) && (isAdmin() || (isSignedIn() && request.auth.uid == studentId));
-      allow list: if isAdmin() || (isSignedIn() && resource.data.studentId == request.auth.uid);
+      allow get: if isValidDocId(studentId) && (
+        isAdmin() ||
+        (isSignedIn() && (request.auth.uid == studentId || isChatOwnerByContact(resource.data)))
+      );
+      allow list: if isAdmin() || (
+        isSignedIn() && (
+          resource.data.studentId == request.auth.uid ||
+          ('linkedUserId' in resource.data && resource.data.linkedUserId == request.auth.uid)
+        )
+      );
       allow create: if isValidDocId(studentId) && isSignedIn() && isValidChatThread(request.resource.data, studentId) && (
         isAdmin() ||
-        (request.auth.uid == studentId &&
-         request.resource.data.lastSenderId == request.auth.uid &&
-         request.resource.data.lastSenderRole == 'student')
+        (request.auth.uid == studentId && (
+          (request.resource.data.lastSenderId == request.auth.uid && request.resource.data.lastSenderRole == 'student') ||
+          ('sourcePreChatId' in request.resource.data && canStudentMigrateFrom(request.resource.data.sourcePreChatId))
+        ))
       );
       allow update: if isValidDocId(studentId) && isSignedIn() && isValidChatThread(request.resource.data, studentId) && (
         isAdmin() ||
         (request.auth.uid == studentId && (
           (request.resource.data.lastSenderId == request.auth.uid && request.resource.data.lastSenderRole == 'student') ||
           (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['unreadByStudent', 'updatedAt']) &&
-           request.resource.data.unreadByStudent == 0)
-        ))
+           request.resource.data.unreadByStudent == 0) ||
+          ('sourcePreChatId' in request.resource.data && canStudentMigrateFrom(request.resource.data.sourcePreChatId))
+        )) ||
+        (request.auth.uid != studentId &&
+         isChatOwnerByContact(resource.data) &&
+         request.resource.data.diff(resource.data).affectedKeys().hasOnly(['linkedUserId', 'isPreRegistered', 'mergedIntoChatId', 'unreadByAdmin', 'unreadByStudent', 'updatedAt']) &&
+         request.resource.data.linkedUserId == request.auth.uid &&
+         request.resource.data.mergedIntoChatId == request.auth.uid &&
+         request.resource.data.isPreRegistered == false)
       );
       allow delete: if isValidDocId(studentId) && isAdmin();
 
       match /messages/{messageId} {
-        allow get: if isValidDocId(studentId) && isValidDocId(messageId) && (isAdmin() || (isSignedIn() && request.auth.uid == studentId));
-        allow list: if isAdmin() || (isSignedIn() && request.auth.uid == studentId);
+        allow get: if isValidDocId(studentId) && isValidDocId(messageId) && (
+          isAdmin() ||
+          (isSignedIn() && (
+            request.auth.uid == studentId ||
+            (exists(/databases/$(database)/documents/chats/$(studentId)) &&
+             isChatOwnerByContact(get(/databases/$(database)/documents/chats/$(studentId)).data))
+          ))
+        );
+        allow list: if isAdmin() || (
+          isSignedIn() && (
+            request.auth.uid == studentId ||
+            (exists(/databases/$(database)/documents/chats/$(studentId)) &&
+             isChatOwnerByContact(get(/databases/$(database)/documents/chats/$(studentId)).data))
+          )
+        );
         allow create: if isValidDocId(studentId) && isValidDocId(messageId) && isSignedIn() && isValidChatMessage(request.resource.data, studentId) && (
           isAdmin() ||
-          (request.auth.uid == studentId && request.resource.data.senderRole == 'student')
+          (request.auth.uid == studentId && (
+            (request.resource.data.senderId == request.auth.uid && request.resource.data.senderRole == 'student') ||
+            ('migratedFromChatId' in request.resource.data && canStudentMigrateFrom(request.resource.data.migratedFromChatId))
+          ))
         );
         allow update, delete: if isValidDocId(studentId) && isValidDocId(messageId) && isAdmin();
       }

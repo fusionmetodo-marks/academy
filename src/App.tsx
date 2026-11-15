@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { useEffect, useState } from 'react';
 import { onAuthStateChanged, User } from 'firebase/auth';
 import { doc, onSnapshot, setDoc } from 'firebase/firestore';
@@ -30,6 +30,13 @@ import { syncUserDeviceStatus, validateAndRegisterDevice } from './utils/deviceD
 import { isMasterEmail } from './utils/constants';
 import DeviceLimitModal from './components/DeviceLimitModal';
 import { RegisteredDevice } from './types';
+
+function AuthStudentRedirect() {
+  const location = useLocation();
+  const redirect = new URLSearchParams(location.search).get('redirect');
+  const safeTarget = redirect && redirect.startsWith('/') && !redirect.startsWith('//') ? redirect : '/library';
+  return <Navigate to={safeTarget} replace />;
+}
 
 export default function App() {
   const [user, setUser] = useState<User | null>(null);
@@ -155,7 +162,7 @@ export default function App() {
                     ? <Navigate to="/pending" replace />
                     : <Navigate to="/dashboard" replace />
                 ) : (
-                  <Navigate to="/library" replace />
+                  <AuthStudentRedirect />
                 )
               )
             } 
@@ -170,7 +177,7 @@ export default function App() {
                     ? <Navigate to="/pending" replace />
                     : <Navigate to="/dashboard" replace />
                 ) : (
-                  <Navigate to="/library" replace />
+                  <AuthStudentRedirect />
                 )
               )
             } 

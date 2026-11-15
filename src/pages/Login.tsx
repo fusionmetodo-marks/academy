@@ -6,6 +6,7 @@ import { updateProfile } from 'firebase/auth';
 import { DEFAULT_CFA_LOGO, getValidLogoUrl, isMasterEmail } from '../utils/constants';
 import { ProducerContractModal } from '../components/ProducerContractModal';
 import { sendSystemNotification } from '../services/notificationService';
+import { claimPreRegisteredChatsForUser, normalizePhoneDigits } from '../services/chatService';
 
 export default function Login() {
   const navigate = useNavigate();
@@ -145,8 +146,11 @@ export default function Login() {
       }
 
       if (registrationData?.phoneNumber) {
-        payload.phoneCountryCode = registrationData.phoneCountryCode || '+244';
-        payload.phoneNumber = registrationData.phoneNumber.trim();
+        const ddi = registrationData.phoneCountryCode || '+244';
+        const cleanPhone = registrationData.phoneNumber.trim();
+        payload.phoneCountryCode = ddi;
+        payload.phoneNumber = cleanPhone;
+        payload.normalizedPhone = normalizePhoneDigits(`${ddi} ${cleanPhone}`, ddi) || '';
         payload.profileCompleted = true;
       }
 
@@ -183,20 +187,29 @@ export default function Login() {
       }
 
       if (registrationData) {
+        const ddi = registrationData.phoneCountryCode || '+244';
+        const cleanPhone = registrationData.phoneNumber.trim();
         updateData.fullName = rawProvidedName;
         updateData.firstName = fName;
         updateData.lastName = lName;
         updateData.name = rawProvidedName;
         updateData.displayName = rawProvidedName;
-        updateData.phoneCountryCode = registrationData.phoneCountryCode || '+244';
-        updateData.phoneNumber = registrationData.phoneNumber.trim();
+        updateData.phoneCountryCode = ddi;
+        updateData.phoneNumber = cleanPhone;
+        updateData.normalizedPhone = normalizePhoneDigits(`${ddi} ${cleanPhone}`, ddi) || '';
         updateData.profileCompleted = true;
-      } else if (rawProvidedName && !data.fullName && !data.firstName) {
-        updateData.fullName = rawProvidedName;
-        updateData.firstName = fName;
-        updateData.lastName = lName;
-        updateData.name = rawProvidedName;
-        updateData.displayName = rawProvidedName;
+      } else {
+        if (rawProvidedName && !data.fullName && !data.firstName) {
+          updateData.fullName = rawProvidedName;
+          updateData.firstName = fName;
+          updateData.lastName = lName;
+          updateData.name = rawProvidedName;
+          updateData.displayName = rawProvidedName;
+        }
+        if (data.phoneNumber && !data.normalizedPhone) {
+          const ddi = data.phoneCountryCode || '+244';
+          updateData.normalizedPhone = normalizePhoneDigits(`${ddi} ${data.phoneNumber}`, ddi) || '';
+        }
       }
 
       if (Object.keys(updateData).length > 0) {
@@ -218,6 +231,17 @@ export default function Login() {
         return;
       }
     }
+
+    const claimPhoneCode = registrationData?.phoneCountryCode || (userSnap.exists() ? userSnap.data()?.phoneCountryCode : '+244') || '+244';
+    const claimPhoneNumber = registrationData?.phoneNumber || (userSnap.exists() ? userSnap.data()?.phoneNumber : '') || '';
+    const claimName = rawProvidedName || (userSnap.exists() ? (userSnap.data()?.fullName || userSnap.data()?.name) : '') || '';
+    await claimPreRegisteredChatsForUser({
+      uid: user.uid,
+      email: cleanEmail,
+      name: claimName,
+      phoneCountryCode: claimPhoneCode,
+      phoneNumber: claimPhoneNumber,
+    });
     
     const searchParams = new URLSearchParams(location.search);
     const redirectUrl = searchParams.get('redirect');
@@ -468,7 +492,7 @@ export default function Login() {
                       <button
                         type="button"
                         onClick={() => {
-                          navigate('/entrar');
+                          navigate(`/entrar${location.search}`);
                           setErrorMessage(null);
                         }}
                         className="bg-primary hover:brightness-110 active:scale-95 text-black font-black text-xs px-3.5 py-2 rounded-xl transition-all cursor-pointer"
@@ -707,7 +731,7 @@ export default function Login() {
           
           <div className="mt-8 flex flex-col gap-4 text-center">
             <button 
-              onClick={() => navigate(isRegistering ? '/entrar' : '/criar-conta')}
+              onClick={() => navigate(`${isRegistering ? '/entrar' : '/criar-conta'}${location.search}`)}
               className="text-sm text-primary font-medium hover:underline decoration-primary/30 underline-offset-4 transition-all font-body"
             >
               {isRegistering ? 'Já tem uma conta? Faça login' : 'Não tem uma conta? Cadastre-se'}

@@ -104,6 +104,23 @@ export default function PurchaseConfirmation() {
     whatsappNumber
   });
 
+  const handleOpenAdminChat = () => {
+    const auth = getAuth();
+    const params = new URLSearchParams({
+      courseId: transaction?.courseId || '',
+      courseTitle,
+      paymentStatus: 'pending',
+      txAmount: formattedAmount,
+      paymentMethod,
+    });
+    const chatUrl = `/library/chat?${params.toString()}`;
+    if (!auth.currentUser && !currentUser) {
+      navigate(`/entrar?redirect=${encodeURIComponent(chatUrl)}`);
+    } else {
+      navigate(chatUrl);
+    }
+  };
+
   return (
     <div className="bg-background text-on-surface font-body min-h-screen flex flex-col items-center justify-center p-6 relative">
       <div className="fixed inset-0 pointer-events-none z-[99] opacity-[0.03]" style={{ backgroundImage: 'url("data:image/svg+xml,%3Csvg viewBox=\'0 0 200 200\' xmlns=\'http://www.w3.org/2000/svg\'%3E%3Cfilter id=\'noiseFilter\'%3E%3CfeTurbulence type=\'fractalNoise\' baseFrequency=\'0.65\' numOctaves=\'3\' stitchTiles=\'stitch\'/%3E%3C/filter%3E%3Crect width=\'100%25\' height=\'100%25\' filter=\'url(%23noiseFilter)\'/%3E%3C/svg%3E")' }}></div>
@@ -116,7 +133,7 @@ export default function PurchaseConfirmation() {
         </div>
         
         <h1 className="text-3xl md:text-4xl font-extrabold tracking-tighter font-headline mb-2">Métodos e Coordenadas de Pagamento</h1>
-        <p className="text-on-surface-variant text-sm md:text-base mb-6">Efetue o pagamento através de um dos métodos ativos abaixo e envie o número de referência/comprovativo para o WhatsApp.</p>
+        <p className="text-on-surface-variant text-sm md:text-base mb-6">Efetue o pagamento através de um dos métodos ativos abaixo e envie mensagem no Chat Oficial da plataforma para o administrador ou envie o comprovativo no WhatsApp.</p>
         
         {/* Active Payment Methods Coordinates - Exclusive View */}
         <div className="mb-8 p-6 bg-surface-container-lowest rounded-2xl border border-[#e9c349]/30 text-left">
@@ -366,26 +383,40 @@ export default function PurchaseConfirmation() {
           </div>
         </div>
         
-        {/* Direct WhatsApp Support */}
-        <div className="mb-8 p-6 bg-[#18231c] border border-secondary/30 rounded-2xl text-left flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-          <div className="flex items-center gap-3">
-            <div className="w-12 h-12 rounded-full bg-secondary/20 flex items-center justify-center text-secondary shrink-0">
-              <span className="material-symbols-outlined text-3xl">chat</span>
+        {/* Official Platform Chat & Direct WhatsApp Support */}
+        <div className="mb-8 p-6 bg-surface-container-highest border border-primary/30 rounded-2xl text-left space-y-5">
+          <div className="flex items-start sm:items-center gap-3">
+            <div className="w-12 h-12 rounded-full bg-primary/15 border border-primary/30 flex items-center justify-center text-primary shrink-0">
+              <span className="material-symbols-outlined text-2xl">forum</span>
             </div>
             <div>
-              <h4 className="font-bold text-sm text-on-surface">Enviar Comprovativo de Pagamento</h4>
-              <p className="text-xs text-stone-400">Clique para enviar o seu comprovativo diretamente para o WhatsApp oficial.</p>
+              <h4 className="font-bold text-sm sm:text-base text-on-surface">Comunicação Direta e Envio de Comprovativo</h4>
+              <p className="text-xs text-stone-400">
+                Envie uma mensagem para o administrador no <strong className="text-primary">Chat Oficial da Plataforma</strong> para confirmar seu pagamento ou envie o comprovativo pelo WhatsApp.
+              </p>
             </div>
           </div>
-          <a 
-            href={whatsappUrl} 
-            target="_blank" 
-            rel="noopener noreferrer"
-            className="w-full sm:w-auto px-6 py-3 bg-secondary text-surface font-extrabold text-xs uppercase tracking-wider rounded-xl hover:brightness-110 transition-all text-center flex items-center justify-center gap-2 shrink-0 shadow-lg cursor-pointer"
-          >
-            <span className="material-symbols-outlined text-base">send</span>
-            Enviar no WhatsApp
-          </a>
+
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
+            <button
+              type="button"
+              onClick={handleOpenAdminChat}
+              className="flex-1 px-5 py-3.5 bg-primary text-on-primary font-extrabold text-xs uppercase tracking-wider rounded-xl hover:brightness-110 transition-all text-center flex items-center justify-center gap-2 shadow-lg cursor-pointer active:scale-95"
+            >
+              <span className="material-symbols-outlined text-base">chat</span>
+              <span>Enviar Mensagem para o Administrador (Chat Oficial)</span>
+            </button>
+
+            <a
+              href={whatsappUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="sm:w-auto px-5 py-3.5 bg-secondary text-surface font-extrabold text-xs uppercase tracking-wider rounded-xl hover:brightness-110 transition-all text-center flex items-center justify-center gap-2 shrink-0 shadow-lg cursor-pointer"
+            >
+              <span className="material-symbols-outlined text-base">send</span>
+              <span>Enviar no WhatsApp</span>
+            </a>
+          </div>
         </div>
         
         <div className="flex flex-col items-center gap-2 justify-center">

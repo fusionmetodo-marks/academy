@@ -36,6 +36,11 @@
           "type": "object",
           "description": "A map where keys are lesson IDs and values are count of times viewed by user."
         },
+        "normalizedPhone": {
+          "type": "string",
+          "maxLength": 32,
+          "description": "Digits-only normalized phone number for automatic contact linking."
+        },
         "createdAt": {
           "type": "string",
           "format": "date-time",
@@ -185,13 +190,18 @@
     },
     "ChatThread": {
       "title": "ChatThread",
-      "description": "1-on-1 private chat channel between an individual student and the administrator.",
+      "description": "1-on-1 private chat channel between an individual student or pre-registered contact and the administrator.",
       "type": "object",
       "properties": {
         "studentId": { "type": "string", "maxLength": 128 },
         "studentName": { "type": "string", "maxLength": 200 },
         "studentEmail": { "type": "string", "format": "email", "maxLength": 200 },
         "studentPhone": { "type": "string", "maxLength": 64 },
+        "normalizedPhone": { "type": "string", "maxLength": 32 },
+        "isPreRegistered": { "type": "boolean" },
+        "linkedUserId": { "type": "string", "maxLength": 128 },
+        "mergedIntoChatId": { "type": "string", "maxLength": 128 },
+        "sourcePreChatId": { "type": "string", "maxLength": 128 },
         "lastMessage": { "type": "string", "maxLength": 2000 },
         "lastSenderRole": { "type": "string", "enum": ["admin", "student"] },
         "lastSenderId": { "type": "string", "maxLength": 128 },
@@ -217,10 +227,23 @@
         "contextLessonTitle": { "type": "string", "maxLength": 250 },
         "contextCourseTitle": { "type": "string", "maxLength": 250 },
         "contextCourseId": { "type": "string", "maxLength": 128 },
+        "migratedFromChatId": { "type": "string", "maxLength": 128 },
         "createdAtMs": { "type": "number" },
         "createdAt": { "type": "string", "format": "date-time" }
       },
       "required": ["chatId", "senderId", "senderName", "senderRole", "text", "createdAtMs"]
+    },
+    "ChatClaim": {
+      "title": "ChatClaim",
+      "description": "Deterministic lookup index linking normalized email or phone keys to a pre-registered chat thread.",
+      "type": "object",
+      "properties": {
+        "chatId": { "type": "string", "maxLength": 128 },
+        "matchKey": { "type": "string", "maxLength": 128 },
+        "createdAtMs": { "type": "number" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["chatId", "matchKey", "createdAtMs"]
     },
     "LessonComment": {
       "title": "LessonComment",
@@ -286,13 +309,19 @@
       "schema": {
         "$ref": "#/entities/ChatThread"
       },
-      "description": "Stores 1-on-1 chat metadata and unread counters between a student and the administrator."
+      "description": "Stores 1-on-1 chat metadata and unread counters between a student or pre-registered contact and the administrator."
     },
     "/chats/{studentId}/messages/{messageId}": {
       "schema": {
         "$ref": "#/entities/ChatMessage"
       },
       "description": "Stores chronological text messages inside a student-administrator 1-on-1 chat thread."
+    },
+    "/chatClaims/{claimId}": {
+      "schema": {
+        "$ref": "#/entities/ChatClaim"
+      },
+      "description": "Deterministic index mapping normalized contact keys (email/phone) to pre-registered chat threads."
     },
     "/transactions/{transactionId}": {
       "schema": {

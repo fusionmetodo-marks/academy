@@ -15,14 +15,19 @@ import { Bell, BookOpen, Home, User, LogOut, Compass, Smartphone, Coins, Lock, S
 import { doc, getDoc, collection, getDocs, query, where, setDoc } from 'firebase/firestore';
 import { updateProfile } from 'firebase/auth';
 import { logout, auth, db } from '../firebase';
-import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
+import { useNavigate, useParams, useSearchParams, useLocation } from 'react-router-dom';
 import { DEFAULT_CFA_LOGO, getValidLogoUrl, isMasterEmail } from '../utils/constants';
 import { slugify } from '../utils/slugify';
 import { subscribeUserEnrollments } from '../services/enrollmentService';
-import { subscribeStudentChatThread } from '../services/chatService';
+import {
+  claimPreRegisteredChatsForUser,
+  normalizePhoneDigits,
+  subscribeStudentChatThread,
+} from '../services/chatService';
 
 export default function StudentPortal() {
   const navigate = useNavigate();
+  const location = useLocation();
   const { slug } = useParams<{ slug?: string }>();
   const [searchParams, setSearchParams] = useSearchParams();
   
@@ -67,6 +72,22 @@ export default function StudentPortal() {
             setPortalFullName(enrollData.userProfile.fullName || enrollData.userProfile.firstName || u.displayName || '');
             setPortalPhoneDdi(enrollData.userProfile.phoneCountryCode || '+244');
             setPortalPhone(enrollData.userProfile.phoneNumber || '');
+
+            if (enrollData.userProfile.phoneNumber && !enrollData.userProfile.normalizedPhone) {
+              const ddi = enrollData.userProfile.phoneCountryCode || '+244';
+              const norm = normalizePhoneDigits(`${ddi} ${enrollData.userProfile.phoneNumber}`, ddi);
+              if (norm) {
+                setDoc(doc(db, 'users', u.uid), { normalizedPhone: norm }, { merge: true }).catch(() => {});
+              }
+            }
+
+            claimPreRegisteredChatsForUser({
+              uid: u.uid,
+              email: u.email,
+              name: enrollData.userProfile.fullName || enrollData.userProfile.firstName || u.displayName,
+              phoneCountryCode: enrollData.userProfile.phoneCountryCode || '+244',
+              phoneNumber: enrollData.userProfile.phoneNumber || '',
+            }).catch(() => {});
           }
           setIsLoadingEnrollments(false);
         });
@@ -92,11 +113,18 @@ export default function StudentPortal() {
     const lessonTitle = searchParams.get('lessonTitle');
     const courseTitle = searchParams.get('courseTitle');
     const courseIdParam = searchParams.get('courseId');
-    if (lessonTitle || courseTitle) {
+    const paymentStatus = searchParams.get('paymentStatus');
+    const txAmount = searchParams.get('txAmount');
+    const paymentMethod = searchParams.get('paymentMethod');
+
+    if (lessonTitle || courseTitle || paymentStatus === 'pending') {
       setChatLessonContext({
         lessonTitle: lessonTitle || undefined,
         courseTitle: courseTitle || undefined,
         courseId: courseIdParam || undefined,
+        paymentPending: paymentStatus === 'pending',
+        paymentAmount: txAmount || undefined,
+        paymentMethod: paymentMethod || undefined,
       });
     }
   }, [searchParams]);
@@ -131,6 +159,7 @@ export default function StudentPortal() {
       const fName = nameParts[0] || trimmedName;
       const lName = nameParts.slice(1).join(' ');
 
+      const normalizedPhone = normalizePhoneDigits(`${portalPhoneDdi} ${trimmedPhone}`, portalPhoneDdi) || '';
       await setDoc(doc(db, 'users', user.uid), {
         fullName: trimmedName,
         firstName: fName,
@@ -139,8 +168,17 @@ export default function StudentPortal() {
         displayName: trimmedName,
         phoneCountryCode: portalPhoneDdi,
         phoneNumber: trimmedPhone,
+        normalizedPhone,
         profileCompleted: true
       }, { merge: true });
+
+      await claimPreRegisteredChatsForUser({
+        uid: user.uid,
+        email: user.email,
+        name: trimmedName,
+        phoneCountryCode: portalPhoneDdi,
+        phoneNumber: trimmedPhone,
+      });
 
       try {
         await updateProfile(user, { displayName: trimmedName });
@@ -183,7 +221,7 @@ export default function StudentPortal() {
           const unsubscribe = auth.onAuthStateChanged((u) => {
             unsubscribe();
             if (!u) {
-              navigate('/entrar', { replace: true });
+              navigate(`/entrar?redirect=${encodeURIComponent(location.pathname + location.search)}`, { replace: true });
             } else {
               setUser(u);
               setCurrentView('my-courses');
@@ -203,7 +241,7 @@ export default function StudentPortal() {
           const unsubscribe = auth.onAuthStateChanged((u) => {
             unsubscribe();
             if (!u) {
-              navigate('/entrar', { replace: true });
+              navigate(`/entrar?redirect=${encodeURIComponent(location.pathname + location.search)}`, { replace: true });
             } else {
               setUser(u);
               setCurrentView('profile');
@@ -223,7 +261,7 @@ export default function StudentPortal() {
           const unsubscribe = auth.onAuthStateChanged((u) => {
             unsubscribe();
             if (!u) {
-              navigate('/entrar', { replace: true });
+              navigate(`/entrar?redirect=${encodeURIComponent(location.pathname + location.search)}`, { replace: true });
             } else {
               setUser(u);
               setCurrentView('notifications');
@@ -243,7 +281,7 @@ export default function StudentPortal() {
           const unsubscribe = auth.onAuthStateChanged((u) => {
             unsubscribe();
             if (!u) {
-              navigate('/entrar', { replace: true });
+              navigate(`/entrar?redirect=${encodeURIComponent(location.pathname + location.search)}`, { replace: true });
             } else {
               setUser(u);
               setCurrentView('chat');
@@ -314,7 +352,7 @@ export default function StudentPortal() {
     else if (view === 'my-courses') {
       const activeUser = auth.currentUser || user;
       if (!activeUser) {
-        navigate('/entrar');
+        navigate(`/entrar?redirect=${encodeURIComponent('/library/meus-cursos')}`);
       } else {
         setCurrentView('my-courses');
         navigate('/library/meus-cursos');
@@ -323,7 +361,7 @@ export default function StudentPortal() {
     else if (view === 'profile') {
       const activeUser = auth.currentUser || user;
       if (!activeUser) {
-        navigate('/entrar');
+        navigate(`/entrar?redirect=${encodeURIComponent('/library/perfil')}`);
       } else {
         setCurrentView('profile');
         navigate('/library/perfil');
@@ -332,7 +370,7 @@ export default function StudentPortal() {
     else if (view === 'notifications') {
       const activeUser = auth.currentUser || user;
       if (!activeUser) {
-        navigate('/entrar');
+        navigate(`/entrar?redirect=${encodeURIComponent('/library/notificacoes')}`);
       } else {
         setCurrentView('notifications');
         navigate('/library/notificacoes');
@@ -341,7 +379,7 @@ export default function StudentPortal() {
     else if (view === 'chat') {
       const activeUser = auth.currentUser || user;
       if (!activeUser) {
-        navigate('/entrar');
+        navigate(`/entrar?redirect=${encodeURIComponent('/library/chat')}`);
       } else {
         setCurrentView('chat');
         setIsFloatingChatOpen(false);
@@ -393,7 +431,7 @@ export default function StudentPortal() {
   const handleReturnToAdmin = () => {
     localStorage.setItem('viewAsStudent', 'false');
     window.dispatchEvent(new Event('student-view-changed'));
-    navigate('/dashboard');
+    window.location.href = '/dashboard';
   };
 
   const handleLogout = async () => {
@@ -746,7 +784,10 @@ export default function StudentPortal() {
 
         {currentView === 'my-courses' && (
           <div className="w-full px-3.5 sm:px-6 lg:px-8 xl:px-10 pt-2 sm:pt-4">
-            <StudentMyCourses onExplore={() => handleSetView('catalog')} />
+            <StudentMyCourses
+              onExplore={() => handleSetView('catalog')}
+              onOpenChat={() => handleSetView('chat')}
+            />
           </div>
         )}
 
@@ -779,7 +820,11 @@ export default function StudentPortal() {
               initialContext={chatLessonContext}
               onClearContext={() => {
                 setChatLessonContext(null);
-                if (searchParams.get('lessonTitle') || searchParams.get('courseTitle')) {
+                if (
+                  searchParams.get('lessonTitle') ||
+                  searchParams.get('courseTitle') ||
+                  searchParams.get('paymentStatus')
+                ) {
                   setSearchParams({}, { replace: true });
                 }
               }}

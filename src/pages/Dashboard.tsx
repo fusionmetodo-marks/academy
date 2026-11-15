@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { AreaChart, Area, XAxis, YAxis, Tooltip as RechartsTooltip, ResponsiveContainer, BarChart, Bar, CartesianGrid, Cell } from "recharts";
 import Sidebar from '../components/Sidebar';
 import { NotificationCenter } from '../components/NotificationCenter';
@@ -7,6 +8,7 @@ import { collection, onSnapshot, updateDoc, doc, arrayRemove, deleteDoc, query, 
 import { db, auth, approveStudentTransaction } from '../firebase';
 import { Transaction } from '../types';
 import { isMasterEmail } from '../utils/constants';
+import { extractStudentPhoneString, resolveChatTargetForContact } from '../services/chatService';
 import { 
   BarChart3, 
   TrendingUp, 
@@ -64,6 +66,7 @@ function parseDate(val: any): Date | null {
 }
 
 export default function Dashboard() {
+  const navigate = useNavigate();
   const [showToast, setShowToast] = useState(false);
   const [toastMessage, setToastMessage] = useState('');
 
@@ -106,6 +109,37 @@ export default function Dashboard() {
     setToastMessage(msg);
     setShowToast(true);
     setTimeout(() => setShowToast(false), 3000);
+  };
+
+  const handleOpenStudentChat = (tx: Transaction, matchedStudent?: any, rawPhone?: string) => {
+    const fallbackPhone =
+      rawPhone ||
+      tx.userPhone ||
+      extractStudentPhoneString(matchedStudent) ||
+      (tx.referenceNumber && /[0-9]{6,}/.test(String(tx.referenceNumber)) ? String(tx.referenceNumber) : '');
+
+    const target = resolveChatTargetForContact({
+      registeredStudents: students,
+      userId: tx.userId,
+      name: tx.userName,
+      email: tx.userEmail,
+      phone: fallbackPhone,
+      fallbackKey: tx.userId || tx.id,
+    });
+
+    const params = new URLSearchParams({
+      tab: 'chat',
+      studentId: target.chatId,
+    });
+    if (target.name) params.set('studentName', target.name);
+    if (target.email) params.set('studentEmail', target.email);
+    if (target.phone) params.set('studentPhone', target.phone);
+
+    setActivePendingDropdownTxId(null);
+    setPendingDropdownCoords(null);
+    setActiveDropdownTxId(null);
+    setIsHistoryModalOpen(false);
+    navigate(`/messages?${params.toString()}`);
   };
 
   // Listen to Users, Transactions and Courses in real-time
@@ -930,27 +964,22 @@ export default function Dashboard() {
                       })
                       .map((tx) => {
                         const student = students.find(s => s.id === tx.userId || (s.email && tx.userEmail && s.email.toLowerCase() === tx.userEmail.toLowerCase()));
-                        const studentPhone = tx.userPhone || student?.phone || student?.whatsapp || student?.phoneNumber || tx.referenceNumber || 'N/A';
+                        const studentPhone = tx.userPhone || extractStudentPhoneString(student) || student?.phone || student?.whatsapp || student?.phoneNumber || tx.referenceNumber || 'N/A';
                         const cleanPhoneDigits = studentPhone !== 'N/A' ? studentPhone.replace(/[^0-9]/g, '') : '';
                         const whatsappUrl = cleanPhoneDigits ? `https://wa.me/${cleanPhoneDigits}?text=${encodeURIComponent(`Olá ${tx.userName || 'Estudante'}, entramos em contato sobre o seu comprovativo para o curso ${tx.courseTitle || 'Marks ACADEMY'}.`)}` : '#';
 
                         return (
                       <tr key={tx.id} className="hover:bg-surface-container-highest/30 transition-colors">
                         <td className="py-3 px-3">
-                          {cleanPhoneDigits ? (
-                            <a 
-                              href={whatsappUrl} 
-                              target="_blank" 
-                              rel="noopener noreferrer"
-                              className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 font-mono font-bold text-xs hover:bg-emerald-500/20 transition-colors shadow-sm"
-                              title="Contactar via WhatsApp"
-                            >
-                              <span className="material-symbols-outlined text-sm">chat</span>
-                              <span>{studentPhone}</span>
-                            </a>
-                          ) : (
-                            <span className="font-mono font-bold text-stone-400 text-xs">{tx.referenceNumber || 'N/A'}</span>
-                          )}
+                          <button
+                            type="button"
+                            onClick={() => handleOpenStudentChat(tx, student, studentPhone !== 'N/A' ? studentPhone : '')}
+                            className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-[#e9c349]/10 text-[#e9c349] border border-[#e9c349]/30 font-mono font-bold text-xs hover:bg-[#e9c349]/20 transition-colors shadow-sm cursor-pointer"
+                            title="Enviar Mensagem (Chat 1x1 na plataforma)"
+                          >
+                            <span className="material-symbols-outlined text-sm">chat</span>
+                            <span>{studentPhone !== 'N/A' ? studentPhone : (tx.referenceNumber || 'Enviar Chat')}</span>
+                          </button>
                         </td>
                         <td className="py-3 px-3">
                           <p className="font-medium text-on-surface">{tx.userName || 'Estudante'}</p>
@@ -1002,8 +1031,32 @@ export default function Dashboard() {
                                       ? { bottom: `${pendingDropdownCoords.bottom}px`, right: `${pendingDropdownCoords.right}px` }
                                       : undefined
                                   }
-                                  className="fixed w-48 bg-[#1e1e1e] border border-stone-800 rounded-xl shadow-2xl z-50 py-1 overflow-hidden animate-in fade-in zoom-in-95 duration-100 text-left"
+                                  className="fixed w-52 bg-[#1e1e1e] border border-stone-800 rounded-xl shadow-2xl z-50 py-1 overflow-hidden animate-in fade-in zoom-in-95 duration-100 text-left"
                                 >
+                                  <button
+                                    type="button"
+                                    onClick={() => handleOpenStudentChat(tx, student, studentPhone !== 'N/A' ? studentPhone : '')}
+                                    className="w-full px-3 py-2 text-xs text-[#e9c349] hover:bg-stone-800 transition-colors flex items-center gap-2 cursor-pointer font-bold"
+                                  >
+                                    <span className="material-symbols-outlined text-sm">chat</span>
+                                    Enviar Mensagem (Chat)
+                                  </button>
+                                  {cleanPhoneDigits && (
+                                    <a
+                                      href={whatsappUrl}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      onClick={() => {
+                                        setActivePendingDropdownTxId(null);
+                                        setPendingDropdownCoords(null);
+                                      }}
+                                      className="w-full px-3 py-2 text-xs text-emerald-400 hover:bg-stone-800 transition-colors flex items-center gap-2 cursor-pointer"
+                                    >
+                                      <span className="material-symbols-outlined text-sm">call</span>
+                                      Chamar no WhatsApp
+                                    </a>
+                                  )}
+                                  <div className="my-1 border-t border-stone-800" />
                                   <button
                                     type="button"
                                     onClick={() => {
@@ -1546,7 +1599,9 @@ export default function Dashboard() {
                       <tbody className="divide-y divide-outline-variant/5 font-body">
                         {currentItems.map((tx) => {
                           const student = students.find(s => s.id === tx.userId || (s.email && tx.userEmail && s.email.toLowerCase() === tx.userEmail.toLowerCase()));
-                          const studentPhone = tx.userPhone || student?.phone || student?.whatsapp || student?.phoneNumber || tx.referenceNumber || 'N/A';
+                          const studentPhone = tx.userPhone || extractStudentPhoneString(student) || student?.phone || student?.whatsapp || student?.phoneNumber || tx.referenceNumber || 'N/A';
+                          const cleanPhoneDigits = studentPhone !== 'N/A' ? studentPhone.replace(/[^0-9]/g, '') : '';
+                          const whatsappUrl = cleanPhoneDigits ? `https://wa.me/${cleanPhoneDigits}?text=${encodeURIComponent(`Olá ${tx.userName || 'Estudante'}, entramos em contato sobre a sua assinatura no curso ${tx.courseTitle || 'Marks ACADEMY'}.`)}` : '#';
                           const studentEmail = tx.userEmail || student?.email || 'N/A';
                           const studentName = tx.userName || (student?.firstName ? `${student.firstName} ${student.lastName || ''}`.trim() : student?.name) || 'Estudante';
                           return (
@@ -1555,7 +1610,15 @@ export default function Dashboard() {
                               {tx.createdAt ? (tx.createdAt.toDate ? tx.createdAt.toDate().toLocaleString('pt-AO') : new Date(tx.createdAt).toLocaleString('pt-AO')) : '-'}
                             </td>
                             <td className="py-2.5 px-2.5">
-                              <span className="font-mono font-bold text-on-surface text-xs">{studentPhone}</span>
+                              <button
+                                type="button"
+                                onClick={() => handleOpenStudentChat(tx, student, studentPhone !== 'N/A' ? studentPhone : '')}
+                                className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-[#e9c349]/10 text-[#e9c349] border border-[#e9c349]/30 font-mono font-bold text-xs hover:bg-[#e9c349]/20 transition-colors cursor-pointer"
+                                title="Enviar Mensagem (Chat 1x1 na plataforma)"
+                              >
+                                <span className="material-symbols-outlined text-sm">chat</span>
+                                <span>{studentPhone !== 'N/A' ? studentPhone : 'Enviar Chat'}</span>
+                              </button>
                             </td>
                             <td className="py-2.5 px-2.5">
                               <p className="font-medium text-on-surface text-xs">{studentName}</p>
@@ -1585,7 +1648,28 @@ export default function Dashboard() {
                                 </button>
                                 
                                 {activeDropdownTxId === tx.id && (
-                                  <div className="absolute right-0 mt-1 w-44 bg-[#1e1e1e] border border-stone-800 rounded-xl shadow-2xl z-50 py-1 overflow-hidden animate-in fade-in zoom-in-95 duration-100 text-left">
+                                  <div className="absolute right-0 mt-1 w-52 bg-[#1e1e1e] border border-stone-800 rounded-xl shadow-2xl z-50 py-1 overflow-hidden animate-in fade-in zoom-in-95 duration-100 text-left">
+                                    <button
+                                      type="button"
+                                      onClick={() => handleOpenStudentChat(tx, student, studentPhone !== 'N/A' ? studentPhone : '')}
+                                      className="w-full px-3 py-2 text-xs text-[#e9c349] hover:bg-stone-800 transition-colors flex items-center gap-2 cursor-pointer font-bold"
+                                    >
+                                      <span className="material-symbols-outlined text-sm flex-shrink-0">chat</span>
+                                      Enviar Mensagem (Chat)
+                                    </button>
+                                    {cleanPhoneDigits && (
+                                      <a
+                                        href={whatsappUrl}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        onClick={() => setActiveDropdownTxId(null)}
+                                        className="w-full px-3 py-2 text-xs text-emerald-400 hover:bg-stone-800 transition-colors flex items-center gap-2 cursor-pointer"
+                                      >
+                                        <span className="material-symbols-outlined text-sm flex-shrink-0">call</span>
+                                        Chamar no WhatsApp
+                                      </a>
+                                    )}
+                                    <div className="my-1 border-t border-stone-800" />
                                     {tx.status === 'approved' && (
                                       <button
                                         type="button"

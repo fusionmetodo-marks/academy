@@ -1141,6 +1141,12 @@ export default function StudentDirectory() {
                         </div>
                         <div className="min-w-0">
                           <div className="flex items-center gap-1.5 flex-wrap">
+                            {enrolledList.length >= 1 && (
+                              <span
+                                className="w-2 h-2 rounded-full bg-[#e9c349] shadow-[0_0_6px_rgba(233,195,73,0.65)] shrink-0"
+                                title="Matriculado em pelo menos 1 curso"
+                              />
+                            )}
                             <h4 className="font-bold text-white text-sm truncate">{fullName}</h4>
                             {isMaster && (
                               <span className="px-1.5 py-0.5 bg-[#e9c349]/20 text-[#e9c349] border border-[#e9c349]/40 text-[9px] font-bold rounded uppercase tracking-wider">
@@ -1202,7 +1208,29 @@ export default function StudentDirectory() {
                           {activeMenuUserId === userItem.id && (
                             <>
                               <div className="fixed inset-0 z-40" onClick={() => setActiveMenuUserId(null)} />
-                              <div className="absolute right-0 mt-1 w-48 bg-[#1a1a1a] border border-[#353534] rounded-xl shadow-2xl py-1.5 z-50 text-left animate-in fade-in zoom-in-95">
+                              <div className="absolute right-0 mt-1 w-52 bg-[#1a1a1a] border border-[#353534] rounded-xl shadow-2xl py-1.5 z-50 text-left animate-in fade-in zoom-in-95">
+                                <button
+                                  onClick={() => {
+                                    setActiveMenuUserId(null);
+                                    navigate(`/messages?tab=chat&studentId=${encodeURIComponent(userItem.id)}&studentName=${encodeURIComponent(fullName)}`);
+                                  }}
+                                  className="w-full px-3.5 py-2 text-xs text-[#e9c349] hover:bg-white/10 flex items-center gap-2 cursor-pointer font-bold"
+                                >
+                                  <MessageSquare className="w-3.5 h-3.5" />
+                                  <span>Enviar Mensagem (Chat)</span>
+                                </button>
+                                {isMasterUser && (userItem.phoneNumber || userItem.producerWhatsApp) && (
+                                  <a
+                                    href={`https://wa.me/${(userItem.phoneCountryCode || '+244').replace(/[^0-9]/g, '')}${(userItem.phoneNumber || userItem.producerWhatsApp).replace(/[^0-9]/g, '')}?text=${encodeURIComponent(`Olá ${fullName}, suporte do Maestro Marks o Monstro - ACADEMY.`)}`}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    onClick={() => setActiveMenuUserId(null)}
+                                    className="w-full px-3.5 py-2 text-xs text-emerald-400 hover:bg-white/10 flex items-center gap-2 cursor-pointer"
+                                  >
+                                    <Phone className="w-3.5 h-3.5" />
+                                    <span>Chamar no WhatsApp</span>
+                                  </a>
+                                )}
                                 <button
                                   onClick={() => { handleOpenEditStudent(userItem); setActiveMenuUserId(null); }}
                                   className="w-full px-3.5 py-2 text-xs text-blue-300 hover:bg-white/10 flex items-center gap-2 cursor-pointer font-bold"
@@ -1266,11 +1294,23 @@ export default function StudentDirectory() {
                       <div>
                         <span className="text-[10px] text-gray-500 uppercase font-bold block mb-0.5">Contato</span>
                         {userItem.phoneNumber || userItem.producerWhatsApp ? (
-                          <span className="text-gray-300 font-mono text-xs">
-                            {maskPhone(userItem.phoneNumber || userItem.producerWhatsApp, isMasterUser, userItem.phoneCountryCode || '+244')}
-                          </span>
+                          <button
+                            type="button"
+                            onClick={() => navigate(`/messages?tab=chat&studentId=${encodeURIComponent(userItem.id)}&studentName=${encodeURIComponent(fullName)}`)}
+                            className="inline-flex items-center gap-1.5 text-[#e9c349] hover:underline font-mono text-xs cursor-pointer"
+                            title="Enviar Mensagem (Chat 1x1 na plataforma)"
+                          >
+                            <MessageSquare className="w-3 h-3 shrink-0" />
+                            <span>{maskPhone(userItem.phoneNumber || userItem.producerWhatsApp, isMasterUser, userItem.phoneCountryCode || '+244')}</span>
+                          </button>
                         ) : (
-                          <span className="text-gray-600 italic">Não informado</span>
+                          <button
+                            type="button"
+                            onClick={() => navigate(`/messages?tab=chat&studentId=${encodeURIComponent(userItem.id)}&studentName=${encodeURIComponent(fullName)}`)}
+                            className="text-gray-400 hover:text-[#e9c349] italic cursor-pointer"
+                          >
+                            Enviar mensagem
+                          </button>
                         )}
                       </div>
                       <div>
@@ -1434,6 +1474,12 @@ export default function StudentDirectory() {
                               </div>
                               <div>
                                 <div className="flex items-center gap-2">
+                                  {enrolledList.length >= 1 && (
+                                    <span
+                                      className="w-2 h-2 rounded-full bg-[#e9c349] shadow-[0_0_6px_rgba(233,195,73,0.65)] shrink-0"
+                                      title="Matriculado em pelo menos 1 curso"
+                                    />
+                                  )}
                                   <span className="font-bold text-white text-sm">{fullName}</span>
                                   {isMaster && (
                                     <span className="px-1.5 py-0.5 bg-[#e9c349]/20 text-[#e9c349] border border-[#e9c349]/40 text-[9px] font-bold rounded uppercase tracking-wider">
@@ -1454,27 +1500,30 @@ export default function StudentDirectory() {
                             </div>
                           </td>
 
-                          {/* Telefone / WhatsApp */}
+                          {/* Telefone / Chat 1x1 */}
                           <td className="px-6 py-4 text-xs text-gray-300">
                             {userItem.phoneNumber || userItem.producerWhatsApp ? (
-                              <div className="flex items-center gap-2">
-                                <span className="font-mono">
+                              <button
+                                type="button"
+                                onClick={() => navigate(`/messages?tab=chat&studentId=${encodeURIComponent(userItem.id)}&studentName=${encodeURIComponent(fullName)}`)}
+                                className="inline-flex items-center gap-2 px-2.5 py-1.5 rounded-lg bg-[#e9c349]/10 hover:bg-[#e9c349]/20 text-[#e9c349] border border-[#e9c349]/30 transition-all cursor-pointer font-mono"
+                                title="Enviar Mensagem (Chat 1x1 na plataforma)"
+                              >
+                                <MessageSquare className="w-3.5 h-3.5 shrink-0" />
+                                <span>
                                   {maskPhone(userItem.phoneNumber || userItem.producerWhatsApp, isMasterUser, userItem.phoneCountryCode || '+244')}
                                 </span>
-                                {isMasterUser && (
-                                  <a
-                                    href={`https://wa.me/${(userItem.phoneCountryCode || '+244').replace(/[^0-9]/g, '')}${(userItem.phoneNumber || userItem.producerWhatsApp).replace(/[^0-9]/g, '')}?text=${encodeURIComponent(`Olá ${fullName}, suporte do Maestro Marks o Monstro - ACADEMY.`)}`}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    className="p-1.5 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 rounded-lg border border-emerald-500/30 transition-all"
-                                    title="Abrir WhatsApp Directo"
-                                  >
-                                    <Phone className="w-3.5 h-3.5" />
-                                  </a>
-                                )}
-                              </div>
+                              </button>
                             ) : (
-                              <span className="text-gray-600 italic">Não informado</span>
+                              <button
+                                type="button"
+                                onClick={() => navigate(`/messages?tab=chat&studentId=${encodeURIComponent(userItem.id)}&studentName=${encodeURIComponent(fullName)}`)}
+                                className="inline-flex items-center gap-1.5 text-gray-400 hover:text-[#e9c349] italic transition-colors cursor-pointer"
+                                title="Enviar Mensagem (Chat 1x1 na plataforma)"
+                              >
+                                <MessageSquare className="w-3.5 h-3.5" />
+                                <span>Enviar mensagem</span>
+                              </button>
                             )}
                           </td>
 
@@ -1595,13 +1644,25 @@ export default function StudentDirectory() {
                                         <button
                                           onClick={() => {
                                             setActiveMenuUserId(null);
-                                            navigate(`/messages?tab=chat&studentId=${encodeURIComponent(userItem.id)}`);
+                                            navigate(`/messages?tab=chat&studentId=${encodeURIComponent(userItem.id)}&studentName=${encodeURIComponent(fullName)}`);
                                           }}
                                           className="w-full px-4 py-2.5 text-xs text-[#e9c349] hover:bg-white/5 flex items-center gap-2.5 cursor-pointer font-bold"
                                         >
                                           <MessageSquare className="w-4 h-4" />
                                           <span>Enviar Mensagem (Chat)</span>
                                         </button>
+                                        {isMasterUser && (userItem.phoneNumber || userItem.producerWhatsApp) && (
+                                          <a
+                                            href={`https://wa.me/${(userItem.phoneCountryCode || '+244').replace(/[^0-9]/g, '')}${(userItem.phoneNumber || userItem.producerWhatsApp).replace(/[^0-9]/g, '')}?text=${encodeURIComponent(`Olá ${fullName}, suporte do Maestro Marks o Monstro - ACADEMY.`)}`}
+                                            target="_blank"
+                                            rel="noopener noreferrer"
+                                            onClick={() => setActiveMenuUserId(null)}
+                                            className="w-full px-4 py-2.5 text-xs text-emerald-400 hover:bg-white/5 flex items-center gap-2.5 cursor-pointer"
+                                          >
+                                            <Phone className="w-4 h-4" />
+                                            <span>Chamar no WhatsApp</span>
+                                          </a>
+                                        )}
                                         <button
                                           onClick={() => { handleOpenEditStudent(userItem); setActiveMenuUserId(null); }}
                                           className="w-full px-4 py-2.5 text-xs text-blue-300 hover:bg-white/5 flex items-center gap-2.5 cursor-pointer font-bold"

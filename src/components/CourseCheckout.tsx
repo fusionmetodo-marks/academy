@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { collection, addDoc, serverTimestamp, doc, getDoc, getDocs } from 'firebase/firestore';
 import { db, auth } from '../firebase';
 import { sendSystemNotification } from '../services/notificationService';
-import { ArrowLeft, Copy, Check, MessageCircle, ShieldCheck, Building2, Smartphone, CreditCard, Ticket, Tag, Sparkles } from 'lucide-react';
+import { ArrowLeft, Copy, Check, MessageCircle, MessageSquare, ShieldCheck, Building2, Smartphone, CreditCard, Ticket, Tag, Sparkles } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { Coupon } from '../types';
 
@@ -382,13 +382,38 @@ export default function CourseCheckout({ courseId, courseTitle, coursePrice, cou
     setTimeout(() => setCopiedKey(null), 2000);
   };
 
-  const handleConfirmAndRedirect = async (e: React.FormEvent) => {
-    e.preventDefault();
-    
+  const buildOfficialChatUrl = () => {
+    const selectedMethod = paymentMethods[activeMethodIndex] || paymentMethods[0];
+    const formattedAmount = new Intl.NumberFormat('pt-AO', {
+      style: 'currency',
+      currency: 'AOA',
+      maximumFractionDigits: 0,
+      minimumFractionDigits: 0,
+    }).format(finalPrice);
+    const params = new URLSearchParams({
+      courseId,
+      courseTitle: safeTitle,
+      paymentStatus: 'pending',
+      txAmount: formattedAmount,
+      paymentMethod: selectedMethod?.shortName || selectedMethod?.bankName || 'Transferência',
+    });
+    return `/library/chat?${params.toString()}`;
+  };
+
+  const handleGoToOfficialChat = () => {
+    const chatUrl = buildOfficialChatUrl();
+    if (!auth.currentUser) {
+      navigate(`/entrar?redirect=${encodeURIComponent(chatUrl)}`);
+      return;
+    }
+    navigate(chatUrl);
+  };
+
+  const submitPayment = async (destination: 'whatsapp' | 'chat') => {
     const finalStudentName = studentNameInput.trim() || user?.name || 'Aluno';
 
     const targetPhone = (producerWhatsApp || supportNumber || '244923456789').replace(/[^0-9]/g, '');
-    if (!targetPhone) {
+    if (destination === 'whatsapp' && !targetPhone) {
       alert('O número de WhatsApp para envio não está configurado.');
       return;
     }
@@ -478,6 +503,11 @@ export default function CourseCheckout({ courseId, courseTitle, coursePrice, cou
       setExistingTxStatus('pending');
       setSubmissionSuccess(true);
 
+      if (destination === 'chat') {
+        handleGoToOfficialChat();
+        return;
+      }
+
       // 4. Monta a mensagem completa e organizada para o WhatsApp do suporte (+244954890702)
       const whatsappUrl = buildPaymentProofWhatsAppUrl({
         studentName: finalStudentName,
@@ -507,6 +537,11 @@ export default function CourseCheckout({ courseId, courseTitle, coursePrice, cou
       setExistingTxStatus('pending');
       setSubmissionSuccess(true);
 
+      if (destination === 'chat') {
+        handleGoToOfficialChat();
+        return;
+      }
+
       const messageText = `Olá! O meu nome é *${finalStudentName}*.\n` +
         `Acabei de efetuar a inscrição e o pagamento do curso *"${safeTitle}"*.\n\n` +
         `📋 *Detalhes da Inscrição:*\n` +
@@ -521,6 +556,11 @@ export default function CourseCheckout({ courseId, courseTitle, coursePrice, cou
     } finally {
       setIsSubmitting(false);
     }
+  };
+
+  const handleConfirmAndRedirect = async (e: React.FormEvent) => {
+    e.preventDefault();
+    await submitPayment('whatsapp');
   };
 
   const targetWhatsAppClean = (producerWhatsApp || supportNumber || '244923456789').replace(/[^0-9]/g, '');
@@ -560,7 +600,7 @@ export default function CourseCheckout({ courseId, courseTitle, coursePrice, cou
             <p className="text-gray-400 text-xs sm:text-sm mb-6 sm:mb-8 leading-relaxed">
               1. Selecione abaixo o método de pagamento oficial ativo.<br/>
               2. Efetue a transferência ou depósito correspondente.<br/>
-              3. Clique em enviar para encaminhar o comprovativo diretamente ao suporte no WhatsApp.
+              3. Clique em <strong>Já Paguei</strong> para comunicar diretamente com o administrador no Chat Oficial da plataforma ou via WhatsApp.
             </p>
 
             {/* ABAS HORIZONTAIS DE MÉTODOS */}
@@ -809,10 +849,19 @@ export default function CourseCheckout({ courseId, courseTitle, coursePrice, cou
                   </div>
 
                   <p className="text-xs text-stone-300 leading-relaxed">
-                    A sua solicitação foi encaminhada para a <strong>área administrativa</strong>. Por favor, certifique-se de que enviou o comprovativo bancário no WhatsApp para que a equipe possa aprovar o seu acesso.
+                    A sua solicitação foi encaminhada para a <strong>área administrativa</strong>. Entre em comunicação com o administrador no <strong>Chat Oficial da plataforma</strong> ou envie o comprovativo bancário pelo WhatsApp para aprovação do seu acesso.
                   </p>
 
-                  <div className="space-y-2 pt-2">
+                  <div className="space-y-2.5 pt-2">
+                    <button
+                      type="button"
+                      onClick={handleGoToOfficialChat}
+                      className="w-full bg-[#e9c349] hover:bg-[#d4b03f] text-black font-extrabold py-3.5 px-4 rounded-xl text-xs uppercase tracking-wider flex items-center justify-center gap-2 shadow-lg transition-all cursor-pointer active:scale-95"
+                    >
+                      <MessageSquare className="w-4 h-4 shrink-0" />
+                      <span>Enviar Mensagem para o Administrador (Chat Oficial)</span>
+                    </button>
+
                     <a
                       href={`https://wa.me/${targetWhatsAppClean}?text=${encodeURIComponent(
                         `Olá! O meu nome é *${studentNameInput.trim() || user?.name || 'Aluno'}*.\n` +
@@ -936,7 +985,26 @@ export default function CourseCheckout({ courseId, courseTitle, coursePrice, cou
                     </div>
                   </div>
 
-                  <div className="space-y-2 pt-2">
+                  <div className="space-y-2.5 pt-2">
+                    <button
+                      type="button"
+                      disabled={isSubmitting}
+                      onClick={() => submitPayment('chat')}
+                      className="w-full bg-[#e9c349] text-black font-extrabold py-3.5 px-4 rounded-xl flex items-center justify-center gap-2 hover:bg-[#d4b03f] transition-all transform hover:scale-[1.01] active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed text-xs sm:text-sm uppercase tracking-wider cursor-pointer shadow-lg"
+                    >
+                      {isSubmitting ? (
+                        <>
+                          <div className="w-4 h-4 border-2 border-black border-t-transparent rounded-full animate-spin"></div>
+                          <span>Processando...</span>
+                        </>
+                      ) : (
+                        <>
+                          <MessageSquare className="w-4.5 h-4.5 shrink-0" />
+                          <span>Enviar Mensagem para o Administrador (Chat Oficial)</span>
+                        </>
+                      )}
+                    </button>
+
                     <button
                       type="submit"
                       disabled={isSubmitting}
@@ -969,7 +1037,7 @@ export default function CourseCheckout({ courseId, courseTitle, coursePrice, cou
               <div className="mt-6 pt-4 border-t border-gray-800 flex items-start gap-2.5 text-gray-400 text-xs">
                 <ShieldCheck className="w-4 h-4 text-[#e9c349] shrink-0 mt-0.5" />
                 <span className="leading-relaxed text-[11px]">
-                  O seu acesso será liberado assim que o suporte ou produtor validar o seu comprovativo no WhatsApp.
+                  O seu acesso será liberado assim que o administrador ou produtor validar o seu pagamento no Chat Oficial da plataforma ou no WhatsApp.
                 </span>
               </div>
             </div>

@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { User, Mail, Shield, CheckCircle2, Key, Phone, BookOpen, Lock, AlertCircle, Hash, RefreshCw, Send, Edit2, Save, X, MessageCircle } from 'lucide-react';
+import { User, Mail, Shield, CheckCircle2, Key, Phone, BookOpen, Lock, AlertCircle, Hash, RefreshCw, Send, Edit2, Save, X, MessageCircle, MessageSquare } from 'lucide-react';
 import { auth, db } from '../firebase';
 import { doc, getDoc, updateDoc, setDoc } from 'firebase/firestore';
 import { sendPasswordResetEmail, updateProfile } from 'firebase/auth';
+import { claimPreRegisteredChatsForUser, normalizePhoneDigits } from '../services/chatService';
 
 export default function StudentProfile() {
   const navigate = useNavigate();
@@ -159,10 +160,20 @@ export default function StudentProfile() {
       setPhoneError('');
       setPhoneSuccess('');
 
+      const ddi = profile?.phoneCountryCode || '+244';
+      const normalizedPhone = normalizePhoneDigits(`${ddi} ${phoneInput}`, ddi) || '';
       const docRef = doc(db, 'users', user.uid);
-      await setDoc(docRef, { phoneNumber: phoneInput }, { merge: true });
+      await setDoc(docRef, { phoneNumber: phoneInput, normalizedPhone }, { merge: true });
 
-      setProfile((prev: any) => ({ ...prev, phoneNumber: phoneInput }));
+      await claimPreRegisteredChatsForUser({
+        uid: user.uid,
+        email: user.email || profile?.email,
+        name: profile?.fullName || profile?.name || user.displayName,
+        phoneCountryCode: ddi,
+        phoneNumber: phoneInput,
+      });
+
+      setProfile((prev: any) => ({ ...prev, phoneNumber: phoneInput, normalizedPhone }));
       setPhoneSuccess('Telefone atualizado com sucesso!');
       setIsEditingPhone(false);
       setTimeout(() => setPhoneSuccess(''), 4000);
@@ -716,19 +727,29 @@ export default function StudentProfile() {
                   <MessageCircle className="w-6 h-6" />
                 </div>
                 <div>
-                  <h4 className="font-bold text-white text-base">Precisa de Ajuda ou Suporte Técnico?</h4>
-                  <p className="text-xs text-gray-400 mt-0.5">Entre em contato direto com a nossa equipe acadêmica no WhatsApp para assistência imediata.</p>
+                  <h4 className="font-bold text-white text-base">Precisa de Ajuda ou Falar com o Administrador?</h4>
+                  <p className="text-xs text-gray-400 mt-0.5">Envie uma mensagem direta no Chat Oficial da plataforma ou entre em contato via WhatsApp.</p>
                 </div>
               </div>
-              <a
-                href={waUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="bg-[#25D366] text-black font-extrabold px-6 py-4 rounded-xl text-xs hover:bg-[#20ba5a] hover:scale-105 active:scale-95 transition-all flex items-center justify-center gap-2 cursor-pointer shadow-lg shadow-green-500/10 shrink-0 w-full md:w-auto"
-              >
-                <MessageCircle className="w-4 h-4 fill-black" />
-                <span>Falar com Suporte WhatsApp</span>
-              </a>
+              <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5 shrink-0 w-full md:w-auto">
+                <button
+                  type="button"
+                  onClick={() => navigate('/library/chat')}
+                  className="bg-[#e9c349] text-black font-extrabold px-5 py-3.5 rounded-xl text-xs hover:bg-[#d4b03f] hover:scale-[1.02] active:scale-95 transition-all flex items-center justify-center gap-2 cursor-pointer shadow-lg"
+                >
+                  <MessageSquare className="w-4 h-4" />
+                  <span>Chat Oficial com Administrador</span>
+                </button>
+                <a
+                  href={waUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="bg-[#25D366] text-black font-extrabold px-5 py-3.5 rounded-xl text-xs hover:bg-[#20ba5a] hover:scale-[1.02] active:scale-95 transition-all flex items-center justify-center gap-2 cursor-pointer shadow-lg shadow-green-500/10"
+                >
+                  <MessageCircle className="w-4 h-4 fill-black" />
+                  <span>Suporte WhatsApp</span>
+                </a>
+              </div>
             </div>
           );
         })()}

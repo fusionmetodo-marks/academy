@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { collection, getDocs, onSnapshot } from 'firebase/firestore';
 import { auth, db } from '../firebase';
 import { subscribeUserEnrollments } from '../services/enrollmentService';
-import { BookOpen, Play, CheckCircle2, Award, ArrowRight, Clock, ExternalLink } from 'lucide-react';
+import { BookOpen, Play, CheckCircle2, Award, ArrowRight, Clock, ExternalLink, MessageSquare } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { sortCoursesByLevel } from '../utils/courseSorting';
 
@@ -19,7 +19,7 @@ interface Course {
   }>;
 }
 
-export default function StudentMyCourses({ onExplore }: { onExplore: () => void }) {
+export default function StudentMyCourses({ onExplore, onOpenChat }: { onExplore: () => void; onOpenChat?: () => void }) {
   const navigate = useNavigate();
   const [courses, setCourses] = useState<Course[]>([]);
   const [allCourses, setAllCourses] = useState<Course[]>([]);
@@ -95,12 +95,24 @@ export default function StudentMyCourses({ onExplore }: { onExplore: () => void 
           <BookOpen className="w-10 h-10 sm:w-16 sm:h-16 text-[#e9c349] mx-auto mb-3 sm:mb-4 opacity-80" />
           <h3 className="text-base sm:text-xl font-bold text-white mb-1.5 sm:mb-2">Nenhum curso na sua conta ainda</h3>
           <p className="text-gray-400 text-[11px] sm:text-xs md:text-sm mb-5 sm:mb-6">Você ainda não se matriculou em nenhum treinamento ou sua matrícula está pendente de aprovação.</p>
-          <button
-            onClick={onExplore}
-            className="w-full sm:w-auto bg-[#e9c349] text-black font-bold px-5 py-2.5 sm:px-6 sm:py-3 rounded-xl hover:bg-[#d4b03f] transition-all cursor-pointer text-xs sm:text-sm shadow-md active:scale-95"
-          >
-            Explorar Catálogo de Cursos
-          </button>
+          <div className="flex flex-col sm:flex-row items-center justify-center gap-3">
+            <button
+              onClick={onExplore}
+              className="w-full sm:w-auto bg-[#e9c349] text-black font-bold px-5 py-2.5 sm:px-6 sm:py-3 rounded-xl hover:bg-[#d4b03f] transition-all cursor-pointer text-xs sm:text-sm shadow-md active:scale-95"
+            >
+              Explorar Catálogo de Cursos
+            </button>
+            {onOpenChat && (
+              <button
+                type="button"
+                onClick={onOpenChat}
+                className="w-full sm:w-auto bg-white/5 hover:bg-white/10 text-white border border-white/15 font-bold px-5 py-2.5 sm:px-6 sm:py-3 rounded-xl transition-all cursor-pointer text-xs sm:text-sm flex items-center justify-center gap-2 active:scale-95"
+              >
+                <MessageSquare className="w-4 h-4 text-[#e9c349]" />
+                <span>Enviar Mensagem ao Administrador</span>
+              </button>
+            )}
+          </div>
         </div>
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-4 sm:gap-6">

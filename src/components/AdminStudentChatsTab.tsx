@@ -10,6 +10,10 @@ import {
   AlertCircle,
   Users,
   Phone,
+  UserPlus,
+  Plus,
+  Bell,
+  Inbox,
 } from 'lucide-react';
 import { collection, onSnapshot } from 'firebase/firestore';
 import { auth, db } from '../firebase';
@@ -18,22 +22,33 @@ import { maskEmail, maskPhone } from '../utils/maskUtils';
 import {
   ChatMessage,
   ChatThread,
+  buildPreRegisteredChatId,
+  extractStudentPhoneString,
+  isPreRegisteredChatId,
   markChatAsRead,
+  normalizeContactEmail,
+  normalizePhoneDigits,
+  resolveChatTargetForContact,
   sendDirectChatMessage,
   subscribeAllChatThreads,
   subscribeChatMessages,
 } from '../services/chatService';
 
-interface StudentOption {
+interface ContactOption {
   id: string;
   name: string;
   email: string;
   phone: string;
+  enrolledCount: number;
+  isPreRegistered: boolean;
+  sourceLabel?: string;
 }
 
 interface AdminStudentChatsTabProps {
   initialStudentId?: string | null;
   initialStudentName?: string | null;
+  initialStudentEmail?: string | null;
+  initialStudentPhone?: string | null;
   initialLessonTitle?: string | null;
   initialCourseTitle?: string | null;
 }
@@ -88,11 +103,15 @@ const formatFullMessageTime = (ms: number) => {
 export default function AdminStudentChatsTab({
   initialStudentId = null,
   initialStudentName = null,
+  initialStudentEmail = null,
+  initialStudentPhone = null,
   initialLessonTitle = null,
   initialCourseTitle = null,
 }: AdminStudentChatsTabProps) {
   const [threads, setThreads] = useState<ChatThread[]>([]);
-  const [students, setStudents] = useState<StudentOption[]>([]);
+  const [students, setStudents] = useState<ContactOption[]>([]);
+  const [pendingBuyerContacts, setPendingBuyerContacts] = useState<ContactOption[]>([]);
+  const [manualContacts, setManualContacts] = useState<Record<string, ContactOption>>({});
   const [loadingThreads, setLoadingThreads] = useState(true);
 
   const [selectedStudentId, setSelectedStudentId] = useState<string | null>(initialStudentId);
@@ -113,6 +132,14 @@ export default function AdminStudentChatsTab({
       : null
   );
 
+  // Modal de Novo Contato (Não Cadastrado)
+  const [isNewContactOpen, setIsNewContactOpen] = useState(false);
+  const [newContactName, setNewContactName] = useState('');
+  const [newContactEmail, setNewContactEmail] = useState('');
+  const [newContactDdi, setNewContactDdi] = useState('+244');
+  const [newContactPhone, setNewContactPhone] = useState('');
+  const [newContactError, setNewContactError] = useState<string | null>(null);
+
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const currentUser = auth.currentUser;
   const isMasterViewer = isMasterEmail(currentUser?.email);
@@ -120,8 +147,21 @@ export default function AdminStudentChatsTab({
   useEffect(() => {
     if (initialStudentId) {
       setSelectedStudentId(initialStudentId);
+      if (isPreRegisteredChatId(initialStudentId) || initialStudentEmail || initialStudentPhone) {
+        setManualContacts((prev) => ({
+          ...prev,
+          [initialStudentId]: {
+            id: initialStudentId,
+            name: initialStudentName || prev[initialStudentId]?.name || 'Contato',
+            email: normalizeContactEmail(initialStudentEmail) || prev[initialStudentId]?.email || '',
+            phone: String(initialStudentPhone || prev[initialStudentId]?.phone || '').trim(),
+            enrolledCount: 0,
+            isPreRegistered: isPreRegisteredChatId(initialStudentId),
+          },
+        }));
+      }
     }
-  }, [initialStudentId]);
+  }, [initialStudentId, initialStudentName, initialStudentEmail, initialStudentPhone]);
 
   useEffect(() => {
     if (initialLessonTitle || initialCourseTitle) {
@@ -142,23 +182,24 @@ export default function AdminStudentChatsTab({
     const unsubUsers = onSnapshot(
       collection(db, 'users'),
       (snap) => {
-        const list: StudentOption[] = [];
+        const list: ContactOption[] = [];
         snap.forEach((docSnap) => {
           const u = docSnap.data();
           const email = String(u.email || '').trim().toLowerCase();
           const isMaster = isMasterEmail(email);
-          const isStaff = u.role === 'admin' || u.role === 'producer' || u.roleType === 'producer';
-          if (isMaster || isStaff) return;
+          const isAdminRole = u.role === 'admin' || u.roleType === 'admin';
+          if (isMaster || isAdminRole) return;
 
-          const phone = u.phoneNumber
-            ? `${u.phoneCountryCode || '+244'} ${u.phoneNumber}`.trim()
-            : '';
+          const phone = extractStudentPhoneString({ id: docSnap.id, ...u });
+          const enrolledCount = Array.isArray(u.enrolledCourses) ? u.enrolledCourses.length : 0;
 
           list.push({
             id: docSnap.id,
             name: getStudentDisplayName(u),
             email,
             phone,
+            enrolledCount,
+            isPreRegistered: false,
           });
         });
         list.sort((a, b) => a.name.localeCompare(b.name, 'pt', { sensitivity: 'base' }));
@@ -169,11 +210,89 @@ export default function AdminStudentChatsTab({
       }
     );
 
+    const unsubTransactions = onSnapshot(
+      collection(db, 'transactions'),
+      (snap) => {
+        const map = new Map<string, ContactOption>();
+        snap.forEach((docSnap) => {
+          const tx = docSnap.data();
+          const rawPhone = String(tx.userPhone || '').trim();
+          const cleanEmail = normalizeContactEmail(tx.userEmail);
+          const rawUserId = String(tx.userId || '').trim();
+          const rawName = String(tx.userName || '').trim();
+          if (!cleanEmail && !rawPhone && (!rawUserId || rawUserId.startsWith('guest_'))) return;
+
+          const preId = buildPreRegisteredChatId({
+            email: cleanEmail,
+            phone: rawPhone,
+            fallbackKey: rawUserId || docSnap.id,
+          });
+
+          if (!map.has(preId)) {
+            map.set(preId, {
+              id: preId,
+              name: rawName || (cleanEmail ? cleanEmail.split('@')[0] : rawPhone) || 'Comprador',
+              email: cleanEmail || '',
+              phone: rawPhone,
+              enrolledCount: 0,
+              isPreRegistered: true,
+              sourceLabel: tx.status === 'pending' ? 'Compra pendente' : 'Comprador',
+            });
+          } else {
+            const prev = map.get(preId)!;
+            map.set(preId, {
+              ...prev,
+              name: prev.name === 'Comprador' && rawName ? rawName : prev.name,
+              email: prev.email || cleanEmail || '',
+              phone: prev.phone || rawPhone,
+            });
+          }
+        });
+        setPendingBuyerContacts(Array.from(map.values()));
+      },
+      (err) => {
+        console.warn('Aviso ao carregar compradores de transações no chat:', err);
+      }
+    );
+
     return () => {
       unsubThreads();
       unsubUsers();
+      unsubTransactions();
     };
   }, []);
+
+  // Redireciona automaticamente caso o ID selecionado tenha sido mesclado a uma conta cadastrada
+  useEffect(() => {
+    if (!selectedStudentId) return;
+    const matchedThread = threads.find((t) => t.studentId === selectedStudentId);
+    if (matchedThread?.mergedIntoChatId && matchedThread.mergedIntoChatId !== selectedStudentId) {
+      setSelectedStudentId(matchedThread.mergedIntoChatId);
+      return;
+    }
+
+    if (isPreRegisteredChatId(selectedStudentId)) {
+      const adHoc = manualContacts[selectedStudentId];
+      const resolved = resolveChatTargetForContact({
+        registeredStudents: students,
+        userId: selectedStudentId,
+        name: adHoc?.name || initialStudentName,
+        email: adHoc?.email || initialStudentEmail,
+        phone: adHoc?.phone || initialStudentPhone,
+      });
+      if (!resolved.isPreRegistered && resolved.chatId !== selectedStudentId) {
+        setSelectedStudentId(resolved.chatId);
+      }
+    }
+  }, [
+    selectedStudentId,
+    threads,
+    students,
+    manualContacts,
+    initialStudentName,
+    initialStudentEmail,
+    initialStudentPhone,
+  ]);
 
   // Inscreve-se nas mensagens do estudante selecionado
   useEffect(() => {
@@ -192,9 +311,14 @@ export default function AdminStudentChatsTab({
     return () => unsub();
   }, [selectedStudentId]);
 
+  const activeThreads = useMemo(
+    () => threads.filter((t) => !t.mergedIntoChatId),
+    [threads]
+  );
+
   const activeThread = useMemo(
-    () => threads.find((t) => t.studentId === selectedStudentId) || null,
-    [threads, selectedStudentId]
+    () => activeThreads.find((t) => t.studentId === selectedStudentId) || null,
+    [activeThreads, selectedStudentId]
   );
 
   // Marca como lida automaticamente quando o admin abre a conversa com não lidas
@@ -208,14 +332,41 @@ export default function AdminStudentChatsTab({
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages.length, selectedStudentId]);
 
-  const threadStudentIds = useMemo(() => new Set(threads.map((t) => t.studentId)), [threads]);
+  const studentByIdMap = useMemo(() => {
+    const map = new Map<string, ContactOption>();
+    students.forEach((s) => map.set(s.id, s));
+    return map;
+  }, [students]);
+
+  const registeredEmailSet = useMemo(() => {
+    const set = new Set<string>();
+    students.forEach((s) => {
+      const em = normalizeContactEmail(s.email);
+      if (em) set.add(em);
+    });
+    return set;
+  }, [students]);
+
+  const registeredPhoneSet = useMemo(() => {
+    const set = new Set<string>();
+    students.forEach((s) => {
+      const ph = normalizePhoneDigits(s.phone);
+      if (ph) set.add(ph);
+    });
+    return set;
+  }, [students]);
+
+  const threadStudentIds = useMemo(
+    () => new Set(activeThreads.map((t) => t.studentId)),
+    [activeThreads]
+  );
 
   const filteredThreads = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
-    return threads.filter((t) => {
+    return activeThreads.filter((t) => {
       if (filterMode === 'unread' && t.unreadByAdmin <= 0) return false;
       if (!q) return true;
-      const linkedUser = students.find((s) => s.id === t.studentId);
+      const linkedUser = studentByIdMap.get(t.studentId);
       const resolvedPhone = String(linkedUser?.phone || t.studentPhone || '').toLowerCase();
       return (
         t.studentName.toLowerCase().includes(q) ||
@@ -224,40 +375,140 @@ export default function AdminStudentChatsTab({
         t.lastMessage.toLowerCase().includes(q)
       );
     });
-  }, [threads, students, searchQuery, filterMode]);
+  }, [activeThreads, studentByIdMap, searchQuery, filterMode]);
 
   const newChatCandidates = useMemo(() => {
     if (filterMode === 'unread') return [];
     const q = searchQuery.trim().toLowerCase();
-    const list = students.filter((s) => !threadStudentIds.has(s.id));
-    if (!q) return list.slice(0, 25);
-    return list
-      .filter(
-        (s) =>
-          s.name.toLowerCase().includes(q) ||
-          s.email.toLowerCase().includes(q) ||
-          s.phone.toLowerCase().includes(q)
-      )
-      .slice(0, 25);
-  }, [students, threadStudentIds, searchQuery, filterMode]);
+
+    const registeredCandidates = students.filter((s) => !threadStudentIds.has(s.id));
+
+    const preCandidates = pendingBuyerContacts.filter((p) => {
+      if (threadStudentIds.has(p.id)) return false;
+      const em = normalizeContactEmail(p.email);
+      const ph = normalizePhoneDigits(p.phone);
+      if (em && registeredEmailSet.has(em)) return false;
+      if (ph && registeredPhoneSet.has(ph)) return false;
+      return true;
+    });
+
+    const combined = [...registeredCandidates, ...preCandidates];
+    if (!q) return combined;
+    return combined.filter(
+      (s) =>
+        s.name.toLowerCase().includes(q) ||
+        s.email.toLowerCase().includes(q) ||
+        s.phone.toLowerCase().includes(q)
+    );
+  }, [
+    students,
+    pendingBuyerContacts,
+    threadStudentIds,
+    registeredEmailSet,
+    registeredPhoneSet,
+    searchQuery,
+    filterMode,
+  ]);
 
   const selectedStudentInfo = useMemo(() => {
     if (!selectedStudentId) return null;
-    const fromThread = threads.find((t) => t.studentId === selectedStudentId);
-    const fromUsers = students.find((s) => s.id === selectedStudentId);
+    const fromThread = activeThreads.find((t) => t.studentId === selectedStudentId);
+    const fromUsers = studentByIdMap.get(selectedStudentId);
+    const fromPending = pendingBuyerContacts.find((p) => p.id === selectedStudentId);
+    const fromManual = manualContacts[selectedStudentId];
+
+    const isPreReg =
+      !fromUsers &&
+      (fromThread?.isPreRegistered ??
+        (isPreRegisteredChatId(selectedStudentId) || Boolean(fromManual?.isPreRegistered) || Boolean(fromPending)));
 
     return {
       id: selectedStudentId,
-      name: fromUsers?.name || fromThread?.studentName || initialStudentName || 'Estudante',
-      email: fromUsers?.email || fromThread?.studentEmail || '',
-      phone: fromUsers?.phone || fromThread?.studentPhone || '',
+      name:
+        fromUsers?.name ||
+        fromThread?.studentName ||
+        fromManual?.name ||
+        fromPending?.name ||
+        initialStudentName ||
+        'Estudante',
+      email:
+        fromUsers?.email ||
+        fromThread?.studentEmail ||
+        fromManual?.email ||
+        fromPending?.email ||
+        initialStudentEmail ||
+        '',
+      phone:
+        fromUsers?.phone ||
+        fromThread?.studentPhone ||
+        fromManual?.phone ||
+        fromPending?.phone ||
+        initialStudentPhone ||
+        '',
+      enrolledCount: fromUsers?.enrolledCount ?? 0,
+      isPreRegistered: Boolean(isPreReg),
     };
-  }, [selectedStudentId, threads, students, initialStudentName]);
+  }, [
+    selectedStudentId,
+    activeThreads,
+    studentByIdMap,
+    pendingBuyerContacts,
+    manualContacts,
+    initialStudentName,
+    initialStudentEmail,
+    initialStudentPhone,
+  ]);
 
   const totalUnread = useMemo(
-    () => threads.reduce((acc, t) => acc + (t.unreadByAdmin || 0), 0),
-    [threads]
+    () => activeThreads.reduce((acc, t) => acc + (t.unreadByAdmin || 0), 0),
+    [activeThreads]
   );
+
+  const handleCreateManualContact = (e: React.FormEvent) => {
+    e.preventDefault();
+    const cleanName = newContactName.trim();
+    const cleanEmail = normalizeContactEmail(newContactEmail);
+    const rawPhone = newContactPhone.trim();
+    const formattedPhone = rawPhone ? `${newContactDdi} ${rawPhone}`.trim() : '';
+
+    if (!cleanName || cleanName.length < 2) {
+      setNewContactError('Informe o nome completo do destinatário.');
+      return;
+    }
+    if (!cleanEmail && (!rawPhone || rawPhone.replace(/[^0-9]/g, '').length < 6)) {
+      setNewContactError('Informe pelo menos um E-mail ou Telefone válido para vincular quando o aluno se cadastrar.');
+      return;
+    }
+
+    const resolved = resolveChatTargetForContact({
+      registeredStudents: students,
+      name: cleanName,
+      email: cleanEmail,
+      phone: formattedPhone,
+    });
+
+    if (resolved.isPreRegistered) {
+      setManualContacts((prev) => ({
+        ...prev,
+        [resolved.chatId]: {
+          id: resolved.chatId,
+          name: resolved.name,
+          email: resolved.email || '',
+          phone: resolved.phone || '',
+          enrolledCount: 0,
+          isPreRegistered: true,
+          sourceLabel: 'Contato manual',
+        },
+      }));
+    }
+
+    setSelectedStudentId(resolved.chatId);
+    setNewContactName('');
+    setNewContactEmail('');
+    setNewContactPhone('');
+    setNewContactError(null);
+    setIsNewContactOpen(false);
+  };
 
   const handleSend = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
@@ -271,11 +522,12 @@ export default function AdminStudentChatsTab({
         currentUser?.displayName ||
         (isMasterViewer ? 'Administração Marks ACADEMY' : currentUser?.email?.split('@')[0] || 'Administração');
 
-      await sendDirectChatMessage({
+      const finalChatId = await sendDirectChatMessage({
         studentId: selectedStudentInfo.id,
         studentName: selectedStudentInfo.name,
         studentEmail: selectedStudentInfo.email || null,
         studentPhone: selectedStudentInfo.phone || null,
+        isPreRegistered: selectedStudentInfo.isPreRegistered,
         senderId: currentUser?.uid,
         senderName: adminDisplayName,
         senderRole: 'admin',
@@ -283,6 +535,10 @@ export default function AdminStudentChatsTab({
         contextLessonTitle: lessonContext?.lessonTitle || null,
         contextCourseTitle: lessonContext?.courseTitle || null,
       });
+
+      if (finalChatId && finalChatId !== selectedStudentInfo.id) {
+        setSelectedStudentId(finalChatId);
+      }
 
       setDraft('');
       setLessonContext(null);
@@ -302,376 +558,615 @@ export default function AdminStudentChatsTab({
   };
 
   return (
-    <div className="bg-[#181818] border border-[#353534] rounded-3xl overflow-hidden shadow-xl grid grid-cols-1 lg:grid-cols-12 h-[660px]">
-      {/* Coluna Esquerda: Lista de Conversas e Alunos */}
-      <div
-        className={`lg:col-span-4 border-r border-[#353534] flex flex-col bg-[#121212] min-h-0 ${
-          selectedStudentId ? 'hidden lg:flex' : 'flex'
-        }`}
-      >
-        <div className="p-4 border-b border-[#353534] space-y-3 shrink-0">
-          <div className="flex items-center justify-between gap-2">
-            <div className="flex items-center gap-2">
-              <Users className="w-4 h-4 text-[#e9c349]" />
-              <span className="text-xs font-bold uppercase tracking-wider text-stone-200">
-                Conversas Individuais
-              </span>
+    <>
+      {/* Quadros Visuais de Resumo (Mensagens Não Lidas, Conversas e Alunos) */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
+        <div className="bg-[#181818] border border-[#353534] rounded-2xl p-4 flex items-center justify-between shadow-lg">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-[#e9c349]/15 text-[#e9c349] flex items-center justify-center shrink-0 border border-[#e9c349]/30">
+              <Bell className="w-5 h-5" />
             </div>
-            {totalUnread > 0 && (
-              <span className="text-[11px] font-mono tabular-nums font-bold text-[#e9c349]">
-                {totalUnread} não {totalUnread === 1 ? 'lida' : 'lidas'}
-              </span>
-            )}
+            <div>
+              <span className="text-[10px] uppercase font-bold text-stone-400 block">Mensagens Não Lidas</span>
+              <span className="text-xl font-extrabold text-[#e9c349] font-mono">{totalUnread}</span>
+            </div>
           </div>
+          {totalUnread > 0 && (
+            <span className="px-2 py-0.5 rounded-full bg-[#e9c349] text-black text-[10px] font-extrabold font-mono">
+              Nova
+            </span>
+          )}
+        </div>
 
-          <div className="relative">
-            <Search className="w-4 h-4 text-stone-500 absolute left-3 top-1/2 -translate-y-1/2" />
-            <input
-              type="text"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Buscar por nome, e-mail ou telefone..."
-              className="w-full bg-[#0a0a0a] border border-[#353534] rounded-xl pl-9 pr-3 py-2 text-xs text-white placeholder:text-stone-500 focus:outline-none focus:border-[#e9c349]"
-            />
-          </div>
-
-          <div className="flex items-center gap-1.5">
-            <button
-              type="button"
-              onClick={() => setFilterMode('all')}
-              className={`flex-1 py-1.5 rounded-lg text-[11px] font-bold transition-colors cursor-pointer ${
-                filterMode === 'all'
-                  ? 'bg-[#e9c349] text-black'
-                  : 'bg-[#1c1c1c] text-stone-400 hover:text-white'
-              }`}
-            >
-              Todas ({threads.length})
-            </button>
-            <button
-              type="button"
-              onClick={() => setFilterMode('unread')}
-              className={`flex-1 py-1.5 rounded-lg text-[11px] font-bold transition-colors cursor-pointer ${
-                filterMode === 'unread'
-                  ? 'bg-[#e9c349] text-black'
-                  : 'bg-[#1c1c1c] text-stone-400 hover:text-white'
-              }`}
-            >
-              Não lidas ({threads.filter((t) => t.unreadByAdmin > 0).length})
-            </button>
+        <div className="bg-[#181818] border border-[#353534] rounded-2xl p-4 flex items-center justify-between shadow-lg">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-blue-500/15 text-blue-400 flex items-center justify-center shrink-0 border border-blue-500/30">
+              <Inbox className="w-5 h-5" />
+            </div>
+            <div>
+              <span className="text-[10px] uppercase font-bold text-stone-400 block">Conversas Ativas</span>
+              <span className="text-xl font-extrabold text-white font-mono">{activeThreads.length}</span>
+            </div>
           </div>
         </div>
 
-        <div className="flex-1 overflow-y-auto divide-y divide-[#353534]/50">
-          {loadingThreads ? (
-            <div className="p-8 text-center text-xs text-stone-500">
-              Carregando conversas...
+        <div className="bg-[#181818] border border-[#353534] rounded-2xl p-4 flex items-center justify-between shadow-lg">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-emerald-500/15 text-emerald-400 flex items-center justify-center shrink-0 border border-emerald-500/30">
+              <Users className="w-5 h-5" />
             </div>
-          ) : (
-            <>
-              {filteredThreads.map((t) => {
-                const isSelected = selectedStudentId === t.studentId;
-                const hasUnread = t.unreadByAdmin > 0;
-                const initial = (t.studentName?.[0] || 'E').toUpperCase();
+            <div>
+              <span className="text-[10px] uppercase font-bold text-stone-400 block">Alunos Cadastrados</span>
+              <span className="text-xl font-extrabold text-white font-mono">{students.length}</span>
+            </div>
+          </div>
+        </div>
+      </div>
 
-                return (
-                  <button
-                    key={t.studentId}
-                    type="button"
-                    onClick={() => setSelectedStudentId(t.studentId)}
-                    className={`w-full text-left px-4 py-3.5 flex items-start gap-3 transition-colors cursor-pointer ${
-                      isSelected
-                        ? 'bg-[#e9c349]/10 border-l-2 border-l-[#e9c349]'
-                        : 'hover:bg-[#1a1a1a]'
-                    }`}
-                  >
-                    <div className="w-9 h-9 rounded-full bg-[#242424] border border-white/10 text-stone-200 font-bold text-xs flex items-center justify-center shrink-0 mt-0.5">
-                      {initial}
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center justify-between gap-2">
-                        <span
-                          className={`text-xs font-bold truncate ${
-                            hasUnread || isSelected ? 'text-white' : 'text-stone-200'
-                          }`}
-                        >
-                          {t.studentName}
-                        </span>
-                        <span className="text-[10px] font-mono tabular-nums text-stone-500 shrink-0">
-                          {formatListTime(t.lastMessageAtMs)}
-                        </span>
+      <div className="bg-[#181818] border border-[#353534] rounded-3xl overflow-hidden shadow-xl grid grid-cols-1 lg:grid-cols-12 h-[660px]">
+        {/* Coluna Esquerda: Lista de Conversas e Alunos */}
+        <div
+          className={`lg:col-span-4 border-r border-[#353534] flex flex-col bg-[#121212] min-h-0 ${
+            selectedStudentId ? 'hidden lg:flex' : 'flex'
+          }`}
+        >
+          <div className="p-4 border-b border-[#353534] space-y-3 shrink-0">
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex items-center gap-2 min-w-0">
+                <Users className="w-4 h-4 text-[#e9c349] shrink-0" />
+                <span className="text-xs font-bold uppercase tracking-wider text-stone-200 truncate">
+                  Conversas Individuais
+                </span>
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => setIsNewContactOpen(true)}
+                  className="w-7 h-7 rounded-xl bg-[#e9c349] hover:bg-[#d4b03f] text-black flex items-center justify-center transition-all cursor-pointer shadow-md active:scale-95"
+                  title="Enviar nova mensagem (Pesquisar aluno)"
+                >
+                  <Plus className="w-4 h-4 stroke-[3]" />
+                </button>
+                {totalUnread > 0 && (
+                  <span className="text-[11px] font-mono tabular-nums font-bold text-[#e9c349]">
+                    {totalUnread} não {totalUnread === 1 ? 'lida' : 'lidas'}
+                  </span>
+                )}
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2 text-[10px] text-stone-400">
+              <span className="w-2 h-2 rounded-full bg-[#e9c349] shadow-[0_0_6px_rgba(233,195,73,0.6)] shrink-0" />
+              <span>Matriculado em curso(s)</span>
+            </div>
+
+            <div className="relative">
+              <Search className="w-4 h-4 text-stone-500 absolute left-3 top-1/2 -translate-y-1/2" />
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Buscar por nome, e-mail ou telefone..."
+                className="w-full bg-[#0a0a0a] border border-[#353534] rounded-xl pl-9 pr-3 py-2 text-xs text-white placeholder:text-stone-500 focus:outline-none focus:border-[#e9c349]"
+              />
+            </div>
+
+            <div className="flex items-center gap-1.5">
+              <button
+                type="button"
+                onClick={() => setFilterMode('all')}
+                className={`flex-1 py-1.5 rounded-lg text-[11px] font-bold transition-colors cursor-pointer ${
+                  filterMode === 'all'
+                    ? 'bg-[#e9c349] text-black'
+                    : 'bg-[#1c1c1c] text-stone-400 hover:text-white'
+                }`}
+              >
+                Todas ({activeThreads.length})
+              </button>
+              <button
+                type="button"
+                onClick={() => setFilterMode('unread')}
+                className={`flex-1 py-1.5 rounded-lg text-[11px] font-bold transition-colors cursor-pointer ${
+                  filterMode === 'unread'
+                    ? 'bg-[#e9c349] text-black'
+                    : 'bg-[#1c1c1c] text-stone-400 hover:text-white'
+                }`}
+              >
+                Não lidas ({activeThreads.filter((t) => t.unreadByAdmin > 0).length})
+              </button>
+            </div>
+          </div>
+
+          <div className="flex-1 overflow-y-auto divide-y divide-[#353534]/50">
+            {loadingThreads ? (
+              <div className="p-8 text-center text-xs text-stone-500">
+                Carregando conversas...
+              </div>
+            ) : (
+              <>
+                {filteredThreads.map((t) => {
+                  const isSelected = selectedStudentId === t.studentId;
+                  const hasUnread = t.unreadByAdmin > 0;
+                  const initial = (t.studentName?.[0] || 'E').toUpperCase();
+                  const linkedUser = studentByIdMap.get(t.studentId);
+                  const isEnrolled = (linkedUser?.enrolledCount ?? 0) >= 1;
+                  const isPreReg = !linkedUser && (t.isPreRegistered || isPreRegisteredChatId(t.studentId));
+
+                  return (
+                    <button
+                      key={t.studentId}
+                      type="button"
+                      onClick={() => setSelectedStudentId(t.studentId)}
+                      className={`w-full text-left px-4 py-3.5 flex items-start gap-3 transition-colors cursor-pointer ${
+                        isSelected
+                          ? 'bg-[#e9c349]/10 border-l-2 border-l-[#e9c349]'
+                          : 'hover:bg-[#1a1a1a]'
+                      }`}
+                    >
+                      <div className="w-9 h-9 rounded-full bg-[#242424] border border-white/10 text-stone-200 font-bold text-xs flex items-center justify-center shrink-0 mt-0.5">
+                        {initial}
                       </div>
-
-                      {t.studentEmail && (
-                        <p className="text-[10px] text-stone-500 font-mono truncate mt-0.5">
-                          {maskEmail(t.studentEmail, isMasterViewer)}
-                        </p>
-                      )}
-
-                      <div className="flex items-center justify-between gap-2 mt-1">
-                        <p
-                          className={`text-[11px] truncate ${
-                            hasUnread ? 'text-stone-200 font-semibold' : 'text-stone-400'
-                          }`}
-                        >
-                          {t.lastSenderRole === 'admin' ? 'Você: ' : ''}
-                          {t.lastMessage}
-                        </p>
-                        {hasUnread && (
-                          <span className="min-w-[18px] h-[18px] px-1.5 rounded-full bg-[#e9c349] text-black text-[10px] font-extrabold font-mono tabular-nums flex items-center justify-center shrink-0">
-                            {t.unreadByAdmin}
-                          </span>
-                        )}
-                      </div>
-                    </div>
-                  </button>
-                );
-              })}
-
-              {filteredThreads.length === 0 && newChatCandidates.length === 0 && (
-                <div className="p-8 text-center text-xs text-stone-500">
-                  Nenhuma conversa encontrada para os filtros atuais.
-                </div>
-              )}
-
-              {/* Lista de Alunos sem histórico para iniciar nova conversa */}
-              {newChatCandidates.length > 0 && (
-                <div className="pt-2">
-                  <div className="px-4 py-2 bg-[#0d0d0d] text-[10px] uppercase tracking-wider font-bold text-stone-500">
-                    Iniciar conversa com estudante
-                  </div>
-                  <div className="divide-y divide-[#353534]/40">
-                    {newChatCandidates.map((student) => {
-                      const isSelected = selectedStudentId === student.id;
-                      const initial = (student.name?.[0] || 'E').toUpperCase();
-                      return (
-                        <button
-                          key={student.id}
-                          type="button"
-                          onClick={() => setSelectedStudentId(student.id)}
-                          className={`w-full text-left px-4 py-3 flex items-center gap-3 transition-colors cursor-pointer ${
-                            isSelected ? 'bg-[#e9c349]/10' : 'hover:bg-[#1a1a1a]'
-                          }`}
-                        >
-                          <div className="w-8 h-8 rounded-full bg-[#1e1e1e] border border-white/10 text-stone-300 font-bold text-[11px] flex items-center justify-center shrink-0">
-                            {initial}
-                          </div>
-                          <div className="flex-1 min-w-0">
-                            <span className="text-xs font-semibold text-stone-200 block truncate">
-                              {student.name}
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="flex items-center gap-1.5 min-w-0">
+                            {isEnrolled && (
+                              <span
+                                className="w-2 h-2 rounded-full bg-[#e9c349] shadow-[0_0_6px_rgba(233,195,73,0.65)] shrink-0"
+                                title="Matriculado em pelo menos 1 curso"
+                              />
+                            )}
+                            <span
+                              className={`text-xs font-bold truncate ${
+                                hasUnread || isSelected ? 'text-white' : 'text-stone-200'
+                              }`}
+                            >
+                              {t.studentName}
                             </span>
-                            {student.email && (
-                              <span className="text-[10px] text-stone-500 font-mono block truncate">
-                                {maskEmail(student.email, isMasterViewer)}
+                            {isPreReg && (
+                              <span className="px-1.5 py-0.5 rounded bg-stone-800 text-stone-300 text-[9px] font-semibold shrink-0">
+                                Pré-cadastro
                               </span>
                             )}
                           </div>
-                          <span className="text-[10px] font-bold text-[#e9c349] shrink-0">
-                            Conversar
+                          <span className="text-[10px] font-mono tabular-nums text-stone-500 shrink-0">
+                            {formatListTime(t.lastMessageAtMs)}
                           </span>
-                        </button>
-                      );
-                    })}
+                        </div>
+
+                        {t.studentEmail && (
+                          <p className="text-[10px] text-stone-500 font-mono truncate mt-0.5">
+                            {maskEmail(t.studentEmail, isMasterViewer)}
+                          </p>
+                        )}
+
+                        <div className="flex items-center justify-between gap-2 mt-1">
+                          <p
+                            className={`text-[11px] truncate ${
+                              hasUnread ? 'text-stone-200 font-semibold' : 'text-stone-400'
+                            }`}
+                          >
+                            {t.lastSenderRole === 'admin' ? 'Você: ' : ''}
+                            {t.lastMessage}
+                          </p>
+                          {hasUnread && (
+                            <span className="min-w-[18px] h-[18px] px-1.5 rounded-full bg-[#e9c349] text-black text-[10px] font-extrabold font-mono tabular-nums flex items-center justify-center shrink-0">
+                              {t.unreadByAdmin}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    </button>
+                  );
+                })}
+
+                {filteredThreads.length === 0 && newChatCandidates.length === 0 && (
+                  <div className="p-8 text-center text-xs text-stone-500">
+                    Nenhuma conversa encontrada para os filtros atuais.
+                  </div>
+                )}
+
+                {/* Lista de Todos os Estudantes & Compradores sem histórico para iniciar nova conversa */}
+                {newChatCandidates.length > 0 && (
+                  <div className="pt-2">
+                    <div className="px-4 py-2 bg-[#0d0d0d] text-[10px] uppercase tracking-wider font-bold text-stone-500 flex items-center justify-between">
+                      <span>Todos os estudantes & contatos</span>
+                      <span className="font-mono text-stone-400">{newChatCandidates.length}</span>
+                    </div>
+                    <div className="divide-y divide-[#353534]/40">
+                      {newChatCandidates.map((student) => {
+                        const isSelected = selectedStudentId === student.id;
+                        const initial = (student.name?.[0] || 'E').toUpperCase();
+                        const isEnrolled = student.enrolledCount >= 1;
+                        return (
+                          <button
+                            key={student.id}
+                            type="button"
+                            onClick={() => setSelectedStudentId(student.id)}
+                            className={`w-full text-left px-4 py-3 flex items-center gap-3 transition-colors cursor-pointer ${
+                              isSelected ? 'bg-[#e9c349]/10' : 'hover:bg-[#1a1a1a]'
+                            }`}
+                          >
+                            <div className="w-8 h-8 rounded-full bg-[#1e1e1e] border border-white/10 text-stone-300 font-bold text-[11px] flex items-center justify-center shrink-0">
+                              {initial}
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-1.5 min-w-0">
+                                {isEnrolled && (
+                                  <span
+                                    className="w-2 h-2 rounded-full bg-[#e9c349] shadow-[0_0_6px_rgba(233,195,73,0.65)] shrink-0"
+                                    title="Matriculado em pelo menos 1 curso"
+                                  />
+                                )}
+                                <span className="text-xs font-semibold text-stone-200 truncate">
+                                  {student.name}
+                                </span>
+                                {student.isPreRegistered && (
+                                  <span className="px-1.5 py-0.5 rounded bg-stone-800 text-stone-300 text-[9px] font-semibold shrink-0">
+                                    {student.sourceLabel || 'Não cadastrado'}
+                                  </span>
+                                )}
+                              </div>
+                              {(student.email || student.phone) && (
+                                <span className="text-[10px] text-stone-500 font-mono block truncate mt-0.5">
+                                  {student.email
+                                    ? maskEmail(student.email, isMasterViewer)
+                                    : formatDisplayPhone(student.phone, isMasterViewer)}
+                                </span>
+                              )}
+                            </div>
+                            <span className="text-[10px] font-bold text-[#e9c349] shrink-0">
+                              Conversar
+                            </span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+        </div>
+
+        {/* Coluna Direita: Janela de Mensagens Individual */}
+        <div
+          className={`lg:col-span-8 flex flex-col bg-[#0e0e0e] min-h-0 ${
+            selectedStudentId ? 'flex' : 'hidden lg:flex'
+          }`}
+        >
+          {!selectedStudentInfo ? (
+            <div className="flex-1 flex flex-col items-center justify-center p-8 text-center">
+              <div className="w-14 h-14 rounded-2xl bg-[#181818] border border-[#353534] text-[#e9c349] flex items-center justify-center mb-4">
+                <MessageSquare className="w-6 h-6" />
+              </div>
+              <h3 className="text-base font-bold text-white font-headline mb-1">
+                Selecione um estudante ou contato para conversar
+              </h3>
+              <p className="text-xs text-stone-400 max-w-md leading-relaxed mb-4">
+                Envie mensagens individuais para qualquer aluno cadastrado (com ou sem curso matriculado) ou clique em <strong>Novo Contato</strong> para enviar uma mensagem antes mesmo de a pessoa criar conta.
+              </p>
+              <button
+                type="button"
+                onClick={() => {
+                  setNewContactError(null);
+                  setIsNewContactOpen(true);
+                }}
+                className="px-4 py-2 rounded-xl bg-[#e9c349] hover:bg-[#d4b03f] text-black text-xs font-extrabold inline-flex items-center gap-1.5 transition-colors cursor-pointer"
+              >
+                <UserPlus className="w-4 h-4" />
+                <span>Enviar para Novo Contato</span>
+              </button>
+            </div>
+          ) : (
+            <>
+              {/* Cabeçalho da Conversa Selecionada */}
+              <div className="px-4 sm:px-6 py-3.5 bg-[#141414] border-b border-[#353534] flex items-center justify-between gap-3 shrink-0">
+                <div className="flex items-center gap-3 min-w-0">
+                  <button
+                    type="button"
+                    onClick={() => setSelectedStudentId(null)}
+                    className="lg:hidden p-2 rounded-xl bg-[#1c1c1c] text-stone-300 hover:text-white cursor-pointer"
+                    aria-label="Voltar à lista de alunos"
+                  >
+                    <ArrowLeft className="w-4 h-4" />
+                  </button>
+
+                  <div className="w-9 h-9 rounded-full bg-[#e9c349]/15 border border-[#e9c349]/30 text-[#e9c349] font-bold text-xs flex items-center justify-center shrink-0">
+                    {(selectedStudentInfo.name?.[0] || 'E').toUpperCase()}
+                  </div>
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2 min-w-0">
+                      {selectedStudentInfo.enrolledCount >= 1 && (
+                        <span
+                          className="w-2.5 h-2.5 rounded-full bg-[#e9c349] shadow-[0_0_6px_rgba(233,195,73,0.65)] shrink-0"
+                          title="Matriculado em pelo menos 1 curso"
+                        />
+                      )}
+                      <h3 className="text-sm font-bold text-white truncate">
+                        {selectedStudentInfo.name}
+                      </h3>
+                      {selectedStudentInfo.isPreRegistered ? (
+                        <span className="px-2 py-0.5 rounded-md bg-amber-500/10 border border-amber-500/30 text-amber-300 text-[10px] font-bold shrink-0">
+                          Aguardando cadastro
+                        </span>
+                      ) : selectedStudentInfo.enrolledCount === 0 ? (
+                        <span className="px-2 py-0.5 rounded-md bg-stone-800 border border-stone-700 text-stone-300 text-[10px] font-semibold shrink-0">
+                          Sem curso matriculado
+                        </span>
+                      ) : null}
+                    </div>
+                    <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px] text-stone-400 font-mono mt-0.5">
+                      {selectedStudentInfo.email ? (
+                        <span className="truncate">{maskEmail(selectedStudentInfo.email, isMasterViewer)}</span>
+                      ) : (
+                        <span className="truncate">ID: {selectedStudentInfo.id}</span>
+                      )}
+                      <span className="inline-flex items-center gap-1 text-stone-300 shrink-0">
+                        <Phone className="w-3 h-3 text-emerald-400 shrink-0" />
+                        <span>
+                          {selectedStudentInfo.phone
+                            ? formatDisplayPhone(selectedStudentInfo.phone, isMasterViewer)
+                            : 'Telefone não informado'}
+                        </span>
+                      </span>
+                    </div>
                   </div>
                 </div>
+
+                <span className="hidden sm:inline-flex items-center gap-1.5 text-[11px] text-stone-400 shrink-0">
+                  <User className="w-3.5 h-3.5 text-[#e9c349]" />
+                  <span>Chat Individual 1-para-1</span>
+                </span>
+              </div>
+
+              {selectedStudentInfo.isPreRegistered && (
+                <div className="px-4 sm:px-6 py-2 bg-[#e9c349]/5 border-b border-[#e9c349]/20 text-[11px] text-stone-300 shrink-0">
+                  As mensagens enviadas aqui ficarão salvas e serão vinculadas automaticamente à conta assim que este contato se cadastrar usando o mesmo <strong className="text-[#e9c349]">e-mail ou telefone</strong>.
+                </div>
               )}
+
+              {/* Lista de Mensagens */}
+              <div className="flex-1 overflow-y-auto px-4 sm:px-6 py-4 space-y-3 bg-[#0a0a0a]">
+                {loadingMessages ? (
+                  <div className="h-full flex items-center justify-center text-xs text-stone-500">
+                    Carregando histórico de mensagens...
+                  </div>
+                ) : messages.length === 0 ? (
+                  <div className="h-full flex flex-col items-center justify-center text-center px-4">
+                    <MessageSquare className="w-8 h-8 text-stone-600 mb-2" />
+                    <p className="text-xs font-bold text-stone-300">
+                      Nenhuma mensagem trocada ainda com {selectedStudentInfo.name}
+                    </p>
+                    <p className="text-[11px] text-stone-500 mt-1">
+                      Envie a primeira mensagem abaixo para iniciar este atendimento individual.
+                    </p>
+                  </div>
+                ) : (
+                  messages.map((msg) => {
+                    const isAdminMsg = msg.senderRole === 'admin';
+                    return (
+                      <div
+                        key={msg.id}
+                        className={`flex flex-col ${isAdminMsg ? 'items-end' : 'items-start'}`}
+                      >
+                        <div
+                          className={`max-w-[85%] sm:max-w-[75%] rounded-2xl px-3.5 py-2.5 border ${
+                            isAdminMsg
+                              ? 'bg-[#e9c349] text-black border-[#e9c349] rounded-br-sm'
+                              : 'bg-[#181818] text-stone-100 border-[#353534] rounded-bl-sm'
+                          }`}
+                        >
+                          <div
+                            className={`flex items-center justify-between gap-4 text-[10px] mb-1 ${
+                              isAdminMsg ? 'text-black/70 font-bold' : 'text-[#e9c349] font-bold'
+                            }`}
+                          >
+                            <span>{isAdminMsg ? 'Administração (Você)' : msg.senderName}</span>
+                            <span
+                              className={`font-mono tabular-nums ${
+                                isAdminMsg ? 'text-black/60' : 'text-stone-500'
+                              }`}
+                            >
+                              {formatFullMessageTime(msg.createdAtMs)}
+                            </span>
+                          </div>
+
+                          {msg.contextLessonTitle && (
+                            <div
+                              className={`mb-1.5 px-2 py-1 rounded-lg text-[10px] flex items-center gap-1.5 ${
+                                isAdminMsg
+                                  ? 'bg-black/10 text-black/80'
+                                  : 'bg-black/40 text-stone-300 border border-white/5'
+                              }`}
+                            >
+                              <BookOpen className="w-3 h-3 shrink-0" />
+                              <span className="truncate">
+                                {msg.contextCourseTitle ? `${msg.contextCourseTitle} · ` : ''}
+                                {msg.contextLessonTitle}
+                              </span>
+                            </div>
+                          )}
+
+                          <p className="text-xs sm:text-sm leading-relaxed whitespace-pre-wrap break-words">
+                            {msg.text}
+                          </p>
+                        </div>
+                      </div>
+                    );
+                  })
+                )}
+                <div ref={messagesEndRef} />
+              </div>
+
+              {/* Contexto opcional de aula (vindo de comentário da aula) */}
+              {lessonContext?.lessonTitle && (
+                <div className="px-4 sm:px-6 py-2 bg-[#161616] border-t border-[#353534] flex items-center justify-between gap-2 text-[11px] text-stone-300 shrink-0">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <BookOpen className="w-3.5 h-3.5 text-[#e9c349] shrink-0" />
+                    <span className="truncate">
+                      Referência de aula:{' '}
+                      <strong className="text-white">
+                        {lessonContext.courseTitle ? `${lessonContext.courseTitle} — ` : ''}
+                        {lessonContext.lessonTitle}
+                      </strong>
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setLessonContext(null)}
+                    className="text-stone-400 hover:text-white p-1 cursor-pointer shrink-0"
+                    aria-label="Remover referência"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              )}
+
+              {errorMsg && (
+                <div className="px-4 sm:px-6 py-2 bg-rose-950/60 border-t border-rose-500/30 text-rose-200 text-[11px] flex items-center gap-2 shrink-0">
+                  <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                  <span>{errorMsg}</span>
+                </div>
+              )}
+
+              {/* Campo de Envio do Administrador */}
+              <form
+                onSubmit={handleSend}
+                className="p-3 sm:p-4 bg-[#141414] border-t border-[#353534] flex items-end gap-2.5 shrink-0"
+              >
+                <textarea
+                  rows={1}
+                  value={draft}
+                  onChange={(e) => setDraft(e.target.value)}
+                  onKeyDown={handleKeyDown}
+                  maxLength={2000}
+                  placeholder={`Enviar mensagem para ${selectedStudentInfo.name}...`}
+                  className="flex-1 bg-[#0a0a0a] border border-[#353534] focus:border-[#e9c349] rounded-xl px-3.5 py-2.5 text-xs sm:text-sm text-white placeholder:text-stone-500 outline-none resize-none max-h-32"
+                />
+                <button
+                  type="submit"
+                  disabled={!draft.trim() || sending}
+                  className="px-4 py-2.5 rounded-xl bg-[#e9c349] hover:bg-[#d4b03f] text-black font-extrabold text-xs flex items-center gap-1.5 transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed shrink-0"
+                >
+                  <Send className="w-4 h-4" />
+                  <span>{sending ? 'Enviando...' : 'Enviar'}</span>
+                </button>
+              </form>
             </>
           )}
         </div>
       </div>
 
-      {/* Coluna Direita: Janela de Mensagens Individual */}
-      <div
-        className={`lg:col-span-8 flex flex-col bg-[#0e0e0e] min-h-0 ${
-          selectedStudentId ? 'flex' : 'hidden lg:flex'
-        }`}
-      >
-        {!selectedStudentInfo ? (
-          <div className="flex-1 flex flex-col items-center justify-center p-8 text-center">
-            <div className="w-14 h-14 rounded-2xl bg-[#181818] border border-[#353534] text-[#e9c349] flex items-center justify-center mb-4">
-              <MessageSquare className="w-6 h-6" />
-            </div>
-            <h3 className="text-base font-bold text-white font-headline mb-1">
-              Selecione um estudante para conversar
-            </h3>
-            <p className="text-xs text-stone-400 max-w-md leading-relaxed">
-              Escolha uma conversa ativa à esquerda ou pesquise qualquer aluno cadastrado para trocar mensagens individuais diretamente na plataforma.
-            </p>
-          </div>
-        ) : (
-          <>
-            {/* Cabeçalho da Conversa Selecionada */}
-            <div className="px-4 sm:px-6 py-3.5 bg-[#141414] border-b border-[#353534] flex items-center justify-between gap-3 shrink-0">
-              <div className="flex items-center gap-3 min-w-0">
-                <button
-                  type="button"
-                  onClick={() => setSelectedStudentId(null)}
-                  className="lg:hidden p-2 rounded-xl bg-[#1c1c1c] text-stone-300 hover:text-white cursor-pointer"
-                  aria-label="Voltar à lista de alunos"
-                >
-                  <ArrowLeft className="w-4 h-4" />
-                </button>
-
-                <div className="w-9 h-9 rounded-full bg-[#e9c349]/15 border border-[#e9c349]/30 text-[#e9c349] font-bold text-xs flex items-center justify-center shrink-0">
-                  {(selectedStudentInfo.name?.[0] || 'E').toUpperCase()}
+      {/* Modal: Novo Contato Manual (Cadastrado ou Ainda Não Cadastrado) */}
+      {isNewContactOpen && (
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="w-full max-w-md bg-[#181818] border border-[#353534] rounded-2xl p-6 shadow-2xl animate-in fade-in zoom-in-95 duration-150">
+            <div className="flex items-center justify-between gap-3 pb-4 border-b border-[#353534]">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-xl bg-[#e9c349]/15 border border-[#e9c349]/30 text-[#e9c349] flex items-center justify-center">
+                  <UserPlus className="w-4 h-4" />
                 </div>
-                <div className="min-w-0">
-                  <h3 className="text-sm font-bold text-white truncate">
-                    {selectedStudentInfo.name}
-                  </h3>
-                  <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px] text-stone-400 font-mono">
-                    {selectedStudentInfo.email ? (
-                      <span className="truncate">{maskEmail(selectedStudentInfo.email, isMasterViewer)}</span>
-                    ) : (
-                      <span className="truncate">ID: {selectedStudentInfo.id}</span>
-                    )}
-                    <span className="inline-flex items-center gap-1 text-stone-300 shrink-0">
-                      <Phone className="w-3 h-3 text-emerald-400 shrink-0" />
-                      <span>
-                        {selectedStudentInfo.phone
-                          ? formatDisplayPhone(selectedStudentInfo.phone, isMasterViewer)
-                          : 'Telefone não informado'}
-                      </span>
-                    </span>
-                  </div>
-                </div>
-              </div>
-
-              <span className="hidden sm:inline-flex items-center gap-1.5 text-[11px] text-stone-400">
-                <User className="w-3.5 h-3.5 text-[#e9c349]" />
-                <span>Chat Individual 1-para-1</span>
-              </span>
-            </div>
-
-            {/* Lista de Mensagens */}
-            <div className="flex-1 overflow-y-auto px-4 sm:px-6 py-4 space-y-3 bg-[#0a0a0a]">
-              {loadingMessages ? (
-                <div className="h-full flex items-center justify-center text-xs text-stone-500">
-                  Carregando histórico de mensagens...
-                </div>
-              ) : messages.length === 0 ? (
-                <div className="h-full flex flex-col items-center justify-center text-center px-4">
-                  <MessageSquare className="w-8 h-8 text-stone-600 mb-2" />
-                  <p className="text-xs font-bold text-stone-300">
-                    Nenhuma mensagem trocada ainda com {selectedStudentInfo.name}
-                  </p>
-                  <p className="text-[11px] text-stone-500 mt-1">
-                    Envie a primeira mensagem abaixo para iniciar este atendimento individual.
+                <div>
+                  <h3 className="text-sm font-bold text-white">Novo Contato para Mensagem 1x1</h3>
+                  <p className="text-[11px] text-stone-400">
+                    Envie mesmo se o aluno ainda não tiver conta
                   </p>
                 </div>
-              ) : (
-                messages.map((msg) => {
-                  const isAdminMsg = msg.senderRole === 'admin';
-                  return (
-                    <div
-                      key={msg.id}
-                      className={`flex flex-col ${isAdminMsg ? 'items-end' : 'items-start'}`}
-                    >
-                      <div
-                        className={`max-w-[85%] sm:max-w-[75%] rounded-2xl px-3.5 py-2.5 border ${
-                          isAdminMsg
-                            ? 'bg-[#e9c349] text-black border-[#e9c349] rounded-br-sm'
-                            : 'bg-[#181818] text-stone-100 border-[#353534] rounded-bl-sm'
-                        }`}
-                      >
-                        <div
-                          className={`flex items-center justify-between gap-4 text-[10px] mb-1 ${
-                            isAdminMsg ? 'text-black/70 font-bold' : 'text-[#e9c349] font-bold'
-                          }`}
-                        >
-                          <span>{isAdminMsg ? 'Administração (Você)' : msg.senderName}</span>
-                          <span
-                            className={`font-mono tabular-nums ${
-                              isAdminMsg ? 'text-black/60' : 'text-stone-500'
-                            }`}
-                          >
-                            {formatFullMessageTime(msg.createdAtMs)}
-                          </span>
-                        </div>
-
-                        {msg.contextLessonTitle && (
-                          <div
-                            className={`mb-1.5 px-2 py-1 rounded-lg text-[10px] flex items-center gap-1.5 ${
-                              isAdminMsg
-                                ? 'bg-black/10 text-black/80'
-                                : 'bg-black/40 text-stone-300 border border-white/5'
-                            }`}
-                          >
-                            <BookOpen className="w-3 h-3 shrink-0" />
-                            <span className="truncate">
-                              {msg.contextCourseTitle ? `${msg.contextCourseTitle} · ` : ''}
-                              {msg.contextLessonTitle}
-                            </span>
-                          </div>
-                        )}
-
-                        <p className="text-xs sm:text-sm leading-relaxed whitespace-pre-wrap break-words">
-                          {msg.text}
-                        </p>
-                      </div>
-                    </div>
-                  );
-                })
-              )}
-              <div ref={messagesEndRef} />
-            </div>
-
-            {/* Contexto opcional de aula (vindo de comentário da aula) */}
-            {lessonContext?.lessonTitle && (
-              <div className="px-4 sm:px-6 py-2 bg-[#161616] border-t border-[#353534] flex items-center justify-between gap-2 text-[11px] text-stone-300 shrink-0">
-                <div className="flex items-center gap-2 min-w-0">
-                  <BookOpen className="w-3.5 h-3.5 text-[#e9c349] shrink-0" />
-                  <span className="truncate">
-                    Referência de aula:{' '}
-                    <strong className="text-white">
-                      {lessonContext.courseTitle ? `${lessonContext.courseTitle} — ` : ''}
-                      {lessonContext.lessonTitle}
-                    </strong>
-                  </span>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setLessonContext(null)}
-                  className="text-stone-400 hover:text-white p-1 cursor-pointer shrink-0"
-                  aria-label="Remover referência"
-                >
-                  <X className="w-3.5 h-3.5" />
-                </button>
               </div>
-            )}
-
-            {errorMsg && (
-              <div className="px-4 sm:px-6 py-2 bg-rose-950/60 border-t border-rose-500/30 text-rose-200 text-[11px] flex items-center gap-2 shrink-0">
-                <AlertCircle className="w-3.5 h-3.5 shrink-0" />
-                <span>{errorMsg}</span>
-              </div>
-            )}
-
-            {/* Campo de Envio do Administrador */}
-            <form
-              onSubmit={handleSend}
-              className="p-3 sm:p-4 bg-[#141414] border-t border-[#353534] flex items-end gap-2.5 shrink-0"
-            >
-              <textarea
-                rows={1}
-                value={draft}
-                onChange={(e) => setDraft(e.target.value)}
-                onKeyDown={handleKeyDown}
-                maxLength={2000}
-                placeholder={`Responder para ${selectedStudentInfo.name}...`}
-                className="flex-1 bg-[#0a0a0a] border border-[#353534] focus:border-[#e9c349] rounded-xl px-3.5 py-2.5 text-xs sm:text-sm text-white placeholder:text-stone-500 outline-none resize-none max-h-32"
-              />
               <button
-                type="submit"
-                disabled={!draft.trim() || sending}
-                className="px-4 py-2.5 rounded-xl bg-[#e9c349] hover:bg-[#d4b03f] text-black font-extrabold text-xs flex items-center gap-1.5 transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed shrink-0"
+                type="button"
+                onClick={() => setIsNewContactOpen(false)}
+                className="p-1.5 text-stone-400 hover:text-white rounded-lg cursor-pointer"
               >
-                <Send className="w-4 h-4" />
-                <span>{sending ? 'Enviando...' : 'Enviar'}</span>
+                <X className="w-4 h-4" />
               </button>
+            </div>
+
+            <form onSubmit={handleCreateManualContact} className="space-y-4 pt-4">
+              {newContactError && (
+                <div className="p-3 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-200 text-xs flex items-center gap-2">
+                  <AlertCircle className="w-4 h-4 shrink-0 text-rose-400" />
+                  <span>{newContactError}</span>
+                </div>
+              )}
+
+              <div>
+                <label className="block text-[11px] font-bold uppercase tracking-wider text-stone-400 mb-1.5">
+                  Nome Completo (Obrigatório)
+                </label>
+                <input
+                  type="text"
+                  value={newContactName}
+                  onChange={(e) => setNewContactName(e.target.value)}
+                  placeholder="Ex: Carlos Manuel"
+                  required
+                  className="w-full bg-[#0e0e0e] border border-[#353534] focus:border-[#e9c349] rounded-xl px-3.5 py-2.5 text-xs text-white placeholder:text-stone-500 outline-none"
+                />
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-bold uppercase tracking-wider text-stone-400 mb-1.5">
+                  E-mail (para vinculação automática)
+                </label>
+                <input
+                  type="email"
+                  value={newContactEmail}
+                  onChange={(e) => setNewContactEmail(e.target.value)}
+                  placeholder="email@exemplo.com"
+                  className="w-full bg-[#0e0e0e] border border-[#353534] focus:border-[#e9c349] rounded-xl px-3.5 py-2.5 text-xs text-white placeholder:text-stone-500 outline-none"
+                />
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-bold uppercase tracking-wider text-stone-400 mb-1.5">
+                  Telefone / WhatsApp (para vinculação automática)
+                </label>
+                <div className="flex gap-2">
+                  <select
+                    value={newContactDdi}
+                    onChange={(e) => setNewContactDdi(e.target.value)}
+                    className="bg-[#0e0e0e] border border-[#353534] focus:border-[#e9c349] rounded-xl px-2.5 py-2.5 text-xs text-white outline-none cursor-pointer"
+                  >
+                    <option value="+244">+244</option>
+                    <option value="+351">+351</option>
+                    <option value="+55">+55</option>
+                    <option value="+258">+258</option>
+                    <option value="+238">+238</option>
+                    <option value="+245">+245</option>
+                    <option value="+239">+239</option>
+                    <option value="+1">+1</option>
+                    <option value="+34">+34</option>
+                    <option value="+44">+44</option>
+                  </select>
+                  <input
+                    type="tel"
+                    value={newContactPhone}
+                    onChange={(e) => setNewContactPhone(e.target.value)}
+                    placeholder="923 456 789"
+                    className="flex-1 bg-[#0e0e0e] border border-[#353534] focus:border-[#e9c349] rounded-xl px-3.5 py-2.5 text-xs text-white placeholder:text-stone-500 outline-none"
+                  />
+                </div>
+              </div>
+
+              <div className="pt-2 flex items-center justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setIsNewContactOpen(false)}
+                  className="px-4 py-2 rounded-xl bg-[#242424] hover:bg-[#303030] text-stone-300 text-xs font-bold cursor-pointer"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  className="px-4 py-2 rounded-xl bg-[#e9c349] hover:bg-[#d4b03f] text-black text-xs font-extrabold cursor-pointer"
+                >
+                  Abrir Chat 1x1
+                </button>
+              </div>
             </form>
-          </>
-        )}
-      </div>
-    </div>
+          </div>
+        </div>
+      )}
+    </>
   );
 }
