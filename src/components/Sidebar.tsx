@@ -286,7 +286,7 @@ export default function Sidebar() {
             <span className="material-symbols-outlined" style={location.pathname === '/messages' ? { fontVariationSettings: "'FILL' 1" } : {}}>
               mail
             </span>
-            <span className="truncate">Mensagens & Arquivo</span>
+            <span className="truncate">Mensagens</span>
           </div>
           {unreadStudentChats > 0 && (
             <span className="px-1.5 py-0.5 rounded-full bg-[#e9c349] text-black text-[10px] font-extrabold font-mono tabular-nums shrink-0">
