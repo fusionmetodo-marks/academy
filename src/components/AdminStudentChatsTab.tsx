@@ -119,7 +119,7 @@ export default function AdminStudentChatsTab({
   const [loadingMessages, setLoadingMessages] = useState(false);
 
   const [searchQuery, setSearchQuery] = useState('');
-  const [filterMode, setFilterMode] = useState<'all' | 'unread'>('all');
+  const [filterMode, setFilterMode] = useState<'all' | 'enrolled' | 'unread'>('all');
   const [draft, setDraft] = useState('');
   const [sending, setSending] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
@@ -132,13 +132,10 @@ export default function AdminStudentChatsTab({
       : null
   );
 
-  // Modal de Novo Contato (Não Cadastrado)
+  // Modal de Pesquisa / Nova Conversa
   const [isNewContactOpen, setIsNewContactOpen] = useState(false);
-  const [newContactName, setNewContactName] = useState('');
-  const [newContactEmail, setNewContactEmail] = useState('');
-  const [newContactDdi, setNewContactDdi] = useState('+244');
-  const [newContactPhone, setNewContactPhone] = useState('');
-  const [newContactError, setNewContactError] = useState<string | null>(null);
+  const [modalSearchQuery, setModalSearchQuery] = useState('');
+  const [modalFilterMode, setModalFilterMode] = useState<'all' | 'enrolled'>('all');
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const currentUser = auth.currentUser;
@@ -365,6 +362,11 @@ export default function AdminStudentChatsTab({
     const q = searchQuery.trim().toLowerCase();
     return activeThreads.filter((t) => {
       if (filterMode === 'unread' && t.unreadByAdmin <= 0) return false;
+      if (filterMode === 'enrolled') {
+        const linkedUser = studentByIdMap.get(t.studentId);
+        const enrolledCount = linkedUser?.enrolledCount ?? 0;
+        if (enrolledCount < 1) return false;
+      }
       if (!q) return true;
       const linkedUser = studentByIdMap.get(t.studentId);
       const resolvedPhone = String(linkedUser?.phone || t.studentPhone || '').toLowerCase();
@@ -409,6 +411,19 @@ export default function AdminStudentChatsTab({
     searchQuery,
     filterMode,
   ]);
+
+  const modalFilteredStudents = useMemo(() => {
+    const q = modalSearchQuery.trim().toLowerCase();
+    return students.filter((s) => {
+      if (modalFilterMode === 'enrolled' && s.enrolledCount < 1) return false;
+      if (!q) return true;
+      return (
+        s.name.toLowerCase().includes(q) ||
+        s.email.toLowerCase().includes(q) ||
+        s.phone.toLowerCase().includes(q)
+      );
+    });
+  }, [students, modalSearchQuery, modalFilterMode]);
 
   const selectedStudentInfo = useMemo(() => {
     if (!selectedStudentId) return null;
@@ -464,51 +479,7 @@ export default function AdminStudentChatsTab({
     [activeThreads]
   );
 
-  const handleCreateManualContact = (e: React.FormEvent) => {
-    e.preventDefault();
-    const cleanName = newContactName.trim();
-    const cleanEmail = normalizeContactEmail(newContactEmail);
-    const rawPhone = newContactPhone.trim();
-    const formattedPhone = rawPhone ? `${newContactDdi} ${rawPhone}`.trim() : '';
 
-    if (!cleanName || cleanName.length < 2) {
-      setNewContactError('Informe o nome completo do destinatário.');
-      return;
-    }
-    if (!cleanEmail && (!rawPhone || rawPhone.replace(/[^0-9]/g, '').length < 6)) {
-      setNewContactError('Informe pelo menos um E-mail ou Telefone válido para vincular quando o aluno se cadastrar.');
-      return;
-    }
-
-    const resolved = resolveChatTargetForContact({
-      registeredStudents: students,
-      name: cleanName,
-      email: cleanEmail,
-      phone: formattedPhone,
-    });
-
-    if (resolved.isPreRegistered) {
-      setManualContacts((prev) => ({
-        ...prev,
-        [resolved.chatId]: {
-          id: resolved.chatId,
-          name: resolved.name,
-          email: resolved.email || '',
-          phone: resolved.phone || '',
-          enrolledCount: 0,
-          isPreRegistered: true,
-          sourceLabel: 'Contato manual',
-        },
-      }));
-    }
-
-    setSelectedStudentId(resolved.chatId);
-    setNewContactName('');
-    setNewContactEmail('');
-    setNewContactPhone('');
-    setNewContactError(null);
-    setIsNewContactOpen(false);
-  };
 
   const handleSend = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
@@ -655,7 +626,7 @@ export default function AdminStudentChatsTab({
               <button
                 type="button"
                 onClick={() => setFilterMode('all')}
-                className={`flex-1 py-1.5 rounded-lg text-[11px] font-bold transition-colors cursor-pointer ${
+                className={`flex-1 py-1.5 rounded-lg text-[10px] sm:text-[11px] font-bold transition-colors cursor-pointer ${
                   filterMode === 'all'
                     ? 'bg-[#e9c349] text-black'
                     : 'bg-[#1c1c1c] text-stone-400 hover:text-white'
@@ -665,8 +636,19 @@ export default function AdminStudentChatsTab({
               </button>
               <button
                 type="button"
+                onClick={() => setFilterMode('enrolled')}
+                className={`flex-1 py-1.5 rounded-lg text-[10px] sm:text-[11px] font-bold transition-colors cursor-pointer ${
+                  filterMode === 'enrolled'
+                    ? 'bg-[#e9c349] text-black'
+                    : 'bg-[#1c1c1c] text-stone-400 hover:text-white'
+                }`}
+              >
+                Matriculados ({activeThreads.filter((t) => (studentByIdMap.get(t.studentId)?.enrolledCount ?? 0) >= 1).length})
+              </button>
+              <button
+                type="button"
                 onClick={() => setFilterMode('unread')}
-                className={`flex-1 py-1.5 rounded-lg text-[11px] font-bold transition-colors cursor-pointer ${
+                className={`flex-1 py-1.5 rounded-lg text-[10px] sm:text-[11px] font-bold transition-colors cursor-pointer ${
                   filterMode === 'unread'
                     ? 'bg-[#e9c349] text-black'
                     : 'bg-[#1c1c1c] text-stone-400 hover:text-white'
@@ -847,10 +829,7 @@ export default function AdminStudentChatsTab({
               </p>
               <button
                 type="button"
-                onClick={() => {
-                  setNewContactError(null);
-                  setIsNewContactOpen(true);
-                }}
+                onClick={() => setIsNewContactOpen(true)}
                 className="px-4 py-2 rounded-xl bg-[#e9c349] hover:bg-[#d4b03f] text-black text-xs font-extrabold inline-flex items-center gap-1.5 transition-colors cursor-pointer"
               >
                 <UserPlus className="w-4 h-4" />
@@ -1057,113 +1036,146 @@ export default function AdminStudentChatsTab({
         </div>
       </div>
 
-      {/* Modal: Novo Contato Manual (Cadastrado ou Ainda Não Cadastrado) */}
+      {/* Modal: Pesquisa Instantânea / Nova Conversa */}
       {isNewContactOpen && (
         <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="w-full max-w-md bg-[#181818] border border-[#353534] rounded-2xl p-6 shadow-2xl animate-in fade-in zoom-in-95 duration-150">
-            <div className="flex items-center justify-between gap-3 pb-4 border-b border-[#353534]">
+          <div className="w-full max-w-lg bg-[#181818] border border-[#353534] rounded-2xl p-6 shadow-2xl animate-in fade-in zoom-in-95 duration-150 flex flex-col max-h-[85vh]">
+            <div className="flex items-center justify-between gap-3 pb-4 border-b border-[#353534] shrink-0">
               <div className="flex items-center gap-2.5">
                 <div className="w-9 h-9 rounded-xl bg-[#e9c349]/15 border border-[#e9c349]/30 text-[#e9c349] flex items-center justify-center">
                   <UserPlus className="w-4 h-4" />
                 </div>
                 <div>
-                  <h3 className="text-sm font-bold text-white">Novo Contato para Mensagem 1x1</h3>
+                  <h3 className="text-sm font-bold text-white">Iniciar Nova Conversa 1x1</h3>
                   <p className="text-[11px] text-stone-400">
-                    Envie mesmo se o aluno ainda não tiver conta
+                    Busque por nome, e-mail ou telefone entre os estudantes cadastrados
                   </p>
                 </div>
               </div>
               <button
                 type="button"
-                onClick={() => setIsNewContactOpen(false)}
+                onClick={() => {
+                  setIsNewContactOpen(false);
+                  setModalSearchQuery('');
+                  setModalFilterMode('all');
+                }}
                 className="p-1.5 text-stone-400 hover:text-white rounded-lg cursor-pointer"
               >
                 <X className="w-4 h-4" />
               </button>
             </div>
 
-            <form onSubmit={handleCreateManualContact} className="space-y-4 pt-4">
-              {newContactError && (
-                <div className="p-3 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-200 text-xs flex items-center gap-2">
-                  <AlertCircle className="w-4 h-4 shrink-0 text-rose-400" />
-                  <span>{newContactError}</span>
-                </div>
-              )}
-
-              <div>
-                <label className="block text-[11px] font-bold uppercase tracking-wider text-stone-400 mb-1.5">
-                  Nome Completo (Obrigatório)
-                </label>
+            <div className="py-4 space-y-3 shrink-0">
+              <div className="relative">
+                <Search className="w-4 h-4 text-stone-500 absolute left-3 top-1/2 -translate-y-1/2" />
                 <input
                   type="text"
-                  value={newContactName}
-                  onChange={(e) => setNewContactName(e.target.value)}
-                  placeholder="Ex: Carlos Manuel"
-                  required
-                  className="w-full bg-[#0e0e0e] border border-[#353534] focus:border-[#e9c349] rounded-xl px-3.5 py-2.5 text-xs text-white placeholder:text-stone-500 outline-none"
+                  value={modalSearchQuery}
+                  onChange={(e) => setModalSearchQuery(e.target.value)}
+                  placeholder="Pesquisar por nome, e-mail ou número..."
+                  autoFocus
+                  className="w-full bg-[#0e0e0e] border border-[#353534] focus:border-[#e9c349] rounded-xl pl-9 pr-3 py-2.5 text-xs text-white placeholder:text-stone-500 outline-none"
                 />
               </div>
 
-              <div>
-                <label className="block text-[11px] font-bold uppercase tracking-wider text-stone-400 mb-1.5">
-                  E-mail (para vinculação automática)
-                </label>
-                <input
-                  type="email"
-                  value={newContactEmail}
-                  onChange={(e) => setNewContactEmail(e.target.value)}
-                  placeholder="email@exemplo.com"
-                  className="w-full bg-[#0e0e0e] border border-[#353534] focus:border-[#e9c349] rounded-xl px-3.5 py-2.5 text-xs text-white placeholder:text-stone-500 outline-none"
-                />
-              </div>
-
-              <div>
-                <label className="block text-[11px] font-bold uppercase tracking-wider text-stone-400 mb-1.5">
-                  Telefone / WhatsApp (para vinculação automática)
-                </label>
-                <div className="flex gap-2">
-                  <select
-                    value={newContactDdi}
-                    onChange={(e) => setNewContactDdi(e.target.value)}
-                    className="bg-[#0e0e0e] border border-[#353534] focus:border-[#e9c349] rounded-xl px-2.5 py-2.5 text-xs text-white outline-none cursor-pointer"
-                  >
-                    <option value="+244">+244</option>
-                    <option value="+351">+351</option>
-                    <option value="+55">+55</option>
-                    <option value="+258">+258</option>
-                    <option value="+238">+238</option>
-                    <option value="+245">+245</option>
-                    <option value="+239">+239</option>
-                    <option value="+1">+1</option>
-                    <option value="+34">+34</option>
-                    <option value="+44">+44</option>
-                  </select>
-                  <input
-                    type="tel"
-                    value={newContactPhone}
-                    onChange={(e) => setNewContactPhone(e.target.value)}
-                    placeholder="923 456 789"
-                    className="flex-1 bg-[#0e0e0e] border border-[#353534] focus:border-[#e9c349] rounded-xl px-3.5 py-2.5 text-xs text-white placeholder:text-stone-500 outline-none"
-                  />
-                </div>
-              </div>
-
-              <div className="pt-2 flex items-center justify-end gap-2">
+              <div className="flex items-center gap-2">
                 <button
                   type="button"
-                  onClick={() => setIsNewContactOpen(false)}
-                  className="px-4 py-2 rounded-xl bg-[#242424] hover:bg-[#303030] text-stone-300 text-xs font-bold cursor-pointer"
+                  onClick={() => setModalFilterMode('all')}
+                  className={`flex-1 py-1.5 rounded-xl text-xs font-bold transition-colors cursor-pointer ${
+                    modalFilterMode === 'all'
+                      ? 'bg-[#e9c349] text-black'
+                      : 'bg-[#1c1c1c] text-stone-400 hover:text-white'
+                  }`}
                 >
-                  Cancelar
+                  Todos os Cadastrados ({students.length})
                 </button>
                 <button
-                  type="submit"
-                  className="px-4 py-2 rounded-xl bg-[#e9c349] hover:bg-[#d4b03f] text-black text-xs font-extrabold cursor-pointer"
+                  type="button"
+                  onClick={() => setModalFilterMode('enrolled')}
+                  className={`flex-1 py-1.5 rounded-xl text-xs font-bold transition-colors cursor-pointer ${
+                    modalFilterMode === 'enrolled'
+                      ? 'bg-[#e9c349] text-black'
+                      : 'bg-[#1c1c1c] text-stone-400 hover:text-white'
+                  }`}
                 >
-                  Abrir Chat 1x1
+                  Apenas Matriculados ({students.filter((s) => s.enrolledCount >= 1).length})
                 </button>
               </div>
-            </form>
+            </div>
+
+            <div className="flex-1 overflow-y-auto divide-y divide-[#353534]/50 min-h-[220px] max-h-[350px] border border-[#353534] rounded-xl bg-[#0e0e0e]">
+              {modalFilteredStudents.length === 0 ? (
+                <div className="p-8 text-center text-xs text-stone-500">
+                  Nenhum estudante encontrado com esses critérios.
+                </div>
+              ) : (
+                modalFilteredStudents.map((st) => {
+                  const initial = (st.name?.[0] || 'E').toUpperCase();
+                  const isEnrolled = st.enrolledCount >= 1;
+                  return (
+                    <button
+                      key={st.id}
+                      type="button"
+                      onClick={() => {
+                        setSelectedStudentId(st.id);
+                        setIsNewContactOpen(false);
+                        setModalSearchQuery('');
+                        setModalFilterMode('all');
+                      }}
+                      className="w-full text-left px-4 py-3 flex items-center justify-between gap-3 hover:bg-[#181818] transition-colors cursor-pointer"
+                    >
+                      <div className="flex items-center gap-3 min-w-0">
+                        <div className="w-8 h-8 rounded-full bg-[#242424] border border-white/10 text-stone-300 font-bold text-xs flex items-center justify-center shrink-0">
+                          {initial}
+                        </div>
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-1.5 min-w-0">
+                            {isEnrolled && (
+                              <span
+                                className="w-2 h-2 rounded-full bg-[#e9c349] shadow-[0_0_6px_rgba(233,195,73,0.65)] shrink-0"
+                                title="Matriculado em curso"
+                              />
+                            )}
+                            <span className="text-xs font-bold text-white truncate">{st.name}</span>
+                            {isEnrolled && (
+                              <span className="px-1.5 py-0.5 rounded bg-[#e9c349]/10 text-[#e9c349] text-[9px] font-extrabold shrink-0">
+                                Matriculado
+                              </span>
+                            )}
+                          </div>
+                          {(st.email || st.phone) && (
+                            <p className="text-[10px] text-stone-400 font-mono truncate mt-0.5">
+                              {st.email ? maskEmail(st.email, isMasterViewer) : formatDisplayPhone(st.phone, isMasterViewer)}
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                      <span className="px-3 py-1 rounded-lg bg-[#e9c349] text-black text-[11px] font-extrabold shrink-0">
+                        Conversar
+                      </span>
+                    </button>
+                  );
+                })
+              )}
+            </div>
+
+            <div className="pt-4 flex items-center justify-between shrink-0">
+              <span className="text-[10px] text-stone-500">
+                Clique em qualquer estudante para abrir ou iniciar o chat instantaneamente.
+              </span>
+              <button
+                type="button"
+                onClick={() => {
+                  setIsNewContactOpen(false);
+                  setModalSearchQuery('');
+                  setModalFilterMode('all');
+                }}
+                className="px-4 py-2 rounded-xl bg-[#242424] hover:bg-[#303030] text-stone-300 text-xs font-bold cursor-pointer"
+              >
+                Fechar
+              </button>
+            </div>
           </div>
         </div>
       )}
