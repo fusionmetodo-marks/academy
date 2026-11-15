@@ -185,7 +185,7 @@ export default function SalesPage() {
           const userDoc = await getDoc(doc(db, 'users', user.uid)).catch(() => null);
           if (userDoc && userDoc.exists()) {
             const data = userDoc.data();
-            if (data.role === 'admin') {
+            if (data.role === 'admin' || data.role === 'producer') {
               setIsAdmin(true);
             }
           }
@@ -368,7 +368,18 @@ export default function SalesPage() {
 
               {currentUser ? (
                 isAdmin ? (
-                  <Link to="/dashboard" className="bg-[#e9c349] text-stone-900 px-3.5 sm:px-5 py-2 sm:py-2.5 rounded-lg sm:rounded-xl font-black text-xs sm:text-sm hover:opacity-90 transition-all flex items-center gap-1.5 shadow-[0_4px_12px_rgba(233,195,115,0.2)]">
+                  <Link
+                    to="/dashboard"
+                    onClick={(e) => {
+                      if (localStorage.getItem('viewAsStudent') === 'true') {
+                        e.preventDefault();
+                        localStorage.setItem('viewAsStudent', 'false');
+                        window.dispatchEvent(new Event('student-view-changed'));
+                        setTimeout(() => navigate('/dashboard'), 0);
+                      }
+                    }}
+                    className="relative z-10 cursor-pointer bg-[#e9c349] text-stone-900 px-3.5 sm:px-5 py-2 sm:py-2.5 rounded-lg sm:rounded-xl font-black text-xs sm:text-sm hover:opacity-90 transition-all flex items-center gap-1.5 shadow-[0_4px_12px_rgba(233,195,115,0.2)]"
+                  >
                     <span className="material-symbols-outlined text-sm sm:text-base">admin_panel_settings</span> <span className="hidden xs:inline">Área </span>Administrativa
                   </Link>
                 ) : (

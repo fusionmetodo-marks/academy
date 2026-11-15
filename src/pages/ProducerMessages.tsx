@@ -8,11 +8,9 @@ import {
   SystemNotification, 
   markNotificationAsRead, 
   deleteNotification, 
-  toggleArchiveNotification,
-  sendProducerDoubtMessage 
+  toggleArchiveNotification
 } from '../services/notificationService';
-import { auth, db } from '../firebase';
-import { doc, getDoc } from 'firebase/firestore';
+import { auth } from '../firebase';
 import { 
   Mail, 
   Inbox, 
@@ -25,13 +23,9 @@ import {
   ExternalLink, 
   Clock, 
   Calendar, 
-  Plus, 
-  Send, 
-  X, 
   Filter, 
   MessageSquare,
   AlertCircle,
-  Smartphone,
   Check,
   RefreshCw
 } from 'lucide-react';
@@ -47,26 +41,25 @@ export default function ProducerMessages() {
 
   const [notifications, setNotifications] = useState<SystemNotification[]>([]);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<'all' | 'unread' | 'archived' | 'doubts' | 'student_chats'>(() =>
-    urlTab === 'chat' || urlStudentId ? 'student_chats' : 'all'
-  );
+  const [activeTab, setActiveTab] = useState<'all' | 'unread' | 'archived' | 'doubts' | 'student_chats'>(() => {
+    if (urlTab === 'all' || urlTab === 'unread' || urlTab === 'archived' || urlTab === 'doubts') {
+      return urlTab;
+    }
+    return 'student_chats';
+  });
   const [selectedChatStudentId, setSelectedChatStudentId] = useState<string | null>(urlStudentId);
   const [unreadStudentChatsCount, setUnreadStudentChatsCount] = useState(0);
   const [typeFilter, setTypeFilter] = useState<string>('all');
   const [searchTerm, setSearchTerm] = useState('');
   
-  const [isDoubtModalOpen, setIsDoubtModalOpen] = useState(false);
-  const [doubtSubject, setDoubtSubject] = useState('');
-  const [doubtMessage, setDoubtMessage] = useState('');
-  const [isSubmittingDoubt, setIsSubmittingDoubt] = useState(false);
-  
   const [toastMsg, setToastMsg] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
-  const [supportWhatsApp, setSupportWhatsApp] = useState('244923456789');
 
   const currentUser = auth.currentUser;
 
   useEffect(() => {
-    if (urlTab === 'chat' || urlStudentId) {
+    if (urlTab === 'all' || urlTab === 'unread' || urlTab === 'archived' || urlTab === 'doubts') {
+      setActiveTab(urlTab);
+    } else {
       setActiveTab('student_chats');
       if (urlStudentId) {
         setSelectedChatStudentId(urlStudentId);
@@ -80,21 +73,6 @@ export default function ProducerMessages() {
       setUnreadStudentChatsCount(total);
     });
     return () => unsubChats();
-  }, []);
-
-  // Carrega configurações de suporte WhatsApp
-  useEffect(() => {
-    const fetchSettings = async () => {
-      try {
-        const platSnap = await getDoc(doc(db, 'settings', 'platform'));
-        if (platSnap.exists() && platSnap.data().supportWhatsApp) {
-          setSupportWhatsApp(platSnap.data().supportWhatsApp);
-        }
-      } catch (err) {
-        console.warn('Erro ao carregar suporte:', err);
-      }
-    };
-    fetchSettings();
   }, []);
 
   // Inscrição em tempo real para mensagens e notificações
@@ -147,40 +125,6 @@ export default function ProducerMessages() {
     }
   };
 
-  const handleSendDoubt = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!doubtSubject.trim() || !doubtMessage.trim()) {
-      showNotice('Preencha o assunto e a mensagem.', 'error');
-      return;
-    }
-    if (!currentUser) {
-      showNotice('Usuário não autenticado.', 'error');
-      return;
-    }
-
-    setIsSubmittingDoubt(true);
-    try {
-      const producerName = currentUser.displayName || currentUser.email?.split('@')[0] || 'Marks ACADEMY';
-      await sendProducerDoubtMessage({
-        producerUid: currentUser.uid,
-        producerName,
-        producerEmail: currentUser.email || '',
-        subject: doubtSubject,
-        message: doubtMessage
-      });
-
-      showNotice('❓ Sua dúvida/mensagem foi enviada com sucesso ao Maestro e arquivada!', 'success');
-      setDoubtSubject('');
-      setDoubtMessage('');
-      setIsDoubtModalOpen(false);
-    } catch (err) {
-      console.error(err);
-      showNotice('Erro ao enviar mensagem. Tente novamente.', 'error');
-    } finally {
-      setIsSubmittingDoubt(false);
-    }
-  };
-
   const handleOpenNotificationItem = async (item: SystemNotification) => {
     if (item.id && !item.read) {
       markNotificationAsRead(item.id).catch(() => {});
@@ -228,9 +172,6 @@ export default function ProducerMessages() {
   const archivedCount = notifications.filter(n => n.archived).length;
   const doubtsCount = notifications.filter(n => n.type === 'doubt').length;
 
-  const cleanWhatsApp = supportWhatsApp.replace(/[^0-9]/g, '') || '244923456789';
-  const whatsappUrl = `https://wa.me/${cleanWhatsApp}?text=${encodeURIComponent('Olá Maestro, sou produtor na plataforma CFA e tenho uma dúvida.')}`;
-
   return (
     <div className="min-h-screen bg-[#0e0e0e] text-[#e5e2e1] flex flex-col lg:flex-row font-body">
       <Sidebar />
@@ -262,27 +203,6 @@ export default function ProducerMessages() {
             <p className="text-xs sm:text-sm text-stone-400 max-w-2xl">
               Área de controle reservada para produtores. Acompanhe alertas do sistema, notificações recebidas com data e hora exatas, e envie dúvidas para o Maestro.
             </p>
-          </div>
-
-          <div className="flex items-center gap-3">
-            <button
-              onClick={() => setIsDoubtModalOpen(true)}
-              className="px-4 py-2.5 bg-[#e9c349] hover:bg-[#d4b03f] text-black font-extrabold text-xs rounded-2xl transition-all flex items-center gap-2 cursor-pointer shadow-lg active:scale-95 shrink-0"
-            >
-              <Plus className="w-4 h-4 text-black" />
-              <span>Nova Dúvida / Mensagem</span>
-            </button>
-
-            <a
-              href={whatsappUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="px-4 py-2.5 bg-emerald-500 hover:bg-emerald-600 text-white font-bold text-xs rounded-2xl transition-all flex items-center gap-2 shrink-0"
-              title="Suporte Direto via WhatsApp"
-            >
-              <Smartphone className="w-4 h-4" />
-              <span className="hidden sm:inline">WhatsApp Maestro</span>
-            </a>
           </div>
         </div>
 
@@ -359,7 +279,7 @@ export default function ProducerMessages() {
               <button
                 onClick={() => {
                   setActiveTab('all');
-                  setSearchParams({}, { replace: true });
+                  setSearchParams({ tab: 'all' }, { replace: true });
                 }}
                 className={`px-4 py-2 rounded-2xl text-xs font-bold transition-all cursor-pointer flex items-center gap-2 ${
                   activeTab === 'all'
@@ -374,7 +294,7 @@ export default function ProducerMessages() {
               <button
                 onClick={() => {
                   setActiveTab('unread');
-                  setSearchParams({}, { replace: true });
+                  setSearchParams({ tab: 'unread' }, { replace: true });
                 }}
                 className={`px-4 py-2 rounded-2xl text-xs font-bold transition-all cursor-pointer flex items-center gap-2 ${
                   activeTab === 'unread'
@@ -394,7 +314,7 @@ export default function ProducerMessages() {
               <button
                 onClick={() => {
                   setActiveTab('archived');
-                  setSearchParams({}, { replace: true });
+                  setSearchParams({ tab: 'archived' }, { replace: true });
                 }}
                 className={`px-4 py-2 rounded-2xl text-xs font-bold transition-all cursor-pointer flex items-center gap-2 ${
                   activeTab === 'archived'
@@ -409,7 +329,7 @@ export default function ProducerMessages() {
               <button
                 onClick={() => {
                   setActiveTab('doubts');
-                  setSearchParams({}, { replace: true });
+                  setSearchParams({ tab: 'doubts' }, { replace: true });
                 }}
                 className={`px-4 py-2 rounded-2xl text-xs font-bold transition-all cursor-pointer flex items-center gap-2 ${
                   activeTab === 'doubts'
@@ -623,81 +543,6 @@ export default function ProducerMessages() {
           )}
         </div>
       </main>
-
-      {/* MODAL DE NOVA DÚVIDA / MENSAGEM DE PRODUTOR */}
-      {isDoubtModalOpen && (
-        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-[#181818] border border-[#353534] rounded-3xl max-w-lg w-full p-6 sm:p-8 shadow-2xl animate-in zoom-in-95 duration-200">
-            <div className="flex items-center justify-between pb-4 mb-6 border-b border-[#353534]/50">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-2xl bg-[#e9c349]/10 text-[#e9c349] flex items-center justify-center border border-[#e9c349]/30">
-                  <HelpCircle className="w-5 h-5" />
-                </div>
-                <div>
-                  <h3 className="text-lg font-bold text-white font-headline">Nova Dúvida ou Problema</h3>
-                  <p className="text-xs text-stone-400">Envie diretamente para o Maestro / Administração CFA</p>
-                </div>
-              </div>
-
-              <button
-                onClick={() => setIsDoubtModalOpen(false)}
-                className="p-2 text-stone-400 hover:text-white hover:bg-[#353534] rounded-xl transition-colors cursor-pointer"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            <form onSubmit={handleSendDoubt} className="space-y-4">
-              <div>
-                <label className="block text-xs font-bold text-stone-300 mb-1.5">
-                  Assunto / Tema da Dúvida
-                </label>
-                <input
-                  type="text"
-                  required
-                  placeholder="Ex: Dúvida sobre repasse do plano ou notificação de aluno..."
-                  value={doubtSubject}
-                  onChange={(e) => setDoubtSubject(e.target.value)}
-                  className="w-full bg-[#0e0e0e] border border-[#353534] rounded-xl p-3 text-xs text-white focus:outline-none focus:border-[#e9c349]"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold text-stone-300 mb-1.5">
-                  Mensagem Detalhada
-                </label>
-                <textarea
-                  required
-                  rows={4}
-                  placeholder="Descreva aqui sua dúvida ou problema para arquivarmos e responder-lhe..."
-                  value={doubtMessage}
-                  onChange={(e) => setDoubtMessage(e.target.value)}
-                  className="w-full bg-[#0e0e0e] border border-[#353534] rounded-xl p-3 text-xs text-white focus:outline-none focus:border-[#e9c349] resize-none"
-                />
-              </div>
-
-              <div className="pt-4 border-t border-[#353534]/50 flex items-center justify-end gap-3">
-                <button
-                  type="button"
-                  onClick={() => setIsDoubtModalOpen(false)}
-                  className="px-4 py-2.5 bg-[#353534]/50 hover:bg-[#353534] text-stone-300 font-bold text-xs rounded-xl transition-colors cursor-pointer"
-                >
-                  Cancelar
-                </button>
-
-                <button
-                  type="submit"
-                  disabled={isSubmittingDoubt}
-                  className="px-5 py-2.5 bg-[#e9c349] hover:bg-[#d4b03f] text-black font-extrabold text-xs rounded-xl transition-all flex items-center gap-2 cursor-pointer shadow-lg active:scale-95 disabled:opacity-50"
-                >
-                  <Send className="w-4 h-4 text-black" />
-                  <span>{isSubmittingDoubt ? 'A enviar...' : 'Enviar e Arquivar'}</span>
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

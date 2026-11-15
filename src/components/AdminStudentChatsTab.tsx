@@ -9,11 +9,12 @@ import {
   ArrowLeft,
   AlertCircle,
   Users,
+  Phone,
 } from 'lucide-react';
 import { collection, onSnapshot } from 'firebase/firestore';
 import { auth, db } from '../firebase';
 import { isMasterEmail } from '../utils/constants';
-import { maskEmail } from '../utils/maskUtils';
+import { maskEmail, maskPhone } from '../utils/maskUtils';
 import {
   ChatMessage,
   ChatThread,
@@ -36,6 +37,19 @@ interface AdminStudentChatsTabProps {
   initialLessonTitle?: string | null;
   initialCourseTitle?: string | null;
 }
+
+const formatDisplayPhone = (rawPhone?: string | null, isMaster: boolean = false): string => {
+  const trimmed = String(rawPhone || '').trim();
+  if (!trimmed) return '';
+  if (trimmed.startsWith('+')) {
+    const parts = trimmed.split(/\s+/);
+    const ddi = parts[0] || '+244';
+    const local = parts.slice(1).join(' ').trim();
+    if (!local) return isMaster ? ddi : `${ddi} ***`;
+    return maskPhone(local, isMaster, ddi);
+  }
+  return maskPhone(trimmed, isMaster, '');
+};
 
 const getStudentDisplayName = (u: any): string => {
   if (!u) return 'Estudante';
@@ -201,13 +215,16 @@ export default function AdminStudentChatsTab({
     return threads.filter((t) => {
       if (filterMode === 'unread' && t.unreadByAdmin <= 0) return false;
       if (!q) return true;
+      const linkedUser = students.find((s) => s.id === t.studentId);
+      const resolvedPhone = String(linkedUser?.phone || t.studentPhone || '').toLowerCase();
       return (
         t.studentName.toLowerCase().includes(q) ||
         String(t.studentEmail || '').toLowerCase().includes(q) ||
+        resolvedPhone.includes(q) ||
         t.lastMessage.toLowerCase().includes(q)
       );
     });
-  }, [threads, searchQuery, filterMode]);
+  }, [threads, students, searchQuery, filterMode]);
 
   const newChatCandidates = useMemo(() => {
     if (filterMode === 'unread') return [];
@@ -215,7 +232,12 @@ export default function AdminStudentChatsTab({
     const list = students.filter((s) => !threadStudentIds.has(s.id));
     if (!q) return list.slice(0, 25);
     return list
-      .filter((s) => s.name.toLowerCase().includes(q) || s.email.toLowerCase().includes(q))
+      .filter(
+        (s) =>
+          s.name.toLowerCase().includes(q) ||
+          s.email.toLowerCase().includes(q) ||
+          s.phone.toLowerCase().includes(q)
+      )
       .slice(0, 25);
   }, [students, threadStudentIds, searchQuery, filterMode]);
 
@@ -226,9 +248,9 @@ export default function AdminStudentChatsTab({
 
     return {
       id: selectedStudentId,
-      name: fromThread?.studentName || fromUsers?.name || initialStudentName || 'Estudante',
-      email: fromThread?.studentEmail || fromUsers?.email || '',
-      phone: fromThread?.studentPhone || fromUsers?.phone || '',
+      name: fromUsers?.name || fromThread?.studentName || initialStudentName || 'Estudante',
+      email: fromUsers?.email || fromThread?.studentEmail || '',
+      phone: fromUsers?.phone || fromThread?.studentPhone || '',
     };
   }, [selectedStudentId, threads, students, initialStudentName]);
 
@@ -308,7 +330,7 @@ export default function AdminStudentChatsTab({
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Buscar aluno por nome ou e-mail..."
+              placeholder="Buscar por nome, e-mail ou telefone..."
               className="w-full bg-[#0a0a0a] border border-[#353534] rounded-xl pl-9 pr-3 py-2 text-xs text-white placeholder:text-stone-500 focus:outline-none focus:border-[#e9c349]"
             />
           </div>
@@ -496,12 +518,20 @@ export default function AdminStudentChatsTab({
                   <h3 className="text-sm font-bold text-white truncate">
                     {selectedStudentInfo.name}
                   </h3>
-                  <div className="flex items-center gap-2 text-[11px] text-stone-400 font-mono truncate">
+                  <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px] text-stone-400 font-mono">
                     {selectedStudentInfo.email ? (
-                      <span>{maskEmail(selectedStudentInfo.email, isMasterViewer)}</span>
+                      <span className="truncate">{maskEmail(selectedStudentInfo.email, isMasterViewer)}</span>
                     ) : (
-                      <span>ID: {selectedStudentInfo.id}</span>
+                      <span className="truncate">ID: {selectedStudentInfo.id}</span>
                     )}
+                    <span className="inline-flex items-center gap-1 text-stone-300 shrink-0">
+                      <Phone className="w-3 h-3 text-emerald-400 shrink-0" />
+                      <span>
+                        {selectedStudentInfo.phone
+                          ? formatDisplayPhone(selectedStudentInfo.phone, isMasterViewer)
+                          : 'Telefone não informado'}
+                      </span>
+                    </span>
                   </div>
                 </div>
               </div>
