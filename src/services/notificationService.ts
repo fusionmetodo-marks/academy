@@ -613,7 +613,7 @@ export const sendBroadcastPushNotification = async (params: {
     targetEmail: resolvedEmail,
     metadata: {
       isBroadcast: true,
-      senderName: params.senderName || 'Administração Marks ACADEMY',
+      senderName: params.senderName || 'Administração Money Building',
       sentAt: new Date().toISOString(),
       ...studentMeta,
     },

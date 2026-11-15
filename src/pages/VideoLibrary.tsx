@@ -455,8 +455,7 @@ export default function VideoLibrary({ courseId }: VideoLibraryProps = {}) {
   const returnToAdminView = () => {
     localStorage.setItem('viewAsStudent', 'false');
     window.dispatchEvent(new Event('student-view-changed'));
-    showNotification('Retornando ao Painel Administrativo...');
-    navigate('/dashboard');
+    window.location.href = '/dashboard';
   };
 
   // Toggle module collapse in Student view
@@ -1336,7 +1335,7 @@ export default function VideoLibrary({ courseId }: VideoLibraryProps = {}) {
                               pAny?.fullName ||
                               (pAny?.firstName ? `${pAny.firstName} ${pAny.lastName || ''}`.trim() : '') ||
                               auth.currentUser?.displayName ||
-                              'Administração Marks ACADEMY'
+                              'Administração Money Building'
                             : pAny?.fullName ||
                               pAny?.name ||
                               (pAny?.firstName ? `${pAny.firstName} ${pAny.lastName || ''}`.trim() : '') ||

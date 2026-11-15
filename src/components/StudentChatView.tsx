@@ -203,7 +203,7 @@ export default function StudentChatView({
           </div>
           <div className="min-w-0">
             <h2 className="text-sm font-bold text-white font-headline truncate">
-              Administração Marks ACADEMY
+              Administração Money Building
             </h2>
             <p className="text-[11px] text-stone-400 truncate">
               Canal direto e individual com o administrador

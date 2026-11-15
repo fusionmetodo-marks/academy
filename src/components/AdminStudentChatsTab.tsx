@@ -520,7 +520,7 @@ export default function AdminStudentChatsTab({
     try {
       const adminDisplayName =
         currentUser?.displayName ||
-        (isMasterViewer ? 'Administração Marks ACADEMY' : currentUser?.email?.split('@')[0] || 'Administração');
+        (isMasterViewer ? 'Administração Money Building' : currentUser?.email?.split('@')[0] || 'Administração');
 
       const finalChatId = await sendDirectChatMessage({
         studentId: selectedStudentInfo.id,
