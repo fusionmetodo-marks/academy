@@ -1,5 +1,8 @@
 import React, { useState, useEffect } from 'react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import Sidebar from '../components/Sidebar';
+import AdminStudentChatsTab from '../components/AdminStudentChatsTab';
+import { subscribeAllChatThreads } from '../services/chatService';
 import { 
   subscribeToNotifications, 
   SystemNotification, 
@@ -34,9 +37,21 @@ import {
 } from 'lucide-react';
 
 export default function ProducerMessages() {
+  const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const urlTab = searchParams.get('tab');
+  const urlStudentId = searchParams.get('studentId');
+  const urlStudentName = searchParams.get('studentName');
+  const urlLessonTitle = searchParams.get('lessonTitle');
+  const urlCourseTitle = searchParams.get('courseTitle');
+
   const [notifications, setNotifications] = useState<SystemNotification[]>([]);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<'all' | 'unread' | 'archived' | 'doubts'>('all');
+  const [activeTab, setActiveTab] = useState<'all' | 'unread' | 'archived' | 'doubts' | 'student_chats'>(() =>
+    urlTab === 'chat' || urlStudentId ? 'student_chats' : 'all'
+  );
+  const [selectedChatStudentId, setSelectedChatStudentId] = useState<string | null>(urlStudentId);
+  const [unreadStudentChatsCount, setUnreadStudentChatsCount] = useState(0);
   const [typeFilter, setTypeFilter] = useState<string>('all');
   const [searchTerm, setSearchTerm] = useState('');
   
@@ -49,6 +64,23 @@ export default function ProducerMessages() {
   const [supportWhatsApp, setSupportWhatsApp] = useState('244923456789');
 
   const currentUser = auth.currentUser;
+
+  useEffect(() => {
+    if (urlTab === 'chat' || urlStudentId) {
+      setActiveTab('student_chats');
+      if (urlStudentId) {
+        setSelectedChatStudentId(urlStudentId);
+      }
+    }
+  }, [urlTab, urlStudentId]);
+
+  useEffect(() => {
+    const unsubChats = subscribeAllChatThreads((threads) => {
+      const total = threads.reduce((acc, t) => acc + (t.unreadByAdmin || 0), 0);
+      setUnreadStudentChatsCount(total);
+    });
+    return () => unsubChats();
+  }, []);
 
   // Carrega configurações de suporte WhatsApp
   useEffect(() => {
@@ -149,8 +181,29 @@ export default function ProducerMessages() {
     }
   };
 
+  const handleOpenNotificationItem = async (item: SystemNotification) => {
+    if (item.id && !item.read) {
+      markNotificationAsRead(item.id).catch(() => {});
+    }
+
+    if (item.type === 'chat_message') {
+      const sId = item.metadata?.studentId || item.targetUserId;
+      if (sId) {
+        setSelectedChatStudentId(String(sId));
+      }
+      setActiveTab('student_chats');
+      setSearchParams(sId ? { tab: 'chat', studentId: String(sId) } : { tab: 'chat' }, { replace: true });
+      return;
+    }
+
+    if (item.link) {
+      navigate(item.link);
+    }
+  };
+
   // Filtragem de mensagens
   const filteredNotifications = notifications.filter((item) => {
+    if (activeTab === 'student_chats') return false;
     // Aba Activa
     if (activeTab === 'unread' && item.read) return false;
     if (activeTab === 'archived' && !item.archived) return false;
@@ -282,7 +335,32 @@ export default function ProducerMessages() {
             {/* ABAS */}
             <div className="flex flex-wrap items-center gap-2">
               <button
-                onClick={() => setActiveTab('all')}
+                onClick={() => {
+                  setActiveTab('student_chats');
+                  setSearchParams({ tab: 'chat' }, { replace: true });
+                }}
+                className={`px-4 py-2 rounded-2xl text-xs font-bold transition-all cursor-pointer flex items-center gap-2 ${
+                  activeTab === 'student_chats'
+                    ? 'bg-[#e9c349] text-black shadow-md'
+                    : 'bg-[#353534]/40 text-stone-300 hover:bg-[#353534] hover:text-white'
+                }`}
+              >
+                <MessageSquare className="w-4 h-4" />
+                <span>Chat com Alunos</span>
+                {unreadStudentChatsCount > 0 && (
+                  <span className={`px-1.5 py-0.5 rounded-full text-[10px] font-bold font-mono tabular-nums ${
+                    activeTab === 'student_chats' ? 'bg-black text-[#e9c349]' : 'bg-red-500 text-white'
+                  }`}>
+                    {unreadStudentChatsCount}
+                  </span>
+                )}
+              </button>
+
+              <button
+                onClick={() => {
+                  setActiveTab('all');
+                  setSearchParams({}, { replace: true });
+                }}
                 className={`px-4 py-2 rounded-2xl text-xs font-bold transition-all cursor-pointer flex items-center gap-2 ${
                   activeTab === 'all'
                     ? 'bg-[#e9c349] text-black shadow-md'
@@ -294,7 +372,10 @@ export default function ProducerMessages() {
               </button>
 
               <button
-                onClick={() => setActiveTab('unread')}
+                onClick={() => {
+                  setActiveTab('unread');
+                  setSearchParams({}, { replace: true });
+                }}
                 className={`px-4 py-2 rounded-2xl text-xs font-bold transition-all cursor-pointer flex items-center gap-2 ${
                   activeTab === 'unread'
                     ? 'bg-[#e9c349] text-black shadow-md'
@@ -311,7 +392,10 @@ export default function ProducerMessages() {
               </button>
 
               <button
-                onClick={() => setActiveTab('archived')}
+                onClick={() => {
+                  setActiveTab('archived');
+                  setSearchParams({}, { replace: true });
+                }}
                 className={`px-4 py-2 rounded-2xl text-xs font-bold transition-all cursor-pointer flex items-center gap-2 ${
                   activeTab === 'archived'
                     ? 'bg-[#e9c349] text-black shadow-md'
@@ -323,7 +407,10 @@ export default function ProducerMessages() {
               </button>
 
               <button
-                onClick={() => setActiveTab('doubts')}
+                onClick={() => {
+                  setActiveTab('doubts');
+                  setSearchParams({}, { replace: true });
+                }}
                 className={`px-4 py-2 rounded-2xl text-xs font-bold transition-all cursor-pointer flex items-center gap-2 ${
                   activeTab === 'doubts'
                     ? 'bg-[#e9c349] text-black shadow-md'
@@ -336,34 +423,44 @@ export default function ProducerMessages() {
             </div>
 
             {/* BUSCA E FILTRO DE TIPO */}
-            <div className="flex flex-col sm:flex-row items-center gap-3 w-full md:w-auto">
-              <div className="relative w-full sm:w-64">
-                <Search className="w-4 h-4 text-stone-500 absolute left-3 top-1/2 -translate-y-1/2" />
-                <input
-                  type="text"
-                  placeholder="Pesquisar mensagens..."
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                  className="w-full bg-[#0e0e0e] border border-[#353534] text-xs text-white pl-9 pr-3 py-2 rounded-xl focus:outline-none focus:border-[#e9c349]"
-                />
-              </div>
+            {activeTab !== 'student_chats' && (
+              <div className="flex flex-col sm:flex-row items-center gap-3 w-full md:w-auto">
+                <div className="relative w-full sm:w-64">
+                  <Search className="w-4 h-4 text-stone-500 absolute left-3 top-1/2 -translate-y-1/2" />
+                  <input
+                    type="text"
+                    placeholder="Pesquisar mensagens..."
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                    className="w-full bg-[#0e0e0e] border border-[#353534] text-xs text-white pl-9 pr-3 py-2 rounded-xl focus:outline-none focus:border-[#e9c349]"
+                  />
+                </div>
 
-              <select
-                value={typeFilter}
-                onChange={(e) => setTypeFilter(e.target.value)}
-                className="w-full sm:w-auto bg-[#0e0e0e] border border-[#353534] text-xs text-stone-300 px-3 py-2 rounded-xl focus:outline-none focus:border-[#e9c349]"
-              >
-                <option value="all">Todos os tipos</option>
-                <option value="general">Geral / Sistema</option>
-                <option value="doubt">Dúvidas / Suporte</option>
-                <option value="payment_approved">Aprovação de Pagamento</option>
-                <option value="new_course">Novos Cursos</option>
-              </select>
-            </div>
+                <select
+                  value={typeFilter}
+                  onChange={(e) => setTypeFilter(e.target.value)}
+                  className="w-full sm:w-auto bg-[#0e0e0e] border border-[#353534] text-xs text-stone-300 px-3 py-2 rounded-xl focus:outline-none focus:border-[#e9c349]"
+                >
+                  <option value="all">Todos os tipos</option>
+                  <option value="chat_message">Mensagens de Chat</option>
+                  <option value="general">Geral / Sistema</option>
+                  <option value="doubt">Dúvidas / Suporte</option>
+                  <option value="payment_approved">Aprovação de Pagamento</option>
+                  <option value="new_course">Novos Cursos</option>
+                </select>
+              </div>
+            )}
           </div>
 
-          {/* LISTA DE MENSAGENS */}
-          {loading ? (
+          {/* CONTEÚDO DA ABA SELECIONADA */}
+          {activeTab === 'student_chats' ? (
+            <AdminStudentChatsTab
+              initialStudentId={selectedChatStudentId}
+              initialStudentName={urlStudentName}
+              initialLessonTitle={urlLessonTitle}
+              initialCourseTitle={urlCourseTitle}
+            />
+          ) : loading ? (
             <div className="py-16 text-center text-stone-400 text-xs flex flex-col items-center gap-3">
               <div className="w-6 h-6 border-2 border-[#e9c349] border-t-transparent rounded-full animate-spin"></div>
               <span>A carregar caixa de mensagens...</span>
@@ -401,11 +498,17 @@ export default function ProducerMessages() {
                 });
 
                 const isUnread = !item.read;
+                const isNavigable = Boolean(item.link || item.type === 'chat_message');
 
                 return (
                   <div
                     key={item.id}
+                    onClick={() => {
+                      if (isNavigable) handleOpenNotificationItem(item);
+                    }}
                     className={`p-4 sm:p-5 rounded-2xl border transition-all flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 ${
+                      isNavigable ? 'cursor-pointer' : ''
+                    } ${
                       isUnread
                         ? 'bg-gradient-to-r from-[#e9c349]/10 via-[#141414] to-[#141414] border-[#e9c349]/40 shadow-md'
                         : 'bg-[#0e0e0e] border-[#353534]/60 hover:border-[#353534]'
@@ -413,18 +516,22 @@ export default function ProducerMessages() {
                   >
                     <div className="space-y-2 max-w-3xl flex-1">
                       <div className="flex items-center gap-2 flex-wrap">
-                        {isUnread && (
-                          <span className="w-2 h-2 rounded-full bg-[#e9c349] animate-pulse shrink-0" />
-                        )}
-
                         <span className={`text-[10px] font-bold uppercase tracking-wider px-2.5 py-0.5 rounded-lg border ${
                           item.type === 'doubt'
                             ? 'bg-purple-500/10 text-purple-300 border-purple-500/30'
+                            : item.type === 'chat_message'
+                            ? 'bg-[#e9c349]/15 text-[#e9c349] border-[#e9c349]/40'
                             : item.type === 'payment_approved'
                             ? 'bg-emerald-500/10 text-emerald-300 border-emerald-500/30'
                             : 'bg-[#e9c349]/10 text-[#e9c349] border-[#e9c349]/30'
                         }`}>
-                          {item.type === 'doubt' ? 'Dúvida de Produtor' : item.type === 'payment_approved' ? 'Pagamento' : 'Aviso do Sistema'}
+                          {item.type === 'doubt'
+                            ? 'Dúvida de Produtor'
+                            : item.type === 'chat_message'
+                            ? 'Mensagem de Aluno'
+                            : item.type === 'payment_approved'
+                            ? 'Pagamento'
+                            : 'Aviso do Sistema'}
                         </span>
 
                         {item.targetRole && (
@@ -454,20 +561,27 @@ export default function ProducerMessages() {
                           <span>{formattedTime}</span>
                         </span>
 
-                        {item.link && (
-                          <a
-                            href={item.link}
-                            className="text-[#e9c349] hover:underline flex items-center gap-1 font-bold"
+                        {isNavigable && (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleOpenNotificationItem(item);
+                            }}
+                            className="text-[#e9c349] hover:underline flex items-center gap-1 font-bold cursor-pointer"
                           >
-                            <span>Acessar rota</span>
+                            <span>{item.type === 'chat_message' ? 'Abrir chat com aluno' : 'Acessar rota'}</span>
                             <ExternalLink className="w-3 h-3" />
-                          </a>
+                          </button>
                         )}
                       </div>
                     </div>
 
                     {/* AÇÕES DA MENSAGEM */}
-                    <div className="flex items-center gap-2 shrink-0 self-end sm:self-center">
+                    <div
+                      className="flex items-center gap-2 shrink-0 self-end sm:self-center"
+                      onClick={(e) => e.stopPropagation()}
+                    >
                       <button
                         onClick={() => handleToggleRead(item)}
                         className={`p-2 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer ${

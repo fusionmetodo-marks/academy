@@ -134,11 +134,34 @@ export const approveStudentTransaction = async (
     });
 
     const targetCourseId = courseId || 'marks-trading-master';
+    let resolvedUserId = userId && !userId.startsWith('guest_') ? userId : undefined;
+    let resolvedEmail = (userEmail || '').trim().toLowerCase();
+    let txUserName = '';
+    let txUserPhone = '';
+    let txCourseTitle = '';
+    let txAmount: number | null = null;
+
+    try {
+      const txSnap = await getDoc(txRef);
+      if (txSnap.exists()) {
+        const txData = txSnap.data();
+        if (!resolvedEmail && txData.userEmail) resolvedEmail = String(txData.userEmail).trim().toLowerCase();
+        if (!resolvedUserId && txData.userId && !String(txData.userId).startsWith('guest_')) {
+          resolvedUserId = txData.userId;
+        }
+        txUserName = txData.userName || '';
+        txUserPhone = txData.userPhone || '';
+        txCourseTitle = txData.courseTitle || '';
+        if (typeof txData.amount === 'number') txAmount = txData.amount;
+      }
+    } catch {
+      // ignore tx metadata fallback
+    }
 
     // 2. Inteligência: Insere o ID exato do curso comprado no array de cursos do usuário
-    if (userId && !userId.startsWith('guest_')) {
+    if (resolvedUserId) {
       try {
-        const userRef = doc(db, 'users', userId);
+        const userRef = doc(db, 'users', resolvedUserId);
         const userSnap = await getDoc(userRef);
         if (userSnap.exists()) {
           await updateDoc(userRef, {
@@ -147,18 +170,19 @@ export const approveStudentTransaction = async (
             subscriptionActivatedAt: serverTimestamp()
           });
         } else {
-          console.warn(`User document ${userId} not found, skipping course enrollment.`);
+          console.warn(`User document ${resolvedUserId} not found, skipping course enrollment.`);
         }
       } catch (userErr) {
         console.error("Failed to update user enrolledCourses:", userErr);
       }
-    } else if (userEmail) {
+    } else if (resolvedEmail) {
       // Caso a transação tenha sido feita por guest com email cadastrado
       try {
-        const q = query(collection(db, 'users'), where('email', '==', userEmail.trim().toLowerCase()));
+        const q = query(collection(db, 'users'), where('email', '==', resolvedEmail));
         const snap = await getDocs(q);
         if (!snap.empty) {
           const foundDoc = snap.docs[0];
+          resolvedUserId = foundDoc.id;
           await updateDoc(doc(db, 'users', foundDoc.id), {
             enrolledCourses: arrayUnion(targetCourseId),
             subscriptionStatus: 'active',
@@ -172,21 +196,41 @@ export const approveStudentTransaction = async (
 
     console.log(`Curso ${targetCourseId} liberado com sucesso para a transação ${transactionId}`);
 
-    // Dispara notificação de pagamento aprovado para o Administrador (aluno não recebe avisos de compra)
+    // Dispara notificação de pagamento aprovado para o Administrador
     try {
       await addDoc(collection(db, 'notifications'), {
         type: 'payment_approved',
+        scope: 'admin',
         title: '💰 Pagamento Aprovado & Matrícula Liberada!',
-        message: `A transação ${transactionId} (Curso: ${targetCourseId}) foi aprovada com sucesso no painel.`,
+        message: `A transação ${transactionId} (Curso: ${txCourseTitle || targetCourseId}) foi aprovada com sucesso no painel.`,
         link: '/directory',
         targetRole: 'admin',
-        targetUserId: userId || null,
+        targetUserId: resolvedUserId || null,
+        targetEmail: resolvedEmail || null,
         read: false,
         timestamp: Date.now(),
         createdAt: serverTimestamp()
       });
     } catch (notifErr) {
-      console.warn("Failed to create approval notification:", notifErr);
+      console.warn("Failed to create admin approval notification:", notifErr);
+    }
+
+    // Dispara notificação INDIVIDUAL vinculada ao estudante (UID, nome, e-mail e telefone)
+    try {
+      const { notifyStudentCourseApproved } = await import('./services/notificationService');
+      await notifyStudentCourseApproved({
+        userId: resolvedUserId || null,
+        email: resolvedEmail || null,
+        name: txUserName || null,
+        phone: txUserPhone || null,
+        courseId: targetCourseId,
+        courseTitle: txCourseTitle || null,
+        approvedBy: auth.currentUser?.email || 'admin',
+        transactionId,
+        amount: txAmount,
+      });
+    } catch (studentNotifErr) {
+      console.warn("Failed to create individual student approval notification:", studentNotifErr);
     }
 
     return true;

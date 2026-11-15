@@ -32,7 +32,7 @@ export function PushSubscriptionBanner({ userRole = 'student' }: PushSubscriptio
     sessionStorage.setItem('push_banner_dismissed', 'true');
     sessionStorage.removeItem('push_banner_active');
     try {
-      const granted = await requestPushPermission();
+      const granted = await requestPushPermission(auth.currentUser?.uid);
       if (auth.currentUser) {
         syncUserDeviceStatus(auth.currentUser.uid);
       }

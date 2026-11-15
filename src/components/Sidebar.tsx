@@ -6,6 +6,7 @@ import { DEFAULT_CFA_LOGO, getValidLogoUrl, isMasterEmail } from '../utils/const
 import { AndroidInstallModal } from './AndroidInstallModal';
 import { shouldShowInstallPopup } from '../utils/deviceDetection';
 import { NotificationCenter } from './NotificationCenter';
+import { subscribeAllChatThreads } from '../services/chatService';
 import { 
   Smartphone, 
   Mail, 
@@ -29,12 +30,21 @@ export default function Sidebar() {
   });
 
   const [currentUserEmail, setCurrentUserEmail] = useState<string | null>(auth.currentUser?.email || null);
+  const [unreadStudentChats, setUnreadStudentChats] = useState(0);
 
   useEffect(() => {
     const unsub = auth.onAuthStateChanged((u) => {
       setCurrentUserEmail(u?.email || null);
     });
     return () => unsub();
+  }, []);
+
+  useEffect(() => {
+    const unsubChats = subscribeAllChatThreads((threads) => {
+      const total = threads.reduce((acc, t) => acc + (t.unreadByAdmin || 0), 0);
+      setUnreadStudentChats(total);
+    });
+    return () => unsubChats();
   }, []);
 
   const isMaster = isMasterEmail(currentUserEmail);
@@ -265,16 +275,23 @@ export default function Sidebar() {
         </Link>
         <Link
           to="/messages"
-          className={`flex items-center gap-4 px-4 py-3 mx-2 my-1 font-headline font-medium transition-transform duration-300 rounded-lg ${
+          className={`flex items-center justify-between gap-2 px-4 py-3 mx-2 my-1 font-headline font-medium transition-transform duration-300 rounded-lg ${
             location.pathname === '/messages'
               ? 'bg-[#353534] text-[#e9c349] active:scale-95 brightness-110'
               : 'text-[#bccabe] hover:bg-[#353534]/30 hover:translate-x-1'
           }`}
         >
-          <span className="material-symbols-outlined" style={location.pathname === '/messages' ? { fontVariationSettings: "'FILL' 1" } : {}}>
-            mail
-          </span>
-          <span>Mensagens & Arquivo</span>
+          <div className="flex items-center gap-4 min-w-0">
+            <span className="material-symbols-outlined" style={location.pathname === '/messages' ? { fontVariationSettings: "'FILL' 1" } : {}}>
+              mail
+            </span>
+            <span className="truncate">Mensagens & Arquivo</span>
+          </div>
+          {unreadStudentChats > 0 && (
+            <span className="px-1.5 py-0.5 rounded-full bg-[#e9c349] text-black text-[10px] font-extrabold font-mono tabular-nums shrink-0">
+              {unreadStudentChats > 99 ? '99+' : unreadStudentChats}
+            </span>
+          )}
         </Link>
         {isMaster && (
           <Link

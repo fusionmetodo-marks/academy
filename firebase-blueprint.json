@@ -102,15 +102,43 @@
     },
     "Notification": {
       "title": "Notification",
-      "description": "System broadcast or targeted user alert.",
+      "description": "System collective or individual targeted user alert.",
       "type": "object",
       "properties": {
-        "title": { "type": "string" },
-        "message": { "type": "string" },
-        "targetUserId": { "type": "string" },
+        "type": { "type": "string", "maxLength": 64 },
+        "scope": {
+          "type": "string",
+          "enum": ["individual", "collective", "admin"]
+        },
+        "title": { "type": "string", "maxLength": 300 },
+        "message": { "type": "string", "maxLength": 2500 },
+        "link": { "type": "string", "maxLength": 500 },
+        "targetRole": {
+          "type": "string",
+          "enum": ["admin", "student", "producer", "all"]
+        },
+        "targetUserId": { "type": "string", "maxLength": 128 },
+        "targetEmail": { "type": "string", "format": "email", "maxLength": 200 },
+        "read": { "type": "boolean" },
+        "archived": { "type": "boolean" },
+        "metadata": { "type": "object" },
+        "timestamp": { "type": "number" },
         "createdAt": { "type": "string", "format": "date-time" }
       },
       "required": ["title", "message"]
+    },
+    "NotificationState": {
+      "title": "NotificationState",
+      "description": "Per-user read and dismissed state for collective and individual notifications.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "maxLength": 128 },
+        "notificationId": { "type": "string", "maxLength": 128 },
+        "read": { "type": "boolean" },
+        "dismissed": { "type": "boolean" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "notificationId", "read", "dismissed"]
     },
     "Settings": {
       "title": "Settings",
@@ -154,6 +182,61 @@
         "playedAt": { "type": "string", "format": "date-time" }
       },
       "required": ["userId", "studentName", "studentEmail", "courseId", "lessonId", "lessonTitle", "playNumber", "createdAtMs"]
+    },
+    "ChatThread": {
+      "title": "ChatThread",
+      "description": "1-on-1 private chat channel between an individual student and the administrator.",
+      "type": "object",
+      "properties": {
+        "studentId": { "type": "string", "maxLength": 128 },
+        "studentName": { "type": "string", "maxLength": 200 },
+        "studentEmail": { "type": "string", "format": "email", "maxLength": 200 },
+        "studentPhone": { "type": "string", "maxLength": 64 },
+        "lastMessage": { "type": "string", "maxLength": 2000 },
+        "lastSenderRole": { "type": "string", "enum": ["admin", "student"] },
+        "lastSenderId": { "type": "string", "maxLength": 128 },
+        "lastMessageAtMs": { "type": "number" },
+        "updatedAt": { "type": "string", "format": "date-time" },
+        "unreadByAdmin": { "type": "number" },
+        "unreadByStudent": { "type": "number" },
+        "lastAdminBellAtMs": { "type": "number" },
+        "lastStudentBellAtMs": { "type": "number" }
+      },
+      "required": ["studentId", "studentName", "lastMessage", "lastSenderRole", "lastSenderId", "lastMessageAtMs", "unreadByAdmin", "unreadByStudent"]
+    },
+    "ChatMessage": {
+      "title": "ChatMessage",
+      "description": "An individual text message inside a student-administrator 1-on-1 chat thread.",
+      "type": "object",
+      "properties": {
+        "chatId": { "type": "string", "maxLength": 128 },
+        "senderId": { "type": "string", "maxLength": 128 },
+        "senderName": { "type": "string", "maxLength": 200 },
+        "senderRole": { "type": "string", "enum": ["admin", "student"] },
+        "text": { "type": "string", "minLength": 1, "maxLength": 2000 },
+        "contextLessonTitle": { "type": "string", "maxLength": 250 },
+        "contextCourseTitle": { "type": "string", "maxLength": 250 },
+        "contextCourseId": { "type": "string", "maxLength": 128 },
+        "createdAtMs": { "type": "number" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["chatId", "senderId", "senderName", "senderRole", "text", "createdAtMs"]
+    },
+    "LessonComment": {
+      "title": "LessonComment",
+      "description": "Persisted public discussion comment under a course lesson with author role.",
+      "type": "object",
+      "properties": {
+        "courseId": { "type": "string", "maxLength": 128 },
+        "lessonId": { "type": "string", "maxLength": 128 },
+        "authorId": { "type": "string", "maxLength": 128 },
+        "authorName": { "type": "string", "maxLength": 200 },
+        "authorRole": { "type": "string", "enum": ["admin", "student"] },
+        "text": { "type": "string", "minLength": 1, "maxLength": 1500 },
+        "createdAtMs": { "type": "number" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["courseId", "lessonId", "authorId", "authorName", "authorRole", "text", "createdAtMs"]
     }
   },
   "firestore": {
@@ -162,6 +245,12 @@
         "$ref": "#/entities/User"
       },
       "description": "Stores user profiles including their roles and subscription status."
+    },
+    "/users/{userId}/notificationStates/{notificationId}": {
+      "schema": {
+        "$ref": "#/entities/NotificationState"
+      },
+      "description": "Stores per-student read and dismissed states for notifications."
     },
     "/courses/{courseId}": {
       "schema": {
@@ -187,6 +276,24 @@
       },
       "description": "Stores chronological video playback events per student and lesson for administrative analytics."
     },
+    "/lessonComments/{commentId}": {
+      "schema": {
+        "$ref": "#/entities/LessonComment"
+      },
+      "description": "Stores persisted lesson comments from students and administrators with direct chat links."
+    },
+    "/chats/{studentId}": {
+      "schema": {
+        "$ref": "#/entities/ChatThread"
+      },
+      "description": "Stores 1-on-1 chat metadata and unread counters between a student and the administrator."
+    },
+    "/chats/{studentId}/messages/{messageId}": {
+      "schema": {
+        "$ref": "#/entities/ChatMessage"
+      },
+      "description": "Stores chronological text messages inside a student-administrator 1-on-1 chat thread."
+    },
     "/transactions/{transactionId}": {
       "schema": {
         "$ref": "#/entities/Transaction"
@@ -197,7 +304,7 @@
       "schema": {
         "$ref": "#/entities/Notification"
       },
-      "description": "Stores private user and system notifications."
+      "description": "Stores private user and collective system notifications."
     },
     "/settings/{settingsId}": {
       "schema": {

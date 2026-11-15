@@ -1,5 +1,6 @@
 import { doc, onSnapshot, collection, query, where, updateDoc, arrayUnion, arrayRemove, setDoc, getDocs, serverTimestamp } from 'firebase/firestore';
 import { db } from '../firebase';
+import { notifyStudentCourseApproved } from './notificationService';
 
 export interface UserEnrollmentData {
   docId: string;
@@ -126,6 +127,12 @@ export async function addCourseToUser(userId: string, userEmail: string | null, 
         }
       }
     }
+    notifyStudentCourseApproved({
+      userId: userId || null,
+      email: userEmail || null,
+      courseId,
+    }).catch(() => {});
+
     return true;
   } catch (error) {
     console.error("Erro ao adicionar curso ao usuário:", error);

@@ -344,7 +344,8 @@ export default function CoursesList({ onSelectCourse }: CoursesListProps) {
           id: editingCourse.id,
           title: editForm.title.trim(),
           instructor: finalSignature,
-          price: Number(editForm.price) || 0
+          price: Number(editForm.price) || 0,
+          category: editingCourse.category
         }).catch(err => console.warn('Erro ao notificar novo curso publicado:', err));
       }
 
@@ -439,7 +440,8 @@ export default function CoursesList({ onSelectCourse }: CoursesListProps) {
           id: newId,
           title: newCourseForm.title.trim(),
           instructor: finalSignature,
-          price: Number(newCourseForm.price) || 0
+          price: Number(newCourseForm.price) || 0,
+          category: creationType
         }).catch(err => console.warn('Erro ao notificar lançamento:', err));
       }
 

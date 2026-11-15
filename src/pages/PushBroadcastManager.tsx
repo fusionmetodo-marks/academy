@@ -313,6 +313,7 @@ export default function PushBroadcastManager() {
         link: link.trim() || '/library',
         targetRole: targetRole,
         targetUserId: selectedStudent ? selectedStudent.id : (targetUserId || undefined),
+        targetEmail: selectedStudent?.email || undefined,
         senderName: adminEmail
       });
 

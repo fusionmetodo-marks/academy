@@ -347,6 +347,7 @@ export default function CourseEditor({ courseId, onBack }: CourseEditorProps) {
         notifyNewModule({
           courseId,
           courseTitle: title || 'Curso Marks ACADEMY',
+          moduleId: newMod.id,
           moduleTitle: cleanTitle
         }).catch(err => console.warn('Erro ao disparar notificação de módulo:', err));
       }
@@ -484,7 +485,9 @@ export default function CourseEditor({ courseId, onBack }: CourseEditorProps) {
             notifyNewLesson({
               courseId,
               courseTitle: title || 'Curso Marks ACADEMY',
+              moduleId: selectedModuleId,
               moduleTitle: mod.title,
+              lessonId: newLesson.id,
               lessonTitle: cleanLessonTitle
             }).catch(err => console.warn('Erro ao disparar notificação de aula:', err));
           }
@@ -689,6 +692,7 @@ export default function CourseEditor({ courseId, onBack }: CourseEditorProps) {
       notifyNewModule({
         courseId,
         courseTitle: title || 'Curso Marks ACADEMY',
+        moduleId: newModule.id,
         moduleTitle: newModule.title
       }).catch(err => console.warn('Erro ao disparar notificação de módulo colado:', err));
     }

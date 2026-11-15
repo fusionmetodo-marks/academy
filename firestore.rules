@@ -55,6 +55,19 @@ service cloud.firestore {
       );
 
       allow delete: if isAdmin();
+
+      match /notificationStates/{notificationId} {
+        allow read: if isSignedIn() && (request.auth.uid == userId || isAdmin());
+        allow create, update: if isSignedIn() && (request.auth.uid == userId || isAdmin()) &&
+          notificationId is string && notificationId.size() > 0 && notificationId.size() <= 128 &&
+          request.resource.data.keys().hasAll(['userId', 'notificationId', 'read', 'dismissed']) &&
+          request.resource.data.keys().hasOnly(['userId', 'notificationId', 'read', 'dismissed', 'updatedAt']) &&
+          request.resource.data.userId == userId &&
+          request.resource.data.notificationId == notificationId &&
+          request.resource.data.read is bool &&
+          request.resource.data.dismissed is bool;
+        allow delete: if isSignedIn() && (request.auth.uid == userId || isAdmin());
+      }
     }
 
     // 2. Vitrine de Cursos: Público para leitura da vitrine; escrita restrita a Admin / Produtor proprietário.
@@ -103,13 +116,40 @@ service cloud.firestore {
     }
 
     // 6. Notificações do Sistema:
-    // Criação restrita a usuários logados (evita spam anônimo).
-    // Leitura restrita a quem é o alvo da notificação ou Admin (evita espionagem de dados alheios).
+    // Separação entre notificações coletivas (visíveis para alunos) e individuais (restritas ao UID/e-mail alvo ou Admin).
+    function isValidNotification(data) {
+      return data.keys().hasAll(['title', 'message']) &&
+        data.title is string && data.title.size() > 0 && data.title.size() <= 300 &&
+        data.message is string && data.message.size() <= 2500 &&
+        (!('link' in data) || data.link == null || (data.link is string && data.link.size() <= 500)) &&
+        (!('targetUserId' in data) || data.targetUserId == null || (data.targetUserId is string && data.targetUserId.size() <= 128)) &&
+        (!('targetEmail' in data) || data.targetEmail == null || (data.targetEmail is string && data.targetEmail.size() <= 200)) &&
+        (!('scope' in data) || (data.scope in ['individual', 'collective', 'admin']));
+    }
+
     match /notifications/{notificationId} {
-      allow create: if isSignedIn();
-      allow read: if isSignedIn();
+      allow create: if isSignedIn() && isValidNotification(request.resource.data);
+      allow read: if isAdmin() || (
+        isSignedIn() && (
+          resource.data.scope == 'collective' ||
+          resource.data.targetRole == 'all' ||
+          resource.data.targetUserId == request.auth.uid ||
+          ('targetEmail' in resource.data &&
+           resource.data.targetEmail is string &&
+           'email' in request.auth.token &&
+           request.auth.token.email != null &&
+           resource.data.targetEmail == request.auth.token.email.lower())
+        )
+      );
       allow update, delete: if isAdmin() || (
-        isSignedIn() && 'targetUserId' in resource.data && resource.data.targetUserId == request.auth.uid
+        isSignedIn() && (
+          ('targetUserId' in resource.data && resource.data.targetUserId == request.auth.uid) ||
+          ('targetEmail' in resource.data &&
+           resource.data.targetEmail is string &&
+           'email' in request.auth.token &&
+           request.auth.token.email != null &&
+           resource.data.targetEmail == request.auth.token.email.lower())
+        )
       );
     }
 
@@ -141,6 +181,105 @@ service cloud.firestore {
       allow list: if isAdmin() || (isSignedIn() && resource.data.userId == request.auth.uid);
       allow create: if isValidPlaybackId(playbackId) && isSignedIn() && isValidLessonPlayback(request.resource.data);
       allow update, delete: if isValidPlaybackId(playbackId) && isAdmin();
+    }
+
+    // 8. Chat Privado 1-para-1 (Estudante <-> Administrador):
+    // Cada estudante tem um canal único indexado pelo seu UID (/chats/{studentId}).
+    // Leitura e escrita estritamente isoladas ao próprio estudante ou à administração.
+    function isValidDocId(id) {
+      return id is string && id.size() > 0 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function isValidChatThread(data, studentId) {
+      return data.keys().hasAll(['studentId', 'studentName', 'lastMessage', 'lastSenderRole', 'lastSenderId', 'lastMessageAtMs', 'unreadByAdmin', 'unreadByStudent']) &&
+        data.keys().hasOnly([
+          'studentId', 'studentName', 'studentEmail', 'studentPhone',
+          'lastMessage', 'lastSenderRole', 'lastSenderId', 'lastMessageAtMs',
+          'updatedAt', 'unreadByAdmin', 'unreadByStudent',
+          'lastAdminBellAtMs', 'lastStudentBellAtMs'
+        ]) &&
+        data.studentId is string && data.studentId == studentId && data.studentId.size() <= 128 &&
+        data.studentName is string && data.studentName.size() > 0 && data.studentName.size() <= 200 &&
+        (!('studentEmail' in data) || data.studentEmail == null || (data.studentEmail is string && data.studentEmail.size() <= 200)) &&
+        (!('studentPhone' in data) || data.studentPhone == null || (data.studentPhone is string && data.studentPhone.size() <= 64)) &&
+        data.lastMessage is string && data.lastMessage.size() <= 2000 &&
+        data.lastSenderRole in ['admin', 'student'] &&
+        data.lastSenderId is string && data.lastSenderId.size() > 0 && data.lastSenderId.size() <= 128 &&
+        data.lastMessageAtMs is number && data.lastMessageAtMs >= 0 &&
+        data.unreadByAdmin is number && data.unreadByAdmin >= 0 && data.unreadByAdmin <= 100000 &&
+        data.unreadByStudent is number && data.unreadByStudent >= 0 && data.unreadByStudent <= 100000 &&
+        (!('lastAdminBellAtMs' in data) || data.lastAdminBellAtMs == null || (data.lastAdminBellAtMs is number && data.lastAdminBellAtMs >= 0)) &&
+        (!('lastStudentBellAtMs' in data) || data.lastStudentBellAtMs == null || (data.lastStudentBellAtMs is number && data.lastStudentBellAtMs >= 0));
+    }
+
+    function isValidChatMessage(data, studentId) {
+      return data.keys().hasAll(['chatId', 'senderId', 'senderName', 'senderRole', 'text', 'createdAtMs']) &&
+        data.keys().hasOnly([
+          'chatId', 'senderId', 'senderName', 'senderRole', 'text',
+          'contextLessonTitle', 'contextCourseTitle', 'contextCourseId',
+          'createdAtMs', 'createdAt'
+        ]) &&
+        data.chatId is string && data.chatId == studentId && data.chatId.size() <= 128 &&
+        data.senderId is string && data.senderId == request.auth.uid && data.senderId.size() <= 128 &&
+        data.senderName is string && data.senderName.size() > 0 && data.senderName.size() <= 200 &&
+        data.senderRole in ['admin', 'student'] &&
+        data.text is string && data.text.size() > 0 && data.text.size() <= 2000 &&
+        (!('contextLessonTitle' in data) || data.contextLessonTitle == null || (data.contextLessonTitle is string && data.contextLessonTitle.size() <= 250)) &&
+        (!('contextCourseTitle' in data) || data.contextCourseTitle == null || (data.contextCourseTitle is string && data.contextCourseTitle.size() <= 250)) &&
+        (!('contextCourseId' in data) || data.contextCourseId == null || (data.contextCourseId is string && data.contextCourseId.size() <= 128)) &&
+        data.createdAtMs is number && data.createdAtMs > 0;
+    }
+
+    match /chats/{studentId} {
+      allow get: if isValidDocId(studentId) && (isAdmin() || (isSignedIn() && request.auth.uid == studentId));
+      allow list: if isAdmin() || (isSignedIn() && resource.data.studentId == request.auth.uid);
+      allow create: if isValidDocId(studentId) && isSignedIn() && isValidChatThread(request.resource.data, studentId) && (
+        isAdmin() ||
+        (request.auth.uid == studentId &&
+         request.resource.data.lastSenderId == request.auth.uid &&
+         request.resource.data.lastSenderRole == 'student')
+      );
+      allow update: if isValidDocId(studentId) && isSignedIn() && isValidChatThread(request.resource.data, studentId) && (
+        isAdmin() ||
+        (request.auth.uid == studentId && (
+          (request.resource.data.lastSenderId == request.auth.uid && request.resource.data.lastSenderRole == 'student') ||
+          (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['unreadByStudent', 'updatedAt']) &&
+           request.resource.data.unreadByStudent == 0)
+        ))
+      );
+      allow delete: if isValidDocId(studentId) && isAdmin();
+
+      match /messages/{messageId} {
+        allow get: if isValidDocId(studentId) && isValidDocId(messageId) && (isAdmin() || (isSignedIn() && request.auth.uid == studentId));
+        allow list: if isAdmin() || (isSignedIn() && request.auth.uid == studentId);
+        allow create: if isValidDocId(studentId) && isValidDocId(messageId) && isSignedIn() && isValidChatMessage(request.resource.data, studentId) && (
+          isAdmin() ||
+          (request.auth.uid == studentId && request.resource.data.senderRole == 'student')
+        );
+        allow update, delete: if isValidDocId(studentId) && isValidDocId(messageId) && isAdmin();
+      }
+    }
+
+    // 9. Comentários Persistentes das Aulas:
+    function isValidLessonComment(data) {
+      return data.keys().hasAll(['courseId', 'lessonId', 'authorId', 'authorName', 'authorRole', 'text', 'createdAtMs']) &&
+        data.keys().hasOnly(['courseId', 'lessonId', 'authorId', 'authorName', 'authorRole', 'text', 'createdAtMs', 'createdAt']) &&
+        data.courseId is string && data.courseId.size() > 0 && data.courseId.size() <= 128 &&
+        data.lessonId is string && data.lessonId.size() > 0 && data.lessonId.size() <= 128 &&
+        data.authorId is string && data.authorId == request.auth.uid && data.authorId.size() <= 128 &&
+        data.authorName is string && data.authorName.size() > 0 && data.authorName.size() <= 200 &&
+        data.authorRole in ['admin', 'student'] &&
+        data.text is string && data.text.size() > 0 && data.text.size() <= 1500 &&
+        data.createdAtMs is number && data.createdAtMs > 0;
+    }
+
+    match /lessonComments/{commentId} {
+      allow get, list: if isSignedIn();
+      allow create: if isValidDocId(commentId) && isSignedIn() && isValidLessonComment(request.resource.data) && (
+        isAdmin() || request.resource.data.authorRole == 'student'
+      );
+      allow update: if isValidDocId(commentId) && isAdmin() && isValidLessonComment(request.resource.data);
+      allow delete: if isValidDocId(commentId) && (isAdmin() || (isSignedIn() && resource.data.authorId == request.auth.uid));
     }
   }
 }

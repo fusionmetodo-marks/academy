@@ -7,22 +7,26 @@ import CoursePreview from '../components/CoursePreview';
 import CourseCheckout from '../components/CourseCheckout';
 import { AndroidInstallModal } from '../components/AndroidInstallModal';
 import { NotificationCenter } from '../components/NotificationCenter';
+import StudentNotifications from '../components/StudentNotifications';
+import StudentChatView, { ChatLessonContext } from '../components/StudentChatView';
 import { PushSubscriptionBanner } from '../components/PushSubscriptionBanner';
 import { shouldShowInstallPopup } from '../utils/deviceDetection';
-import { BookOpen, Home, User, LogOut, Compass, Smartphone, Coins, Lock, ShieldAlert } from 'lucide-react';
+import { Bell, BookOpen, Home, User, LogOut, Compass, Smartphone, Coins, Lock, ShieldAlert, MessageSquare } from 'lucide-react';
 import { doc, getDoc, collection, getDocs, query, where, setDoc } from 'firebase/firestore';
 import { updateProfile } from 'firebase/auth';
 import { logout, auth, db } from '../firebase';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { DEFAULT_CFA_LOGO, getValidLogoUrl, isMasterEmail } from '../utils/constants';
 import { slugify } from '../utils/slugify';
 import { subscribeUserEnrollments } from '../services/enrollmentService';
+import { subscribeStudentChatThread } from '../services/chatService';
 
 export default function StudentPortal() {
   const navigate = useNavigate();
   const { slug } = useParams<{ slug?: string }>();
+  const [searchParams, setSearchParams] = useSearchParams();
   
-  const [currentView, setCurrentView] = useState<'catalog' | 'my-courses' | 'profile' | 'preview' | 'checkout' | 'usdt'>('catalog');
+  const [currentView, setCurrentView] = useState<'catalog' | 'my-courses' | 'profile' | 'notifications' | 'chat' | 'preview' | 'checkout' | 'usdt'>('catalog');
   const [selectedCourse, setSelectedCourse] = useState<any>(null);
   const [preAppliedCoupon, setPreAppliedCoupon] = useState<any>(null);
   const [isAdmin, setIsAdmin] = useState(false);
@@ -33,6 +37,9 @@ export default function StudentPortal() {
   const [isAndroidModalOpen, setIsAndroidModalOpen] = useState(false);
   const [enrolledCourses, setEnrolledCourses] = useState<string[]>([]);
   const [isLoadingEnrollments, setIsLoadingEnrollments] = useState<boolean>(true);
+  const [unreadChatCount, setUnreadChatCount] = useState(0);
+  const [isFloatingChatOpen, setIsFloatingChatOpen] = useState(false);
+  const [chatLessonContext, setChatLessonContext] = useState<ChatLessonContext | null>(null);
 
   // Estados do Modal Obrigatório de Perfil Incompleto
   const [portalFullName, setPortalFullName] = useState('');
@@ -43,8 +50,10 @@ export default function StudentPortal() {
 
   useEffect(() => {
     let unsubEnroll = () => {};
+    let unsubChat = () => {};
     const unsubAuth = auth.onAuthStateChanged((u) => {
       setUser(u);
+      unsubChat();
       if (u) {
         const isMaster = isMasterEmail(u.email);
         setIsAdmin(isMaster);
@@ -61,18 +70,36 @@ export default function StudentPortal() {
           }
           setIsLoadingEnrollments(false);
         });
+        unsubChat = subscribeStudentChatThread(u.uid, (thread) => {
+          setUnreadChatCount(thread?.unreadByStudent || 0);
+        });
       } else {
         setEnrolledCourses([]);
         setUserProfile(null);
         setIsAdmin(false);
+        setUnreadChatCount(0);
         setIsLoadingEnrollments(false);
       }
     });
     return () => {
       unsubAuth();
       unsubEnroll();
+      unsubChat();
     };
   }, []);
+
+  useEffect(() => {
+    const lessonTitle = searchParams.get('lessonTitle');
+    const courseTitle = searchParams.get('courseTitle');
+    const courseIdParam = searchParams.get('courseId');
+    if (lessonTitle || courseTitle) {
+      setChatLessonContext({
+        lessonTitle: lessonTitle || undefined,
+        courseTitle: courseTitle || undefined,
+        courseId: courseIdParam || undefined,
+      });
+    }
+  }, [searchParams]);
 
   const isProfileIncomplete = Boolean(
     user && 
@@ -190,6 +217,48 @@ export default function StudentPortal() {
         return;
       }
 
+      if (slug === 'notificacoes') {
+        const currentUser = auth.currentUser || user;
+        if (!currentUser) {
+          const unsubscribe = auth.onAuthStateChanged((u) => {
+            unsubscribe();
+            if (!u) {
+              navigate('/entrar', { replace: true });
+            } else {
+              setUser(u);
+              setCurrentView('notifications');
+              setIsInitializing(false);
+            }
+          });
+          return;
+        }
+        setCurrentView('notifications');
+        setIsInitializing(false);
+        return;
+      }
+
+      if (slug === 'chat') {
+        const currentUser = auth.currentUser || user;
+        if (!currentUser) {
+          const unsubscribe = auth.onAuthStateChanged((u) => {
+            unsubscribe();
+            if (!u) {
+              navigate('/entrar', { replace: true });
+            } else {
+              setUser(u);
+              setCurrentView('chat');
+              setIsFloatingChatOpen(false);
+              setIsInitializing(false);
+            }
+          });
+          return;
+        }
+        setCurrentView('chat');
+        setIsFloatingChatOpen(false);
+        setIsInitializing(false);
+        return;
+      }
+
       // If it's a course slug, we need to fetch the course details
       // But only if we don't already have it selected
       if (!selectedCourse || slugify(selectedCourse.title) !== slug) {
@@ -258,6 +327,25 @@ export default function StudentPortal() {
       } else {
         setCurrentView('profile');
         navigate('/library/perfil');
+      }
+    }
+    else if (view === 'notifications') {
+      const activeUser = auth.currentUser || user;
+      if (!activeUser) {
+        navigate('/entrar');
+      } else {
+        setCurrentView('notifications');
+        navigate('/library/notificacoes');
+      }
+    }
+    else if (view === 'chat') {
+      const activeUser = auth.currentUser || user;
+      if (!activeUser) {
+        navigate('/entrar');
+      } else {
+        setCurrentView('chat');
+        setIsFloatingChatOpen(false);
+        navigate('/library/chat');
       }
     }
     // preview and checkout are handled via handleSelectCourse / handleProceedToCheckout
@@ -397,6 +485,39 @@ export default function StudentPortal() {
           </button>
 
           <button
+            id="nav-notifications-btn"
+            onClick={() => handleSetView('notifications')}
+            className={`px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2 cursor-pointer whitespace-nowrap ${
+              currentView === 'notifications'
+                ? 'bg-[#e9c349] text-black shadow-md'
+                : 'text-gray-300 hover:text-white hover:bg-white/10'
+            }`}
+          >
+            <Bell className="w-4 h-4" />
+            <span>Notificações</span>
+          </button>
+
+          <button
+            id="nav-chat-btn"
+            onClick={() => handleSetView('chat')}
+            className={`px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2 cursor-pointer whitespace-nowrap ${
+              currentView === 'chat'
+                ? 'bg-[#e9c349] text-black shadow-md'
+                : 'text-gray-300 hover:text-white hover:bg-white/10'
+            }`}
+          >
+            <MessageSquare className="w-4 h-4" />
+            <span>Chat</span>
+            {unreadChatCount > 0 && (
+              <span className={`px-1.5 py-0.5 rounded-full text-[10px] font-extrabold font-mono tabular-nums ${
+                currentView === 'chat' ? 'bg-black text-[#e9c349]' : 'bg-[#e9c349] text-black'
+              }`}>
+                {unreadChatCount > 99 ? '99+' : unreadChatCount}
+              </span>
+            )}
+          </button>
+
+          <button
             id="nav-profile-btn"
             onClick={() => handleSetView('profile')}
             className={`px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2 cursor-pointer whitespace-nowrap ${
@@ -411,7 +532,10 @@ export default function StudentPortal() {
         </nav>
 
         <div className="flex items-center justify-end gap-2 sm:gap-3">
-          <NotificationCenter userRole={isAdmin ? 'admin' : 'student'} userId={user?.uid} />
+          <NotificationCenter
+            userRole={isAdmin && localStorage.getItem('viewAsStudent') !== 'true' ? 'admin' : 'student'}
+            userId={user?.uid}
+          />
 
           {/* Botão de Instalar App ocultado na navegação superior web */}
 
@@ -482,6 +606,35 @@ export default function StudentPortal() {
         >
           <Coins className="w-4 h-4 text-emerald-400" />
           <span className="text-[10px] mt-0.5 whitespace-nowrap">Comprar USDT</span>
+        </button>
+
+        <button
+          onClick={() => handleSetView('notifications')}
+          className={`flex-1 flex flex-col items-center justify-center py-1.5 rounded-xl transition-all cursor-pointer ${
+            currentView === 'notifications'
+              ? 'bg-[#e9c349]/20 text-[#e9c349] font-extrabold border border-[#e9c349]/30'
+              : 'text-gray-400 font-medium'
+          }`}
+        >
+          <Bell className="w-4 h-4" />
+          <span className="text-[10px] mt-0.5 whitespace-nowrap">Avisos</span>
+        </button>
+
+        <button
+          onClick={() => handleSetView('chat')}
+          className={`relative flex-1 flex flex-col items-center justify-center py-1.5 rounded-xl transition-all cursor-pointer ${
+            currentView === 'chat'
+              ? 'bg-[#e9c349]/20 text-[#e9c349] font-extrabold border border-[#e9c349]/30'
+              : 'text-gray-400 font-medium'
+          }`}
+        >
+          <MessageSquare className="w-4 h-4" />
+          <span className="text-[10px] mt-0.5 whitespace-nowrap">Chat</span>
+          {unreadChatCount > 0 && (
+            <span className="absolute top-1 right-2 min-w-[14px] h-[14px] px-1 rounded-full bg-[#e9c349] text-black text-[9px] font-extrabold font-mono tabular-nums flex items-center justify-center">
+              {unreadChatCount > 9 ? '9+' : unreadChatCount}
+            </span>
+          )}
         </button>
 
         <button
@@ -594,6 +747,43 @@ export default function StudentPortal() {
         {currentView === 'my-courses' && (
           <div className="w-full px-3.5 sm:px-6 lg:px-8 xl:px-10 pt-2 sm:pt-4">
             <StudentMyCourses onExplore={() => handleSetView('catalog')} />
+          </div>
+        )}
+
+        {currentView === 'notifications' && (
+          <StudentNotifications
+            userId={user?.uid}
+            userEmail={user?.email}
+            enrolledCourses={enrolledCourses}
+            onNavigateCatalog={() => handleSetView('catalog')}
+          />
+        )}
+
+        {currentView === 'chat' && (
+          <div className="w-full max-w-4xl mx-auto px-3.5 sm:px-6 lg:px-8 pt-4 sm:pt-6">
+            <StudentChatView
+              studentId={user?.uid}
+              studentName={
+                userProfile?.fullName ||
+                `${userProfile?.firstName || ''} ${userProfile?.lastName || ''}`.trim() ||
+                user?.displayName ||
+                ''
+              }
+              studentEmail={user?.email}
+              studentPhone={
+                userProfile?.phoneNumber
+                  ? `${userProfile?.phoneCountryCode || '+244'} ${userProfile.phoneNumber}`.trim()
+                  : null
+              }
+              mode="full"
+              initialContext={chatLessonContext}
+              onClearContext={() => {
+                setChatLessonContext(null);
+                if (searchParams.get('lessonTitle') || searchParams.get('courseTitle')) {
+                  setSearchParams({}, { replace: true });
+                }
+              }}
+            />
           </div>
         )}
 
@@ -734,6 +924,52 @@ export default function StudentPortal() {
         onClose={() => setIsAndroidModalOpen(false)}
         userRole="student"
       />
+
+      {/* Botão Flutuante + Janela Rápida de Chat Individual com Administração */}
+      {user && currentView !== 'chat' && !isProfileIncomplete && !isAndroidModalOpen && (
+        <div className="fixed bottom-5 right-5 z-40 flex flex-col items-end gap-3">
+          {isFloatingChatOpen && (
+            <div className="w-[calc(100vw-2.5rem)] sm:w-[390px] animate-in fade-in slide-in-from-bottom-3 duration-200">
+              <StudentChatView
+                studentId={user?.uid}
+                studentName={
+                  userProfile?.fullName ||
+                  `${userProfile?.firstName || ''} ${userProfile?.lastName || ''}`.trim() ||
+                  user?.displayName ||
+                  ''
+                }
+                studentEmail={user?.email}
+                studentPhone={
+                  userProfile?.phoneNumber
+                    ? `${userProfile?.phoneCountryCode || '+244'} ${userProfile.phoneNumber}`.trim()
+                    : null
+                }
+                mode="drawer"
+                initialContext={chatLessonContext}
+                onClearContext={() => setChatLessonContext(null)}
+                onCloseDrawer={() => setIsFloatingChatOpen(false)}
+                onExpandFull={() => handleSetView('chat')}
+              />
+            </div>
+          )}
+
+          <button
+            type="button"
+            id="btn-floating-student-chat"
+            onClick={() => setIsFloatingChatOpen((prev) => !prev)}
+            className="h-12 px-4 rounded-2xl bg-[#e9c349] hover:bg-[#d4b03f] text-black font-extrabold text-xs shadow-2xl border border-black/10 flex items-center gap-2 transition-all active:scale-95 cursor-pointer"
+            aria-label="Abrir chat com administração"
+          >
+            <MessageSquare className="w-4.5 h-4.5" />
+            <span>Chat</span>
+            {unreadChatCount > 0 && (
+              <span className="min-w-[18px] h-[18px] px-1 rounded-full bg-black text-[#e9c349] text-[10px] font-extrabold font-mono tabular-nums flex items-center justify-center">
+                {unreadChatCount > 99 ? '99+' : unreadChatCount}
+              </span>
+            )}
+          </button>
+        </div>
+      )}
     </div>
   );
 }

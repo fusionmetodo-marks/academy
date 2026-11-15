@@ -1,76 +1,87 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { 
-  Bell, 
-  Check, 
-  CheckCheck, 
-  Trash2, 
-  Smartphone, 
-  CreditCard, 
-  UserPlus, 
-  Briefcase, 
-  Sparkles, 
-  Volume2, 
-  ExternalLink,
+import React, { useState, useEffect, useRef, useMemo } from 'react';
+import {
+  Bell,
+  Check,
+  CheckCheck,
+  Trash2,
+  Smartphone,
+  CreditCard,
+  UserPlus,
+  Briefcase,
+  Sparkles,
+  Volume2,
   X,
-  AlertCircle,
   GraduationCap,
   Layers,
   PlayCircle,
-  BookOpen,
-  ChevronRight
+  ChevronRight,
+  Unlock,
+  MessageSquare,
 } from 'lucide-react';
-import { 
-  SystemNotification, 
-  subscribeToNotifications, 
-  markNotificationAsRead, 
-  markAllNotificationsAsRead, 
-  deleteNotification, 
+import {
+  SystemNotification,
+  subscribeToNotifications,
+  markNotificationAsRead,
+  markAllNotificationsAsRead,
+  deleteNotification,
   requestPushPermission,
   showNativeNotification,
   playNotificationSound,
   generateDailyAdminSummaryNotification,
   triggerAutomaticStudentReminders,
-  triggerAutomatedProducerBillingReminders
+  triggerAutomatedProducerBillingReminders,
+  inferNotificationScope,
 } from '../services/notificationService';
 import { doc, getDoc } from 'firebase/firestore';
-import { db } from '../firebase';
+import { db, auth } from '../firebase';
 import { useNavigate } from 'react-router-dom';
+import { slugify } from '../utils/slugify';
 
 interface NotificationCenterProps {
   userRole?: 'admin' | 'student' | 'producer' | 'all';
   userId?: string;
 }
 
-export const NotificationCenter: React.FC<NotificationCenterProps> = ({ 
-  userRole = 'admin', 
-  userId 
+export const NotificationCenter: React.FC<NotificationCenterProps> = ({
+  userRole = 'admin',
+  userId,
 }) => {
   const [notifications, setNotifications] = useState<SystemNotification[]>([]);
   const [isOpen, setIsOpen] = useState(false);
+  const [scopeFilter, setScopeFilter] = useState<'all' | 'individual' | 'collective'>('all');
   const [permissionState, setPermissionState] = useState<NotificationPermission>('default');
   const [hasNewAlertAnimation, setHasNewAlertAnimation] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const navigate = useNavigate();
+
+  const resolvedUserId = userId || auth.currentUser?.uid;
 
   useEffect(() => {
     if ('Notification' in window) {
       setPermissionState(Notification.permission);
     }
 
-    const unsub = subscribeToNotifications((notifs) => {
-      setNotifications(notifs);
-      const unreadCount = notifs.filter(n => !n.read).length;
-      if (unreadCount > 0) {
-        setHasNewAlertAnimation(true);
-        setTimeout(() => setHasNewAlertAnimation(false), 2000);
-      }
-    }, userRole, userId);
+    const unsub = subscribeToNotifications(
+      (notifs) => {
+        setNotifications(notifs);
+        const unreadCount = notifs.filter((n) => !n.read).length;
+        if (unreadCount > 0) {
+          setHasNewAlertAnimation(true);
+          setTimeout(() => setHasNewAlertAnimation(false), 1800);
+        }
+      },
+      userRole,
+      resolvedUserId,
+      { userEmail: auth.currentUser?.email || null }
+    );
 
     return () => unsub();
-  }, [userRole, userId]);
+  }, [userRole, resolvedUserId]);
 
-  // Scheduler global para disparar relatórios e lembretes automáticos no horário programado
+  // Scheduler exclusivo para administradores
   useEffect(() => {
+    if (userRole !== 'admin') return;
+
     const checkScheduledTriggers = async () => {
       try {
         let reportTime = '20:00';
@@ -84,8 +95,7 @@ export const NotificationCenter: React.FC<NotificationCenterProps> = ({
         const currentM = now.getMinutes();
         const [targetH, targetM] = reportTime.split(':').map(Number);
 
-        // Disparo automático de relatório para admin no horário configurado
-        if (userRole === 'admin' && currentH === targetH && currentM === targetM) {
+        if (currentH === targetH && currentM === targetM) {
           const lastRunKey = `lastDailyReportDate_${reportTime}`;
           const lastRun = localStorage.getItem(lastRunKey);
           const todayStr = now.toISOString().split('T')[0];
@@ -96,10 +106,7 @@ export const NotificationCenter: React.FC<NotificationCenterProps> = ({
           }
         }
 
-        // Lembrete automático de regularização pendente
         await triggerAutomaticStudentReminders();
-
-        // Lembrete automático de cobrança programada para produtores (Mensal e Trimestral)
         await triggerAutomatedProducerBillingReminders();
       } catch (err) {
         console.warn('Erro no scheduler de notificações:', err);
@@ -112,7 +119,6 @@ export const NotificationCenter: React.FC<NotificationCenterProps> = ({
     return () => clearInterval(scheduleInterval);
   }, [userRole]);
 
-  // Fechar dropdown ao clicar fora
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
@@ -128,10 +134,19 @@ export const NotificationCenter: React.FC<NotificationCenterProps> = ({
     };
   }, [isOpen]);
 
-  const unreadCount = notifications.filter(n => !n.read).length;
+  const unreadCount = useMemo(() => notifications.filter((n) => !n.read).length, [notifications]);
+
+  const filteredNotifications = useMemo(() => {
+    if (scopeFilter === 'all') return notifications;
+    return notifications.filter((n) => {
+      const s = n.scope || inferNotificationScope(n);
+      if (scopeFilter === 'individual') return s === 'individual';
+      return s === 'collective';
+    });
+  }, [notifications, scopeFilter]);
 
   const handleRequestPush = async () => {
-    const granted = await requestPushPermission(userId);
+    const granted = await requestPushPermission(resolvedUserId);
     if (granted) {
       setPermissionState('granted');
     } else if ('Notification' in window) {
@@ -143,19 +158,72 @@ export const NotificationCenter: React.FC<NotificationCenterProps> = ({
     playNotificationSound();
     showNativeNotification(
       '🔔 Teste Money Building Mobile',
-      'As notificações do telemóvel estão ativas e funcionando com sucesso!',
-      '/dashboard'
+      'Os alertas sonoros e visuais estão funcionando normalmente.',
+      userRole === 'student' ? '/library/notificacoes' : '/dashboard'
     );
+  };
+
+  const resolveNotificationDestination = (notif: SystemNotification): string => {
+    if (notif.type === 'chat_message') {
+      if (userRole === 'admin' || userRole === 'producer') {
+        const sId = notif.metadata?.studentId || notif.targetUserId;
+        if (sId) return `/messages?tab=chat&studentId=${encodeURIComponent(sId)}`;
+        return '/messages?tab=chat';
+      }
+      return '/library/chat';
+    }
+
+    if (notif.type === 'new_lesson' && notif.metadata?.courseId) {
+      const params = new URLSearchParams({ courseId: String(notif.metadata.courseId) });
+      if (notif.metadata.moduleId) params.set('moduleId', String(notif.metadata.moduleId));
+      if (notif.metadata.lessonId) params.set('lessonId', String(notif.metadata.lessonId));
+      else if (notif.metadata.lessonTitle) params.set('lessonTitle', String(notif.metadata.lessonTitle));
+      return `/classroom?${params.toString()}`;
+    }
+
+    if (notif.type === 'new_module' && notif.metadata?.courseId) {
+      const params = new URLSearchParams({ courseId: String(notif.metadata.courseId) });
+      if (notif.metadata.moduleId) params.set('moduleId', String(notif.metadata.moduleId));
+      else if (notif.metadata.moduleTitle) params.set('moduleTitle', String(notif.metadata.moduleTitle));
+      return `/classroom?${params.toString()}`;
+    }
+
+    if (
+      (notif.type === 'course_access_approved' || notif.type === 'payment_approved') &&
+      userRole === 'student' &&
+      notif.metadata?.courseId
+    ) {
+      return `/classroom?courseId=${encodeURIComponent(String(notif.metadata.courseId))}`;
+    }
+
+    if (notif.type === 'new_course') {
+      if (notif.metadata?.courseTitle) {
+        return `/library/${slugify(String(notif.metadata.courseTitle))}`;
+      }
+      if (notif.metadata?.courseId) {
+        return `/classroom?courseId=${encodeURIComponent(String(notif.metadata.courseId))}`;
+      }
+    }
+
+    const rawLink = notif.link || (userRole === 'student' ? '/library' : '/dashboard');
+    if (rawLink.startsWith('/preview/')) {
+      if (notif.metadata?.courseTitle) {
+        return `/library/${slugify(notif.metadata.courseTitle)}`;
+      }
+      if (notif.metadata?.courseId) {
+        return `/classroom?courseId=${notif.metadata.courseId}`;
+      }
+      return '/library';
+    }
+    return rawLink;
   };
 
   const handleNotificationClick = async (notif: SystemNotification) => {
     if (notif.id && !notif.read) {
-      await markNotificationAsRead(notif.id);
+      await markNotificationAsRead(notif.id, resolvedUserId, userRole, notif);
     }
     setIsOpen(false);
-    if (notif.link) {
-      navigate(notif.link);
-    }
+    navigate(resolveNotificationDestination(notif));
   };
 
   const formatTime = (timestamp?: number) => {
@@ -181,7 +249,8 @@ export const NotificationCenter: React.FC<NotificationCenterProps> = ({
       case 'new_producer':
         return <Briefcase className="w-4 h-4 text-purple-400" />;
       case 'payment_approved':
-        return <Check className="w-4 h-4 text-emerald-400" />;
+      case 'course_access_approved':
+        return <Unlock className="w-4 h-4 text-emerald-400" />;
       case 'new_course':
         return <GraduationCap className="w-4 h-4 text-[#e9c349]" />;
       case 'new_module':
@@ -190,8 +259,52 @@ export const NotificationCenter: React.FC<NotificationCenterProps> = ({
         return <PlayCircle className="w-4 h-4 text-emerald-400" />;
       case 'usdt_rate_update':
         return <Sparkles className="w-4 h-4 text-emerald-400" />;
+      case 'chat_message':
+        return <MessageSquare className="w-4 h-4 text-[#e9c349]" />;
       default:
         return <Sparkles className="w-4 h-4 text-[#e9c349]" />;
+    }
+  };
+
+  const getTypeLabel = (type: string) => {
+    switch (type) {
+      case 'course_access_approved':
+      case 'payment_approved':
+        return 'Acesso Aprovado';
+      case 'new_lesson':
+        return 'Nova Aula';
+      case 'new_module':
+        return 'Novo Módulo';
+      case 'new_course':
+        return 'Novo Curso';
+      case 'usdt_rate_update':
+        return 'Câmbio USDT';
+      case 'chat_message':
+        return 'Mensagem Direta';
+      case 'payment_submitted':
+        return 'Comprovativo';
+      default:
+        return 'Aviso';
+    }
+  };
+
+  const getActionLabel = (type: string) => {
+    switch (type) {
+      case 'new_lesson':
+        return 'Assistir aula agora';
+      case 'new_module':
+        return 'Explorar módulo';
+      case 'course_access_approved':
+      case 'payment_approved':
+        return 'Acessar conteúdo liberado';
+      case 'usdt_rate_update':
+        return 'Ver câmbio atualizado';
+      case 'new_course':
+        return 'Ver detalhes do curso';
+      case 'chat_message':
+        return userRole === 'student' ? 'Responder no chat' : 'Abrir conversa com aluno';
+      default:
+        return 'Abrir aviso';
     }
   };
 
@@ -203,14 +316,15 @@ export const NotificationCenter: React.FC<NotificationCenterProps> = ({
         id="btn-notification-bell"
         onClick={() => setIsOpen(!isOpen)}
         className={`relative p-2.5 rounded-xl text-stone-300 hover:text-white hover:bg-white/5 transition-all duration-200 cursor-pointer flex items-center justify-center ${
-          hasNewAlertAnimation ? 'scale-110 ring-2 ring-[#e9c349]' : ''
+          hasNewAlertAnimation ? 'ring-2 ring-[#e9c349]/70' : ''
         }`}
         title="Central de Notificações"
+        aria-label="Abrir central de notificações"
       >
         <Bell className={`w-5 h-5 ${unreadCount > 0 ? 'text-[#e9c349]' : 'text-stone-400'}`} />
-        
+
         {unreadCount > 0 && (
-          <span className="absolute -top-0.5 -right-0.5 min-w-[18px] h-[18px] px-1 bg-[#e9c349] text-black font-extrabold text-[10px] rounded-full flex items-center justify-center shadow-lg animate-pulse">
+          <span className="absolute -top-0.5 -right-0.5 min-w-[18px] h-[18px] px-1 bg-[#e9c349] text-black font-extrabold font-mono tabular-nums text-[10px] rounded-full flex items-center justify-center shadow-lg">
             {unreadCount > 99 ? '99+' : unreadCount}
           </span>
         )}
@@ -218,24 +332,24 @@ export const NotificationCenter: React.FC<NotificationCenterProps> = ({
 
       {/* Menu Suspenso */}
       {isOpen && (
-        <div className="fixed inset-x-2 top-20 sm:absolute sm:inset-auto sm:right-0 sm:mt-3 w-auto sm:w-96 bg-[#12141a] border border-white/15 rounded-2xl shadow-2xl z-50 overflow-hidden flex flex-col text-stone-200 animate-fadeIn origin-top">
-          
+        <div className="fixed inset-x-2 top-20 sm:absolute sm:inset-auto sm:right-0 sm:mt-3 w-auto sm:w-[400px] bg-[#12141a] border border-white/15 rounded-2xl shadow-2xl z-50 overflow-hidden flex flex-col text-stone-200 animate-fadeIn origin-top">
           {/* Header */}
-          <div className="p-4 bg-[#0a0c10] border-b border-white/10 flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <Bell className="w-4 h-4 text-[#e9c349]" />
-              <h3 className="text-sm font-bold text-white font-headline">
-                Notificações em Tempo Real
+          <div className="px-4 py-3.5 bg-[#0a0c10] border-b border-white/10 flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2 min-w-0">
+              <Bell className="w-4 h-4 text-[#e9c349] shrink-0" />
+              <h3 className="text-sm font-bold text-white font-headline truncate">
+                Notificações
               </h3>
               {unreadCount > 0 && (
-                <span className="px-2 py-0.5 bg-[#e9c349]/15 text-[#e9c349] text-[10px] font-bold rounded-full border border-[#e9c349]/30">
-                  {unreadCount} novas
+                <span className="text-[11px] text-[#e9c349] font-mono tabular-nums font-bold whitespace-nowrap">
+                  · {unreadCount} {unreadCount === 1 ? 'nova' : 'novas'}
                 </span>
               )}
             </div>
 
-            <div className="flex items-center gap-1">
+            <div className="flex items-center gap-1 shrink-0">
               <button
+                type="button"
                 onClick={handleSendTestNotification}
                 title="Tocar som de teste"
                 className="p-1.5 text-stone-400 hover:text-[#e9c349] rounded-lg hover:bg-white/5 transition-colors cursor-pointer"
@@ -244,7 +358,8 @@ export const NotificationCenter: React.FC<NotificationCenterProps> = ({
               </button>
               {unreadCount > 0 && (
                 <button
-                  onClick={() => markAllNotificationsAsRead(notifications)}
+                  type="button"
+                  onClick={() => markAllNotificationsAsRead(notifications, resolvedUserId, userRole)}
                   title="Marcar todas como lidas"
                   className="p-1.5 text-stone-400 hover:text-emerald-400 rounded-lg hover:bg-white/5 transition-colors cursor-pointer"
                 >
@@ -252,7 +367,9 @@ export const NotificationCenter: React.FC<NotificationCenterProps> = ({
                 </button>
               )}
               <button
+                type="button"
                 onClick={() => setIsOpen(false)}
+                aria-label="Fechar notificações"
                 className="p-1.5 text-stone-400 hover:text-white rounded-lg hover:bg-white/5 transition-colors cursor-pointer"
               >
                 <X className="w-4 h-4" />
@@ -260,129 +377,202 @@ export const NotificationCenter: React.FC<NotificationCenterProps> = ({
             </div>
           </div>
 
-          {/* Banner de Ativação no Telemóvel */}
+          {/* Filtro rápido: Lista única com separação clara entre Individual e Coletiva */}
+          {userRole === 'student' && (
+            <div className="px-4 py-2 bg-[#0d0f14] border-b border-white/10 flex items-center gap-1.5">
+              {(
+                [
+                  { id: 'all', label: 'Todas' },
+                  { id: 'individual', label: 'Individuais' },
+                  { id: 'collective', label: 'Coletivas' },
+                ] as const
+              ).map((tab) => (
+                <button
+                  key={tab.id}
+                  type="button"
+                  onClick={() => setScopeFilter(tab.id)}
+                  className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold transition-colors cursor-pointer whitespace-nowrap ${
+                    scopeFilter === tab.id
+                      ? 'bg-[#e9c349] text-black font-bold'
+                      : 'text-stone-400 hover:text-white hover:bg-white/5'
+                  }`}
+                >
+                  {tab.label}
+                </button>
+              ))}
+            </div>
+          )}
+
+          {/* Banner opcional de Push no Telemóvel */}
           {permissionState !== 'granted' && (
-            <div className="p-3 bg-gradient-to-r from-[#e9c349]/15 via-amber-500/10 to-transparent border-b border-[#e9c349]/20 flex items-center justify-between gap-3">
-              <div className="flex items-center gap-2.5">
-                <div className="w-8 h-8 rounded-xl bg-[#e9c349]/20 border border-[#e9c349]/40 flex items-center justify-center text-[#e9c349] shrink-0">
+            <div className="p-3 bg-[#e9c349]/5 border-b border-[#e9c349]/15 flex items-center justify-between gap-3">
+              <div className="flex items-center gap-2.5 min-w-0">
+                <div className="w-8 h-8 rounded-xl bg-[#e9c349]/15 border border-[#e9c349]/30 flex items-center justify-center text-[#e9c349] shrink-0">
                   <Smartphone className="w-4 h-4" />
                 </div>
-                <div>
+                <div className="min-w-0">
                   <p className="text-xs font-bold text-white leading-tight">
-                    Alertas no Telemóvel
+                    Alertas no Telemóvel (opcional)
                   </p>
-                  <p className="text-[10px] text-stone-300">
-                    Receba avisos na tela quando houver vendas e cadastros.
+                  <p className="text-[10px] text-stone-300 leading-snug">
+                    {userRole === 'student'
+                      ? 'Seus avisos ficam sempre salvos aqui, mesmo sem ativar no navegador.'
+                      : 'Receba avisos na tela quando houver vendas e cadastros.'}
                   </p>
                 </div>
               </div>
 
               <button
+                type="button"
                 onClick={handleRequestPush}
-                className="px-3 py-1.5 bg-[#e9c349] hover:bg-[#d4b03f] text-black font-extrabold text-[11px] rounded-lg shadow-sm transition-all whitespace-nowrap cursor-pointer active:scale-95"
+                className="px-3 py-1.5 bg-[#e9c349] hover:bg-[#d4b03f] text-black font-extrabold text-[11px] rounded-lg transition-all whitespace-nowrap cursor-pointer shrink-0"
               >
                 Ativar
               </button>
             </div>
           )}
 
-          {/* Lista de Notificações */}
-          <div className="max-h-[380px] overflow-y-auto divide-y divide-white/5">
-            {notifications.length === 0 ? (
+          {/* Lista Unificada Cronológica */}
+          <div className="max-h-[360px] overflow-y-auto divide-y divide-white/5">
+            {filteredNotifications.length === 0 ? (
               <div className="p-8 text-center space-y-2">
-                <div className="w-12 h-12 rounded-full bg-stone-900 border border-white/10 mx-auto flex items-center justify-center text-stone-500">
+                <div className="w-11 h-11 rounded-full bg-stone-900 border border-white/10 mx-auto flex items-center justify-center text-stone-500">
                   <Bell className="w-5 h-5 opacity-40" />
                 </div>
                 <p className="text-xs font-medium text-stone-400">
-                  Nenhuma notificação no momento
+                  {scopeFilter === 'all'
+                    ? 'Nenhuma notificação no momento'
+                    : scopeFilter === 'individual'
+                    ? 'Nenhuma notificação individual no momento'
+                    : 'Nenhuma notificação coletiva no momento'}
                 </p>
               </div>
             ) : (
-              notifications.map((notif) => (
-                <div
-                  key={notif.id}
-                  className={`p-3.5 flex items-start gap-3 transition-colors group cursor-pointer ${
-                    !notif.read 
-                      ? 'bg-gradient-to-r from-[#e9c349]/10 via-[#181a20] to-[#181a20] hover:bg-[#1f222a]' 
-                      : 'hover:bg-[#181a20]'
-                  }`}
-                  onClick={() => handleNotificationClick(notif)}
-                >
-                  {/* Ícone com Badge */}
-                  <div className="relative mt-0.5 shrink-0">
-                    <div className="w-8 h-8 rounded-xl bg-black/60 border border-white/10 flex items-center justify-center">
-                      {getIconForType(notif.type)}
-                    </div>
-                    {!notif.read && (
-                      <span className="absolute -top-1 -right-1 w-2.5 h-2.5 rounded-full bg-[#e9c349] ring-2 ring-[#12141a]" />
-                    )}
-                  </div>
+              filteredNotifications.map((notif) => {
+                const scope = notif.scope || inferNotificationScope(notif);
+                const isIndividual = scope === 'individual';
 
-                  {/* Conteúdo */}
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center justify-between gap-1 mb-0.5">
-                      <h4 className={`text-xs font-bold truncate ${!notif.read ? 'text-white' : 'text-stone-300'}`}>
+                return (
+                  <div
+                    key={notif.id}
+                    className={`p-3.5 flex items-start gap-3 transition-colors group cursor-pointer ${
+                      !notif.read
+                        ? 'bg-[#e9c349]/[0.06] hover:bg-[#1a1d25]'
+                        : 'hover:bg-[#181a20]'
+                    }`}
+                    onClick={() => handleNotificationClick(notif)}
+                  >
+                    <div className="relative mt-0.5 shrink-0">
+                      <div className="w-8 h-8 rounded-xl bg-black/60 border border-white/10 flex items-center justify-center">
+                        {getIconForType(notif.type)}
+                      </div>
+                    </div>
+
+                    <div className="flex-1 min-w-0">
+                      {/* Linha de identificação limpa: Individual vs Coletiva · Categoria · Tempo */}
+                      <div className="flex items-center justify-between gap-2 text-[10px] mb-1">
+                        <div className="flex items-center gap-1.5 min-w-0 truncate">
+                          <span
+                            className={`font-bold ${
+                              isIndividual ? 'text-emerald-400' : 'text-sky-400'
+                            }`}
+                          >
+                            {isIndividual ? 'Individual' : 'Coletiva'}
+                          </span>
+                          <span className="text-stone-600" aria-hidden="true">·</span>
+                          <span className="text-stone-400 truncate">{getTypeLabel(notif.type)}</span>
+                          {!notif.read && (
+                            <>
+                              <span className="text-stone-600" aria-hidden="true">·</span>
+                              <span className="text-[#e9c349] font-bold">Nova</span>
+                            </>
+                          )}
+                        </div>
+                        <span className="text-stone-500 font-mono tabular-nums whitespace-nowrap shrink-0">
+                          {formatTime(notif.timestamp)}
+                        </span>
+                      </div>
+
+                      <h4
+                        className={`text-xs font-bold leading-snug ${
+                          !notif.read ? 'text-white' : 'text-stone-300'
+                        }`}
+                      >
                         {notif.title}
                       </h4>
-                      <span className="text-[10px] text-stone-500 whitespace-nowrap">
-                        {formatTime(notif.timestamp)}
-                      </span>
-                    </div>
-                    <p className="text-[11px] text-stone-400 line-clamp-2 leading-relaxed">
-                      {notif.message}
-                    </p>
+                      <p className="text-[11px] text-stone-400 line-clamp-2 leading-relaxed mt-0.5">
+                        {notif.message}
+                      </p>
 
-                    {notif.metadata?.amount && (
-                      <div className="mt-1.5 inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-[10px] font-bold">
-                        <span>Valor: {Number(notif.metadata.amount).toLocaleString('pt-AO')} Kz</span>
-                      </div>
-                    )}
+                      {notif.metadata?.amount ? (
+                        <div className="mt-1 text-[10px] font-mono tabular-nums font-bold text-emerald-400">
+                          Valor: {Number(notif.metadata.amount).toLocaleString('pt-AO')} Kz
+                        </div>
+                      ) : null}
 
-                    {/* Botão de Ação Rápida */}
-                    {(notif.type === 'new_course' || notif.type === 'new_module' || notif.type === 'new_lesson' || notif.type === 'usdt_rate_update' || notif.type === 'payment_approved') && (
-                      <div className="mt-2 flex items-center gap-1 text-[10px] font-bold text-[#e9c349] group-hover:underline">
-                        <span>{notif.type === 'new_lesson' ? 'Assistir aula agora' : notif.type === 'new_module' ? 'Explorar módulo' : notif.type === 'usdt_rate_update' ? 'Ver câmbio atualizado' : 'Ver detalhes do curso'}</span>
+                      <div className="mt-1.5 flex items-center gap-1 text-[10px] font-bold text-[#e9c349] group-hover:underline">
+                        <span>{getActionLabel(notif.type)}</span>
                         <ChevronRight className="w-3 h-3 group-hover:translate-x-0.5 transition-transform" />
                       </div>
-                    )}
-                  </div>
+                    </div>
 
-                  {/* Ação de excluir */}
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      if (notif.id) deleteNotification(notif.id);
-                    }}
-                    className="opacity-0 group-hover:opacity-100 p-1 text-stone-500 hover:text-rose-400 rounded-lg hover:bg-white/5 transition-all cursor-pointer"
-                    title="Excluir notificação"
-                  >
-                    <Trash2 className="w-3.5 h-3.5" />
-                  </button>
-                </div>
-              ))
+                    <div className="flex flex-col items-center gap-1 shrink-0">
+                      {!notif.read && notif.id && (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            markNotificationAsRead(notif.id!, resolvedUserId, userRole, notif);
+                          }}
+                          className="p-1 text-stone-500 hover:text-emerald-400 rounded-lg hover:bg-white/5 transition-colors cursor-pointer"
+                          title="Marcar como lida"
+                        >
+                          <Check className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          if (notif.id) deleteNotification(notif.id, resolvedUserId, userRole);
+                        }}
+                        className="opacity-70 sm:opacity-0 sm:group-hover:opacity-100 p-1 text-stone-500 hover:text-rose-400 rounded-lg hover:bg-white/5 transition-all cursor-pointer"
+                        title={userRole === 'student' ? 'Remover da minha lista' : 'Excluir notificação'}
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  </div>
+                );
+              })
             )}
           </div>
 
           {/* Rodapé */}
-          <div className="p-3 bg-[#0a0c10] border-t border-white/10 flex items-center justify-between text-[11px] text-stone-400">
+          <div className="px-4 py-3 bg-[#0a0c10] border-t border-white/10 flex items-center justify-between gap-2 text-[11px] text-stone-400">
             <button
+              type="button"
               onClick={() => {
                 setIsOpen(false);
-                navigate('/messages');
+                navigate(userRole === 'student' ? '/library/notificacoes' : '/messages');
               }}
-              className="text-[#e9c349] hover:underline font-bold text-[11px] cursor-pointer flex items-center gap-1"
+              className="text-[#e9c349] hover:underline font-bold text-[11px] cursor-pointer flex items-center gap-1 whitespace-nowrap"
             >
-              <span>Ver Histórico & Arquivo</span>
+              <span>
+                {userRole === 'student' ? 'Abrir Minhas Notificações' : 'Ver Histórico & Arquivo'}
+              </span>
               <ChevronRight className="w-3 h-3" />
             </button>
-            <button
-              onClick={() => markAllNotificationsAsRead(notifications)}
-              className="text-stone-400 hover:text-white font-bold text-[11px] cursor-pointer"
-            >
-              Marcar Todas Lidas
-            </button>
+            {unreadCount > 0 && (
+              <button
+                type="button"
+                onClick={() => markAllNotificationsAsRead(notifications, resolvedUserId, userRole)}
+                className="text-stone-400 hover:text-white font-bold text-[11px] cursor-pointer whitespace-nowrap"
+              >
+                Marcar Todas Lidas
+              </button>
+            )}
           </div>
-
         </div>
       )}
     </div>

@@ -1,5 +1,6 @@
 import { doc, writeBatch, arrayUnion, serverTimestamp } from 'firebase/firestore';
 import { db } from '../firebase';
+import { notifyStudentCourseApproved } from './notificationService';
 
 /**
  * Aprova uma transação de pagamento e libera o curso para o aluno de forma atômica.
@@ -35,6 +36,15 @@ export const handleApproveTransaction = async (
 
     // Executa as duas ações simultaneamente
     await batch.commit();
+
+    if (userId && !userId.startsWith('guest_')) {
+      notifyStudentCourseApproved({
+        userId,
+        courseId,
+        transactionId,
+      }).catch(() => {});
+    }
+
     return { success: true, message: 'Pagamento aprovado e curso liberado com sucesso!' };
   } catch (error) {
     console.error("Erro ao aprovar:", error);

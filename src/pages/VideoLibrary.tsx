@@ -4,7 +4,7 @@ import { doc, getDoc, updateDoc, onSnapshot, collection } from 'firebase/firesto
 import { onAuthStateChanged } from 'firebase/auth';
 import { logout, auth, db } from '../firebase';
 import { subscribeUserEnrollments } from '../services/enrollmentService';
-import { Lock, ShieldAlert, ArrowLeft, BookOpen, AlertTriangle } from 'lucide-react';
+import { Lock, ShieldAlert, ArrowLeft, BookOpen, AlertTriangle, MessageSquare, Trash2 } from 'lucide-react';
 import { slugify } from '../utils/slugify';
 import WistiaPlayer from '../components/WistiaPlayer';
 import SecureVideoPlayer from '../components/SecureVideoPlayer';
@@ -16,6 +16,13 @@ import NotificationCenter from '../components/NotificationCenter';
 import { CertificateModal } from '../components/CertificateModal';
 import { isMasterEmail } from '../utils/constants';
 import { recordLessonPlayback } from '../services/playbackService';
+import StudentChatView, { ChatLessonContext } from '../components/StudentChatView';
+import {
+  LessonComment,
+  subscribeLessonComments,
+  addLessonComment,
+  deleteLessonComment,
+} from '../services/chatService';
 
 interface Lesson {
   id: string;
@@ -103,9 +110,14 @@ export default function VideoLibrary({ courseId }: VideoLibraryProps = {}) {
   // Sidebar expand/collapse for modules
   const [collapsedSidebarModules, setCollapsedSidebarModules] = useState<Record<string, boolean>>({});
 
-  // Comment section
+  // Comment section (persisted in Firestore)
   const [comment, setComment] = useState('');
-  const [commentsByLesson, setCommentsByLesson] = useState<Record<string, Array<{ author: string; text: string }>>>({});
+  const [comments, setComments] = useState<LessonComment[]>([]);
+  const [isSendingComment, setIsSendingComment] = useState(false);
+
+  // In-place student-admin chat drawer inside classroom
+  const [isClassroomChatOpen, setIsClassroomChatOpen] = useState(false);
+  const [classroomChatContext, setClassroomChatContext] = useState<ChatLessonContext | null>(null);
 
   const showNotification = (msg: string) => {
     setToastMessage(msg);
@@ -249,25 +261,19 @@ export default function VideoLibrary({ courseId }: VideoLibraryProps = {}) {
             setActiveLesson(virtualLesson);
             setActiveModuleId('single_lesson_module');
           } else {
-            // Auto-select lesson if query params specify module/lesson or default to first
+            // Auto-select lesson if query params specify lesson/module or default to first
             if (data.modules && data.modules.length > 0) {
               const queryModuleId = searchParams.get('moduleId');
+              const queryModuleTitle = searchParams.get('moduleTitle');
               const queryLessonId = searchParams.get('lessonId');
+              const queryLessonTitle = searchParams.get('lessonTitle');
               const publishedModules = data.modules.filter(m => !m.status || m.status === 'published');
               const modulesToSearch = publishedModules.length > 0 ? publishedModules : data.modules;
               
               let targetModule = modulesToSearch[0];
               let targetLesson = targetModule?.lessons?.[0] || null;
 
-              if (queryModuleId) {
-                const foundMod = modulesToSearch.find(m => m.id === queryModuleId);
-                if (foundMod) {
-                  targetModule = foundMod;
-                  if (foundMod.lessons && foundMod.lessons.length > 0) {
-                    targetLesson = foundMod.lessons[0];
-                  }
-                }
-              } else if (queryLessonId) {
+              if (queryLessonId) {
                 for (const mod of modulesToSearch) {
                   const foundL = mod.lessons?.find(l => l.id === queryLessonId);
                   if (foundL) {
@@ -276,10 +282,33 @@ export default function VideoLibrary({ courseId }: VideoLibraryProps = {}) {
                     break;
                   }
                 }
+              } else if (queryLessonTitle) {
+                const targetTitleLower = queryLessonTitle.trim().toLowerCase();
+                for (const mod of modulesToSearch) {
+                  const foundL = mod.lessons?.find(l => l.title.trim().toLowerCase() === targetTitleLower);
+                  if (foundL) {
+                    targetModule = mod;
+                    targetLesson = foundL;
+                    break;
+                  }
+                }
+              } else if (queryModuleId) {
+                const foundMod = modulesToSearch.find(m => m.id === queryModuleId);
+                if (foundMod) {
+                  targetModule = foundMod;
+                  targetLesson = foundMod.lessons?.[0] || null;
+                }
+              } else if (queryModuleTitle) {
+                const targetModLower = queryModuleTitle.trim().toLowerCase();
+                const foundMod = modulesToSearch.find(m => m.title.trim().toLowerCase() === targetModLower);
+                if (foundMod) {
+                  targetModule = foundMod;
+                  targetLesson = foundMod.lessons?.[0] || null;
+                }
               }
 
               // Se o módulo inicial não tinha aulas, procura o primeiro módulo que possua aulas
-              if (!targetLesson) {
+              if (!targetLesson && !queryModuleId && !queryModuleTitle) {
                 for (const mod of modulesToSearch) {
                   if (mod.lessons && mod.lessons.length > 0) {
                     targetModule = mod;
@@ -294,6 +323,7 @@ export default function VideoLibrary({ courseId }: VideoLibraryProps = {}) {
               }
               if (targetModule) {
                 setActiveModuleId(targetModule.id);
+                setCollapsedSidebarModules(prev => ({ ...prev, [targetModule.id]: false }));
               }
             }
           }
@@ -304,6 +334,72 @@ export default function VideoLibrary({ courseId }: VideoLibraryProps = {}) {
     }
     return () => unsubscribeCourse();
   }, [activeCourseId]);
+
+  // Sincroniza mudança de lessonId/moduleId na URL mesmo quando o aluno já está na sala do mesmo curso
+  useEffect(() => {
+    if (!course.modules || course.modules.length === 0 || course.structureType === 'single_lesson') return;
+    const queryModuleId = searchParams.get('moduleId');
+    const queryModuleTitle = searchParams.get('moduleTitle');
+    const queryLessonId = searchParams.get('lessonId');
+    const queryLessonTitle = searchParams.get('lessonTitle');
+    if (!queryModuleId && !queryModuleTitle && !queryLessonId && !queryLessonTitle) return;
+
+    const publishedModules = course.modules.filter(m => !m.status || m.status === 'published');
+    const modulesToSearch = publishedModules.length > 0 ? publishedModules : course.modules;
+
+    let targetModule: Module | undefined;
+    let targetLesson: Lesson | undefined;
+
+    if (queryLessonId) {
+      for (const mod of modulesToSearch) {
+        const foundL = mod.lessons?.find(l => l.id === queryLessonId);
+        if (foundL) {
+          targetModule = mod;
+          targetLesson = foundL;
+          break;
+        }
+      }
+    } else if (queryLessonTitle) {
+      const targetTitleLower = queryLessonTitle.trim().toLowerCase();
+      for (const mod of modulesToSearch) {
+        const foundL = mod.lessons?.find(l => l.title.trim().toLowerCase() === targetTitleLower);
+        if (foundL) {
+          targetModule = mod;
+          targetLesson = foundL;
+          break;
+        }
+      }
+    } else if (queryModuleId) {
+      targetModule = modulesToSearch.find(m => m.id === queryModuleId);
+      targetLesson = targetModule?.lessons?.[0];
+    } else if (queryModuleTitle) {
+      const targetModLower = queryModuleTitle.trim().toLowerCase();
+      targetModule = modulesToSearch.find(m => m.title.trim().toLowerCase() === targetModLower);
+      targetLesson = targetModule?.lessons?.[0];
+    }
+
+    if (targetModule) {
+      setActiveModuleId(targetModule.id);
+      setCollapsedSidebarModules(prev => ({ ...prev, [targetModule!.id]: false }));
+    }
+    if (targetLesson) {
+      setActiveLesson(targetLesson);
+      setIsPlaying(false);
+    }
+  }, [searchParams, course.modules, course.structureType]);
+
+  // Escuta comentários persistidos da aula ativa em tempo real
+  useEffect(() => {
+    const resolvedCourseId = course.id || activeCourseId;
+    if (!resolvedCourseId || !activeLesson?.id || !currentUserId) {
+      setComments([]);
+      return;
+    }
+    const unsub = subscribeLessonComments(resolvedCourseId, activeLesson.id, (list) => {
+      setComments(list);
+    });
+    return () => unsub();
+  }, [course.id, activeCourseId, activeLesson?.id, currentUserId]);
 
   // Registrar reprodução exclusivamente quando o estudante clicar em Play
   const handleStartPlayback = (lesson: Lesson) => {
@@ -528,8 +624,6 @@ export default function VideoLibrary({ courseId }: VideoLibraryProps = {}) {
       </>
     );
   };
-
-  const comments = activeLesson ? (commentsByLesson[activeLesson.id] || []) : [];
 
   if (isCheckingEnrollment || !enrollmentStatusLoaded) {
     return (
@@ -1124,14 +1218,101 @@ export default function VideoLibrary({ courseId }: VideoLibraryProps = {}) {
                       <span className="material-symbols-outlined text-[#e9c349] text-base">forum</span>
                       Comentários & Dúvidas dos Alunos ({comments.length})
                     </h3>
-                    <div className="space-y-4 mb-6 max-h-[450px] overflow-y-auto pr-2 scrollbar-thin">
+                    <div className="space-y-3 mb-6 max-h-[450px] overflow-y-auto pr-2 scrollbar-thin">
                       {comments.length > 0 ? (
-                        comments.map((c, i) => (
-                          <div key={i} className="text-xs bg-[#121212]/80 p-4 rounded-xl border border-[#353534]/20">
-                            <span className="font-bold text-[#e9c349]">{c.author}</span>
-                            <p className="text-gray-300 mt-1.5 leading-relaxed">{c.text}</p>
-                          </div>
-                        ))
+                        comments.map((c) => {
+                          const isCommentAdmin = c.authorRole === 'admin';
+                          const canAdminMessageStudent = isUserAdminOrProducer && !isCommentAdmin && Boolean(c.authorId);
+                          const canStudentMessageAdmin = !isUserAdminOrProducer && isCommentAdmin;
+                          const canDelete = isUserAdminOrProducer || c.authorId === currentUserId;
+                          const commentTime = c.createdAtMs
+                            ? new Intl.DateTimeFormat('pt-PT', {
+                                day: '2-digit',
+                                month: '2-digit',
+                                hour: '2-digit',
+                                minute: '2-digit',
+                              }).format(new Date(c.createdAtMs))
+                            : '';
+
+                          return (
+                            <div
+                              key={c.id}
+                              className={`text-xs p-4 rounded-xl border ${
+                                isCommentAdmin
+                                  ? 'bg-[#e9c349]/[0.06] border-[#e9c349]/30'
+                                  : 'bg-[#121212]/80 border-[#353534]/20'
+                              }`}
+                            >
+                              <div className="flex items-start justify-between gap-3 flex-wrap">
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  <span className="font-bold text-[#e9c349]">{c.authorName}</span>
+                                  {isCommentAdmin && (
+                                    <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded bg-[#e9c349]/15 text-[#e9c349] border border-[#e9c349]/30">
+                                      Administração
+                                    </span>
+                                  )}
+                                  {commentTime && (
+                                    <span className="text-[10px] font-mono tabular-nums text-stone-500">
+                                      {commentTime}
+                                    </span>
+                                  )}
+                                </div>
+
+                                <div className="flex items-center gap-2 shrink-0">
+                                  {canAdminMessageStudent && (
+                                    <button
+                                      type="button"
+                                      onClick={() =>
+                                        navigate(
+                                          `/messages?tab=chat&studentId=${encodeURIComponent(c.authorId)}&studentName=${encodeURIComponent(c.authorName)}&lessonTitle=${encodeURIComponent(activeLesson.title)}&courseTitle=${encodeURIComponent(course.title)}`
+                                        )
+                                      }
+                                      className="px-2.5 py-1 rounded-lg bg-[#e9c349]/15 hover:bg-[#e9c349] text-[#e9c349] hover:text-black border border-[#e9c349]/30 font-bold text-[11px] flex items-center gap-1.5 transition-colors cursor-pointer"
+                                      title={`Enviar mensagem privada para ${c.authorName}`}
+                                    >
+                                      <MessageSquare className="w-3 h-3" />
+                                      <span>Enviar mensagem</span>
+                                    </button>
+                                  )}
+
+                                  {canStudentMessageAdmin && (
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setClassroomChatContext({
+                                          courseId: course.id || activeCourseId,
+                                          courseTitle: course.title,
+                                          lessonTitle: activeLesson.title,
+                                        });
+                                        setIsClassroomChatOpen(true);
+                                      }}
+                                      className="px-2.5 py-1 rounded-lg bg-[#e9c349] hover:bg-[#d4b03f] text-black font-bold text-[11px] flex items-center gap-1.5 transition-colors cursor-pointer"
+                                      title="Enviar mensagem direta para o Administrador"
+                                    >
+                                      <MessageSquare className="w-3 h-3" />
+                                      <span>Mensagem ao Admin</span>
+                                    </button>
+                                  )}
+
+                                  {canDelete && (
+                                    <button
+                                      type="button"
+                                      onClick={() => deleteLessonComment(c.id)}
+                                      className="p-1 text-stone-500 hover:text-rose-400 transition-colors cursor-pointer"
+                                      title="Excluir comentário"
+                                    >
+                                      <Trash2 className="w-3.5 h-3.5" />
+                                    </button>
+                                  )}
+                                </div>
+                              </div>
+
+                              <p className="text-gray-300 mt-2 leading-relaxed whitespace-pre-wrap break-words">
+                                {c.text}
+                              </p>
+                            </div>
+                          );
+                        })
                       ) : (
                         <div className="text-gray-500 italic text-xs text-center py-8">
                           Nenhum comentário enviado para esta aula. Seja o primeiro a participar da discussão!
@@ -1141,16 +1322,42 @@ export default function VideoLibrary({ courseId }: VideoLibraryProps = {}) {
                     
                     <form 
                       className="relative"
-                      onSubmit={(e) => {
+                      onSubmit={async (e) => {
                         e.preventDefault();
-                        if (comment.trim()) {
-                          const newComments = [...comments, { author: userProfile?.firstName ? `${userProfile.firstName} ${userProfile.lastName || ''}` : 'Estudante', text: comment.trim() }];
-                          setCommentsByLesson(prev => ({
-                            ...prev,
-                            [activeLesson.id]: newComments
-                          }));
+                        const cleanText = comment.trim();
+                        const resolvedCourseId = course.id || activeCourseId;
+                        if (!cleanText || !resolvedCourseId || !activeLesson?.id || !currentUserId || isSendingComment) return;
+
+                        setIsSendingComment(true);
+                        try {
+                          const pAny = userProfile as any;
+                          const resolvedName = isUserAdminOrProducer
+                            ? pAny?.producerName ||
+                              pAny?.fullName ||
+                              (pAny?.firstName ? `${pAny.firstName} ${pAny.lastName || ''}`.trim() : '') ||
+                              auth.currentUser?.displayName ||
+                              'Administração Marks ACADEMY'
+                            : pAny?.fullName ||
+                              pAny?.name ||
+                              (pAny?.firstName ? `${pAny.firstName} ${pAny.lastName || ''}`.trim() : '') ||
+                              auth.currentUser?.displayName ||
+                              'Estudante';
+
+                          await addLessonComment({
+                            courseId: resolvedCourseId,
+                            lessonId: activeLesson.id,
+                            authorId: currentUserId,
+                            authorName: resolvedName,
+                            authorRole: isUserAdminOrProducer ? 'admin' : 'student',
+                            text: cleanText,
+                          });
                           setComment('');
-                          showNotification('Comentário enviado!');
+                          showNotification('Comentário publicado!');
+                        } catch (err) {
+                          console.error('Erro ao publicar comentário:', err);
+                          showNotification('Não foi possível publicar o comentário.');
+                        } finally {
+                          setIsSendingComment(false);
                         }
                       }}
                     >
@@ -1158,10 +1365,15 @@ export default function VideoLibrary({ courseId }: VideoLibraryProps = {}) {
                         type="text" 
                         value={comment}
                         onChange={(e) => setComment(e.target.value)}
+                        maxLength={1500}
                         placeholder="Escreva sua dúvida ou comentário sobre a aula..." 
                         className="w-full bg-[#121212] border border-[#353534]/50 rounded-xl pl-4 pr-12 py-3.5 text-xs text-white focus:outline-none focus:border-[#e9c349]/50 transition-colors" 
                       />
-                      <button type="submit" className="absolute right-3 top-1/2 -translate-y-1/2 text-[#e9c349] hover:opacity-80">
+                      <button
+                        type="submit"
+                        disabled={!comment.trim() || isSendingComment}
+                        className="absolute right-3 top-1/2 -translate-y-1/2 text-[#e9c349] hover:opacity-80 disabled:opacity-40 cursor-pointer"
+                      >
                         <span className="material-symbols-outlined text-[18px]">send</span>
                       </button>
                     </form>
@@ -1265,6 +1477,40 @@ export default function VideoLibrary({ courseId }: VideoLibraryProps = {}) {
         courseId={activeCourseId || course?.id}
         instructorName={course?.producerName || course?.instructor}
       />
+
+      {/* Drawer de Chat Direto com o Administrador dentro da Sala de Aula */}
+      {isClassroomChatOpen && !isUserAdminOrProducer && currentUserId && (
+        <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-end sm:items-center justify-center p-3 sm:p-4">
+          <div className="w-full max-w-lg animate-in fade-in zoom-in-95 duration-200">
+            <StudentChatView
+              studentId={currentUserId}
+              studentName={
+                (userProfile as any)?.fullName ||
+                (userProfile as any)?.name ||
+                ((userProfile as any)?.firstName
+                  ? `${(userProfile as any).firstName} ${(userProfile as any).lastName || ''}`.trim()
+                  : '') ||
+                auth.currentUser?.displayName ||
+                ''
+              }
+              studentEmail={userProfile?.email || auth.currentUser?.email || null}
+              mode="drawer"
+              initialContext={classroomChatContext}
+              onClearContext={() => setClassroomChatContext(null)}
+              onCloseDrawer={() => setIsClassroomChatOpen(false)}
+              onExpandFull={() => {
+                setIsClassroomChatOpen(false);
+                const p = new URLSearchParams();
+                if (classroomChatContext?.courseId) p.set('courseId', classroomChatContext.courseId);
+                if (classroomChatContext?.courseTitle) p.set('courseTitle', classroomChatContext.courseTitle);
+                if (classroomChatContext?.lessonTitle) p.set('lessonTitle', classroomChatContext.lessonTitle);
+                const qs = p.toString();
+                navigate(qs ? `/library/chat?${qs}` : '/library/chat');
+              }}
+            />
+          </div>
+        </div>
+      )}
     </div>
   );
 }

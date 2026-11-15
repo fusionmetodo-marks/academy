@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { collection, onSnapshot, updateDoc, doc, deleteDoc, getDocs, getDoc, arrayUnion, arrayRemove, query, where, addDoc, serverTimestamp } from 'firebase/firestore';
 import { onAuthStateChanged } from 'firebase/auth';
 import { db, adminCreateStudentAccount, auth } from '../firebase';
@@ -6,6 +7,7 @@ import Sidebar from '../components/Sidebar';
 import { ProducerContractModal } from '../components/ProducerContractModal';
 import { isMasterEmail } from '../utils/constants';
 import { maskEmail, maskPhone } from '../utils/maskUtils';
+import { notifyStudentCourseApproved } from '../services/notificationService';
 import { 
   UserPlus, 
   Search, 
@@ -36,7 +38,8 @@ import {
   MoreVertical,
   Trash2,
   UserCheck,
-  FileText
+  FileText,
+  MessageSquare
 } from 'lucide-react';
 
 interface CourseOption {
@@ -152,6 +155,7 @@ export const formatRegistrationDateTime = (u: any): string => {
 };
 
 export default function StudentDirectory() {
+  const navigate = useNavigate();
   const [users, setUsers] = useState<any[]>([]);
   const [approvedTxTimeByUser, setApprovedTxTimeByUser] = useState<Record<string, number>>({});
   const [availableCourses, setAvailableCourses] = useState<CourseOption[]>([]);
@@ -453,6 +457,23 @@ export default function StudentDirectory() {
         }
       }
 
+      if (formData.selectedCourses.length > 0) {
+        const createdFullName = `${formData.firstName.trim()} ${formData.lastName.trim()}`.trim();
+        const createdPhone = `${formData.phoneCountryCode || ''} ${formData.phoneNumber || ''}`.trim();
+        for (const courseId of formData.selectedCourses) {
+          const courseData = isolatedCourses.find(c => c.id === courseId);
+          notifyStudentCourseApproved({
+            userId: result.uid,
+            email: result.email,
+            name: createdFullName,
+            phone: createdPhone,
+            courseId,
+            courseTitle: courseData?.title || null,
+            isMentorship: courseData?.category === 'mentorship' || courseData?.category === 'service',
+          }).catch(() => {});
+        }
+      }
+
       showNotification(`Aluno ${formData.firstName} cadastrado e cursos liberados com sucesso!`, 'success');
       setIsRegisterModalOpen(false);
       setFormData({
@@ -622,6 +643,23 @@ export default function StudentDirectory() {
               ...(shouldStampActivation ? { subscriptionActivatedAt: serverTimestamp() } : {})
             });
           }
+        }
+      }
+
+      if (newlyAddedCourses.length > 0) {
+        const studentName = `${selectedStudentForCourses.firstName || ''} ${selectedStudentForCourses.lastName || ''}`.trim() || selectedStudentForCourses.fullName || selectedStudentForCourses.name || 'Aluno';
+        const studentPhone = `${selectedStudentForCourses.phoneCountryCode || ''} ${selectedStudentForCourses.phoneNumber || ''}`.trim() || selectedStudentForCourses.phone || '';
+        for (const courseId of newlyAddedCourses) {
+          const courseData = isolatedCourses.find(c => c.id === courseId);
+          notifyStudentCourseApproved({
+            userId: selectedStudentForCourses.id,
+            email: selectedStudentForCourses.email || null,
+            name: studentName,
+            phone: studentPhone,
+            courseId,
+            courseTitle: courseData?.title || null,
+            isMentorship: courseData?.category === 'mentorship' || courseData?.category === 'service',
+          }).catch(() => {});
         }
       }
 
@@ -1323,6 +1361,13 @@ export default function StudentDirectory() {
                           </button>
                         )}
                         <button
+                          onClick={() => navigate(`/messages?tab=chat&studentId=${encodeURIComponent(userItem.id)}`)}
+                          className="px-3 py-1.5 bg-[#e9c349]/10 hover:bg-[#e9c349]/20 text-[#e9c349] rounded-xl text-xs font-semibold border border-[#e9c349]/30 cursor-pointer flex items-center gap-1.5"
+                        >
+                          <MessageSquare className="w-3.5 h-3.5" />
+                          <span>Chat</span>
+                        </button>
+                        <button
                           onClick={() => handleOpenCourseManager(userItem)}
                           className="px-3 py-1.5 bg-white/5 text-gray-300 rounded-xl text-xs font-semibold border border-white/5 cursor-pointer flex items-center gap-1.5 ml-auto"
                         >
@@ -1547,6 +1592,16 @@ export default function StudentDirectory() {
                                       </>
                                     ) : (
                                       <>
+                                        <button
+                                          onClick={() => {
+                                            setActiveMenuUserId(null);
+                                            navigate(`/messages?tab=chat&studentId=${encodeURIComponent(userItem.id)}`);
+                                          }}
+                                          className="w-full px-4 py-2.5 text-xs text-[#e9c349] hover:bg-white/5 flex items-center gap-2.5 cursor-pointer font-bold"
+                                        >
+                                          <MessageSquare className="w-4 h-4" />
+                                          <span>Enviar Mensagem (Chat)</span>
+                                        </button>
                                         <button
                                           onClick={() => { handleOpenEditStudent(userItem); setActiveMenuUserId(null); }}
                                           className="w-full px-4 py-2.5 text-xs text-blue-300 hover:bg-white/5 flex items-center gap-2.5 cursor-pointer font-bold"
