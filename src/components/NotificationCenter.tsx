@@ -40,14 +40,17 @@ import { slugify } from '../utils/slugify';
 interface NotificationCenterProps {
   userRole?: 'admin' | 'student' | 'producer' | 'all';
   userId?: string;
+  dropdownAlign?: 'left' | 'right';
 }
 
 export const NotificationCenter: React.FC<NotificationCenterProps> = ({
   userRole = 'admin',
   userId,
+  dropdownAlign = 'right',
 }) => {
   const [notifications, setNotifications] = useState<SystemNotification[]>([]);
   const [isOpen, setIsOpen] = useState(false);
+  const [activeTab, setActiveTab] = useState<'notifications' | 'messages'>('notifications');
   const [scopeFilter, setScopeFilter] = useState<'all' | 'individual' | 'collective'>('all');
   const [permissionState, setPermissionState] = useState<NotificationPermission>('default');
   const [hasNewAlertAnimation, setHasNewAlertAnimation] = useState(false);
@@ -134,16 +137,41 @@ export const NotificationCenter: React.FC<NotificationCenterProps> = ({
     };
   }, [isOpen]);
 
-  const unreadCount = useMemo(() => notifications.filter((n) => !n.read).length, [notifications]);
+  const systemNotifications = useMemo(
+    () => notifications.filter((n) => n.type !== 'chat_message'),
+    [notifications]
+  );
+
+  const messageNotifications = useMemo(
+    () => notifications.filter((n) => n.type === 'chat_message'),
+    [notifications]
+  );
+
+  const unreadSystemCount = useMemo(
+    () => systemNotifications.filter((n) => !n.read).length,
+    [systemNotifications]
+  );
+
+  const unreadMessagesCount = useMemo(
+    () => messageNotifications.filter((n) => !n.read).length,
+    [messageNotifications]
+  );
+
+  const unreadCount = unreadSystemCount + unreadMessagesCount;
+  const activeTabUnreadCount =
+    activeTab === 'messages' ? unreadMessagesCount : unreadSystemCount;
 
   const filteredNotifications = useMemo(() => {
-    if (scopeFilter === 'all') return notifications;
-    return notifications.filter((n) => {
+    if (activeTab === 'messages') {
+      return messageNotifications;
+    }
+    if (scopeFilter === 'all') return systemNotifications;
+    return systemNotifications.filter((n) => {
       const s = n.scope || inferNotificationScope(n);
       if (scopeFilter === 'individual') return s === 'individual';
       return s === 'collective';
     });
-  }, [notifications, scopeFilter]);
+  }, [activeTab, messageNotifications, systemNotifications, scopeFilter]);
 
   const handleRequestPush = async () => {
     const granted = await requestPushPermission(resolvedUserId);
@@ -332,17 +360,25 @@ export const NotificationCenter: React.FC<NotificationCenterProps> = ({
 
       {/* Menu Suspenso */}
       {isOpen && (
-        <div className="fixed inset-x-2 top-20 sm:absolute sm:inset-auto sm:right-0 sm:mt-3 w-auto sm:w-[400px] bg-[#12141a] border border-white/15 rounded-2xl shadow-2xl z-50 overflow-hidden flex flex-col text-stone-200 animate-fadeIn origin-top">
+        <div
+          className={`fixed inset-x-2 top-20 sm:absolute sm:inset-auto ${
+            dropdownAlign === 'left' ? 'sm:left-0' : 'sm:right-0'
+          } sm:mt-3 w-auto sm:w-[400px] bg-[#12141a] border border-white/15 rounded-2xl shadow-2xl z-50 overflow-hidden flex flex-col text-stone-200 animate-fadeIn origin-top`}
+        >
           {/* Header */}
           <div className="px-4 py-3.5 bg-[#0a0c10] border-b border-white/10 flex items-center justify-between gap-2">
             <div className="flex items-center gap-2 min-w-0">
-              <Bell className="w-4 h-4 text-[#e9c349] shrink-0" />
+              {activeTab === 'messages' ? (
+                <MessageSquare className="w-4 h-4 text-[#e9c349] shrink-0" />
+              ) : (
+                <Bell className="w-4 h-4 text-[#e9c349] shrink-0" />
+              )}
               <h3 className="text-sm font-bold text-white font-headline truncate">
-                Notificações
+                {activeTab === 'messages' ? 'Mensagens' : 'Notificações'}
               </h3>
-              {unreadCount > 0 && (
+              {activeTabUnreadCount > 0 && (
                 <span className="text-[11px] text-[#e9c349] font-mono tabular-nums font-bold whitespace-nowrap">
-                  · {unreadCount} {unreadCount === 1 ? 'nova' : 'novas'}
+                  · {activeTabUnreadCount} {activeTabUnreadCount === 1 ? 'nova' : 'novas'}
                 </span>
               )}
             </div>
@@ -356,11 +392,21 @@ export const NotificationCenter: React.FC<NotificationCenterProps> = ({
               >
                 <Volume2 className="w-4 h-4" />
               </button>
-              {unreadCount > 0 && (
+              {activeTabUnreadCount > 0 && (
                 <button
                   type="button"
-                  onClick={() => markAllNotificationsAsRead(notifications, resolvedUserId, userRole)}
-                  title="Marcar todas como lidas"
+                  onClick={() =>
+                    markAllNotificationsAsRead(
+                      activeTab === 'messages' ? messageNotifications : systemNotifications,
+                      resolvedUserId,
+                      userRole
+                    )
+                  }
+                  title={
+                    activeTab === 'messages'
+                      ? 'Marcar mensagens como lidas'
+                      : 'Marcar notificações como lidas'
+                  }
                   className="p-1.5 text-stone-400 hover:text-emerald-400 rounded-lg hover:bg-white/5 transition-colors cursor-pointer"
                 >
                   <CheckCheck className="w-4 h-4" />
@@ -377,9 +423,62 @@ export const NotificationCenter: React.FC<NotificationCenterProps> = ({
             </div>
           </div>
 
-          {/* Filtro rápido: Lista única com separação clara entre Individual e Coletiva */}
-          {userRole === 'student' && (
-            <div className="px-4 py-2 bg-[#0d0f14] border-b border-white/10 flex items-center gap-1.5">
+          {/* Abas Principais Exclusivas: Notificações vs Mensagens */}
+          <div className="px-3 pt-2.5 pb-2 bg-[#0d0f14] border-b border-white/10 grid grid-cols-2 gap-1.5">
+            <button
+              type="button"
+              id="bell-tab-notifications"
+              onClick={() => setActiveTab('notifications')}
+              className={`flex items-center justify-center gap-2 py-2 px-3 rounded-xl text-xs font-bold transition-colors cursor-pointer whitespace-nowrap ${
+                activeTab === 'notifications'
+                  ? 'bg-[#e9c349] text-black'
+                  : 'bg-white/[0.04] text-stone-300 hover:text-white hover:bg-white/10'
+              }`}
+            >
+              <Bell className="w-3.5 h-3.5 shrink-0" />
+              <span>Notificações</span>
+              {unreadSystemCount > 0 && (
+                <span
+                  className={`min-w-[18px] h-[18px] px-1 rounded-full text-[10px] font-extrabold font-mono tabular-nums flex items-center justify-center ${
+                    activeTab === 'notifications'
+                      ? 'bg-black text-[#e9c349]'
+                      : 'bg-[#e9c349] text-black'
+                  }`}
+                >
+                  {unreadSystemCount > 99 ? '99+' : unreadSystemCount}
+                </span>
+              )}
+            </button>
+
+            <button
+              type="button"
+              id="bell-tab-messages"
+              onClick={() => setActiveTab('messages')}
+              className={`flex items-center justify-center gap-2 py-2 px-3 rounded-xl text-xs font-bold transition-colors cursor-pointer whitespace-nowrap ${
+                activeTab === 'messages'
+                  ? 'bg-[#e9c349] text-black'
+                  : 'bg-white/[0.04] text-stone-300 hover:text-white hover:bg-white/10'
+              }`}
+            >
+              <MessageSquare className="w-3.5 h-3.5 shrink-0" />
+              <span>Mensagens</span>
+              {unreadMessagesCount > 0 && (
+                <span
+                  className={`min-w-[18px] h-[18px] px-1 rounded-full text-[10px] font-extrabold font-mono tabular-nums flex items-center justify-center ${
+                    activeTab === 'messages'
+                      ? 'bg-black text-[#e9c349]'
+                      : 'bg-[#e9c349] text-black'
+                  }`}
+                >
+                  {unreadMessagesCount > 99 ? '99+' : unreadMessagesCount}
+                </span>
+              )}
+            </button>
+          </div>
+
+          {/* Subfiltros da aba Notificações para Estudantes (Individuais vs Coletivas) */}
+          {activeTab === 'notifications' && userRole === 'student' && (
+            <div className="px-4 py-2 bg-[#0b0d12] border-b border-white/10 flex items-center gap-1.5">
               {(
                 [
                   { id: 'all', label: 'Todas' },
@@ -393,7 +492,7 @@ export const NotificationCenter: React.FC<NotificationCenterProps> = ({
                   onClick={() => setScopeFilter(tab.id)}
                   className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold transition-colors cursor-pointer whitespace-nowrap ${
                     scopeFilter === tab.id
-                      ? 'bg-[#e9c349] text-black font-bold'
+                      ? 'bg-white/15 text-white font-bold'
                       : 'text-stone-400 hover:text-white hover:bg-white/5'
                   }`}
                 >
@@ -437,10 +536,16 @@ export const NotificationCenter: React.FC<NotificationCenterProps> = ({
             {filteredNotifications.length === 0 ? (
               <div className="p-8 text-center space-y-2">
                 <div className="w-11 h-11 rounded-full bg-stone-900 border border-white/10 mx-auto flex items-center justify-center text-stone-500">
-                  <Bell className="w-5 h-5 opacity-40" />
+                  {activeTab === 'messages' ? (
+                    <MessageSquare className="w-5 h-5 opacity-40" />
+                  ) : (
+                    <Bell className="w-5 h-5 opacity-40" />
+                  )}
                 </div>
                 <p className="text-xs font-medium text-stone-400">
-                  {scopeFilter === 'all'
+                  {activeTab === 'messages'
+                    ? 'Nenhuma mensagem recebida no momento'
+                    : scopeFilter === 'all'
                     ? 'Nenhuma notificação no momento'
                     : scopeFilter === 'individual'
                     ? 'Nenhuma notificação individual no momento'
@@ -451,6 +556,7 @@ export const NotificationCenter: React.FC<NotificationCenterProps> = ({
               filteredNotifications.map((notif) => {
                 const scope = notif.scope || inferNotificationScope(notif);
                 const isIndividual = scope === 'individual';
+                const isAdminScoped = scope === 'admin';
 
                 return (
                   <div
@@ -474,10 +580,14 @@ export const NotificationCenter: React.FC<NotificationCenterProps> = ({
                         <div className="flex items-center gap-1.5 min-w-0 truncate">
                           <span
                             className={`font-bold ${
-                              isIndividual ? 'text-emerald-400' : 'text-sky-400'
+                              isIndividual
+                                ? 'text-emerald-400'
+                                : isAdminScoped
+                                ? 'text-[#e9c349]'
+                                : 'text-sky-400'
                             }`}
                           >
-                            {isIndividual ? 'Individual' : 'Coletiva'}
+                            {isIndividual ? 'Individual' : isAdminScoped ? 'Painel Admin' : 'Coletiva'}
                           </span>
                           <span className="text-stone-600" aria-hidden="true">·</span>
                           <span className="text-stone-400 truncate">{getTypeLabel(notif.type)}</span>
@@ -554,19 +664,33 @@ export const NotificationCenter: React.FC<NotificationCenterProps> = ({
               type="button"
               onClick={() => {
                 setIsOpen(false);
-                navigate(userRole === 'student' ? '/library/notificacoes' : '/messages');
+                if (activeTab === 'messages') {
+                  navigate(userRole === 'student' ? '/library/chat' : '/messages?tab=chat');
+                } else {
+                  navigate(userRole === 'student' ? '/library/notificacoes' : '/dashboard');
+                }
               }}
               className="text-[#e9c349] hover:underline font-bold text-[11px] cursor-pointer flex items-center gap-1 whitespace-nowrap"
             >
               <span>
-                {userRole === 'student' ? 'Abrir Minhas Notificações' : 'Ver Histórico & Arquivo'}
+                {activeTab === 'messages'
+                  ? 'Abrir Central de Mensagens'
+                  : userRole === 'student'
+                  ? 'Abrir Minhas Notificações'
+                  : 'Ir para o Painel'}
               </span>
               <ChevronRight className="w-3 h-3" />
             </button>
-            {unreadCount > 0 && (
+            {activeTabUnreadCount > 0 && (
               <button
                 type="button"
-                onClick={() => markAllNotificationsAsRead(notifications, resolvedUserId, userRole)}
+                onClick={() =>
+                  markAllNotificationsAsRead(
+                    activeTab === 'messages' ? messageNotifications : systemNotifications,
+                    resolvedUserId,
+                    userRole
+                  )
+                }
                 className="text-stone-400 hover:text-white font-bold text-[11px] cursor-pointer whitespace-nowrap"
               >
                 Marcar Todas Lidas

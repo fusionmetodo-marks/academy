@@ -14,11 +14,19 @@ import {
   Plus,
   Bell,
   Inbox,
+  Megaphone,
 } from 'lucide-react';
 import { collection, onSnapshot } from 'firebase/firestore';
 import { auth, db } from '../firebase';
+import GroupMessageModal, { GroupCourseOption } from './GroupMessageModal';
 import { isMasterEmail } from '../utils/constants';
 import { maskEmail, maskPhone } from '../utils/maskUtils';
+import {
+  formatChatDateDividerLabel,
+  formatMessageTimeOnly,
+  getChatDayKey,
+} from '../utils/chatHelpers';
+import { useSafeSubmitGuard } from '../utils/messageSendSafety';
 import {
   ChatMessage,
   ChatThread,
@@ -39,6 +47,7 @@ interface ContactOption {
   name: string;
   email: string;
   phone: string;
+  enrolledCourses: string[];
   enrolledCount: number;
   isPreRegistered: boolean;
   sourceLabel?: string;
@@ -51,6 +60,7 @@ interface AdminStudentChatsTabProps {
   initialStudentPhone?: string | null;
   initialLessonTitle?: string | null;
   initialCourseTitle?: string | null;
+  groupComposerTrigger?: number;
 }
 
 const formatDisplayPhone = (rawPhone?: string | null, isMaster: boolean = false): string => {
@@ -90,16 +100,6 @@ const formatListTime = (ms: number) => {
   return new Intl.DateTimeFormat('pt-PT', { day: '2-digit', month: '2-digit' }).format(date);
 };
 
-const formatFullMessageTime = (ms: number) => {
-  if (!ms) return '';
-  return new Intl.DateTimeFormat('pt-PT', {
-    day: '2-digit',
-    month: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-  }).format(new Date(ms));
-};
-
 export default function AdminStudentChatsTab({
   initialStudentId = null,
   initialStudentName = null,
@@ -107,9 +107,11 @@ export default function AdminStudentChatsTab({
   initialStudentPhone = null,
   initialLessonTitle = null,
   initialCourseTitle = null,
+  groupComposerTrigger = 0,
 }: AdminStudentChatsTabProps) {
   const [threads, setThreads] = useState<ChatThread[]>([]);
   const [students, setStudents] = useState<ContactOption[]>([]);
+  const [courses, setCourses] = useState<GroupCourseOption[]>([]);
   const [pendingBuyerContacts, setPendingBuyerContacts] = useState<ContactOption[]>([]);
   const [manualContacts, setManualContacts] = useState<Record<string, ContactOption>>({});
   const [loadingThreads, setLoadingThreads] = useState(true);
@@ -123,6 +125,7 @@ export default function AdminStudentChatsTab({
   const [draft, setDraft] = useState('');
   const [sending, setSending] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const submitGuard = useSafeSubmitGuard();
   const [lessonContext, setLessonContext] = useState<{
     lessonTitle?: string | null;
     courseTitle?: string | null;
@@ -132,10 +135,17 @@ export default function AdminStudentChatsTab({
       : null
   );
 
-  // Modal de Pesquisa / Nova Conversa
+  // Modal de Pesquisa / Nova Conversa e Modal de Envios em Grupo
   const [isNewContactOpen, setIsNewContactOpen] = useState(false);
+  const [isGroupModalOpen, setIsGroupModalOpen] = useState(false);
   const [modalSearchQuery, setModalSearchQuery] = useState('');
   const [modalFilterMode, setModalFilterMode] = useState<'all' | 'enrolled'>('all');
+
+  useEffect(() => {
+    if (groupComposerTrigger > 0) {
+      setIsGroupModalOpen(true);
+    }
+  }, [groupComposerTrigger]);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const currentUser = auth.currentUser;
@@ -188,13 +198,17 @@ export default function AdminStudentChatsTab({
           if (isMaster || isAdminRole) return;
 
           const phone = extractStudentPhoneString({ id: docSnap.id, ...u });
-          const enrolledCount = Array.isArray(u.enrolledCourses) ? u.enrolledCourses.length : 0;
+          const enrolledCourses = Array.isArray(u.enrolledCourses)
+            ? u.enrolledCourses.map((c: any) => String(c))
+            : [];
+          const enrolledCount = enrolledCourses.length;
 
           list.push({
             id: docSnap.id,
             name: getStudentDisplayName(u),
             email,
             phone,
+            enrolledCourses,
             enrolledCount,
             isPreRegistered: false,
           });
@@ -204,6 +218,28 @@ export default function AdminStudentChatsTab({
       },
       (err) => {
         console.warn('Erro ao carregar lista de estudantes para chat:', err);
+      }
+    );
+
+    const unsubCourses = onSnapshot(
+      collection(db, 'courses'),
+      (snap) => {
+        const list: GroupCourseOption[] = [];
+        snap.forEach((docSnap) => {
+          const c = docSnap.data();
+          if (c?.title) {
+            list.push({
+              id: docSnap.id,
+              title: String(c.title),
+              category: c.category ? String(c.category) : undefined,
+            });
+          }
+        });
+        list.sort((a, b) => a.title.localeCompare(b.title, 'pt', { sensitivity: 'base' }));
+        setCourses(list);
+      },
+      (err) => {
+        console.warn('Aviso ao carregar cursos para envio em grupo:', err);
       }
     );
 
@@ -231,6 +267,7 @@ export default function AdminStudentChatsTab({
               name: rawName || (cleanEmail ? cleanEmail.split('@')[0] : rawPhone) || 'Comprador',
               email: cleanEmail || '',
               phone: rawPhone,
+              enrolledCourses: [],
               enrolledCount: 0,
               isPreRegistered: true,
               sourceLabel: tx.status === 'pending' ? 'Compra pendente' : 'Comprador',
@@ -255,6 +292,7 @@ export default function AdminStudentChatsTab({
     return () => {
       unsubThreads();
       unsubUsers();
+      unsubCourses();
       unsubTransactions();
     };
   }, []);
@@ -486,8 +524,13 @@ export default function AdminStudentChatsTab({
     const cleanText = draft.trim();
     if (!cleanText || !selectedStudentInfo || sending) return;
 
+    const lock = submitGuard.acquire(`chat:${selectedStudentInfo.id}`, cleanText, 'adm');
+    if (!lock.allowed || !lock.release) return;
+
     setSending(true);
     setErrorMsg(null);
+    let succeeded = false;
+
     try {
       const adminDisplayName =
         currentUser?.displayName ||
@@ -505,18 +548,22 @@ export default function AdminStudentChatsTab({
         text: cleanText,
         contextLessonTitle: lessonContext?.lessonTitle || null,
         contextCourseTitle: lessonContext?.courseTitle || null,
+        idempotencyKey: lock.idempotencyKey,
+        onSafetyStatus: (st) => submitGuard.setSafetyStatus(st),
       });
 
       if (finalChatId && finalChatId !== selectedStudentInfo.id) {
         setSelectedStudentId(finalChatId);
       }
 
+      succeeded = true;
       setDraft('');
       setLessonContext(null);
     } catch (err) {
       console.error('Erro ao enviar mensagem para o estudante:', err);
       setErrorMsg('Não foi possível enviar a mensagem. Verifique a conexão e tente novamente.');
     } finally {
+      lock.release(succeeded, cleanText);
       setSending(false);
     }
   };
@@ -524,6 +571,7 @@ export default function AdminStudentChatsTab({
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
+      if (e.repeat || (e.nativeEvent as any).isComposing) return;
       handleSend();
     }
   };
@@ -589,7 +637,17 @@ export default function AdminStudentChatsTab({
                   Conversas Individuais
                 </span>
               </div>
-              <div className="flex items-center gap-2 shrink-0">
+              <div className="flex items-center gap-1.5 shrink-0">
+                <button
+                  type="button"
+                  id="btn-open-group-message-sidebar"
+                  onClick={() => setIsGroupModalOpen(true)}
+                  className="px-2.5 h-7 rounded-xl bg-[#e9c349]/15 hover:bg-[#e9c349]/25 border border-[#e9c349]/35 text-[#e9c349] text-[10px] font-extrabold flex items-center gap-1 transition-all cursor-pointer active:scale-95"
+                  title="Enviar mensagem para vários alunos, turmas ou todos"
+                >
+                  <Megaphone className="w-3.5 h-3.5" />
+                  <span>Em Grupo</span>
+                </button>
                 <button
                   type="button"
                   onClick={() => setIsNewContactOpen(true)}
@@ -827,14 +885,24 @@ export default function AdminStudentChatsTab({
               <p className="text-xs text-stone-400 max-w-md leading-relaxed mb-4">
                 Envie mensagens individuais para qualquer aluno cadastrado (com ou sem curso matriculado) ou clique em <strong>Novo Contato</strong> para enviar uma mensagem antes mesmo de a pessoa criar conta.
               </p>
-              <button
-                type="button"
-                onClick={() => setIsNewContactOpen(true)}
-                className="px-4 py-2 rounded-xl bg-[#e9c349] hover:bg-[#d4b03f] text-black text-xs font-extrabold inline-flex items-center gap-1.5 transition-colors cursor-pointer"
-              >
-                <UserPlus className="w-4 h-4" />
-                <span>Enviar para Novo Contato</span>
-              </button>
+              <div className="flex flex-wrap items-center justify-center gap-2.5">
+                <button
+                  type="button"
+                  onClick={() => setIsNewContactOpen(true)}
+                  className="px-4 py-2 rounded-xl bg-[#e9c349] hover:bg-[#d4b03f] text-black text-xs font-extrabold inline-flex items-center gap-1.5 transition-colors cursor-pointer"
+                >
+                  <UserPlus className="w-4 h-4" />
+                  <span>Enviar para Novo Contato</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setIsGroupModalOpen(true)}
+                  className="px-4 py-2 rounded-xl bg-[#1e1e1e] hover:bg-[#282828] border border-[#e9c349]/35 text-[#e9c349] text-xs font-extrabold inline-flex items-center gap-1.5 transition-colors cursor-pointer"
+                >
+                  <Megaphone className="w-4 h-4" />
+                  <span>Envios em Grupo</span>
+                </button>
+              </div>
             </div>
           ) : (
             <>
@@ -921,56 +989,73 @@ export default function AdminStudentChatsTab({
                     </p>
                   </div>
                 ) : (
-                  messages.map((msg) => {
+                  messages.map((msg, idx) => {
                     const isAdminMsg = msg.senderRole === 'admin';
+                    const currentDayKey = getChatDayKey(msg.createdAtMs);
+                    const prevDayKey = idx > 0 ? getChatDayKey(messages[idx - 1].createdAtMs) : '';
+                    const showDateDivider = idx === 0 || currentDayKey !== prevDayKey;
+                    const dateLabel = formatChatDateDividerLabel(msg.createdAtMs);
+
                     return (
-                      <div
-                        key={msg.id}
-                        className={`flex flex-col ${isAdminMsg ? 'items-end' : 'items-start'}`}
-                      >
-                        <div
-                          className={`max-w-[85%] sm:max-w-[75%] rounded-2xl px-3.5 py-2.5 border ${
-                            isAdminMsg
-                              ? 'bg-[#e9c349] text-black border-[#e9c349] rounded-br-sm'
-                              : 'bg-[#181818] text-stone-100 border-[#353534] rounded-bl-sm'
-                          }`}
-                        >
+                      <React.Fragment key={msg.id}>
+                        {showDateDivider && (
                           <div
-                            className={`flex items-center justify-between gap-4 text-[10px] mb-1 ${
-                              isAdminMsg ? 'text-black/70 font-bold' : 'text-[#e9c349] font-bold'
+                            className="flex items-center gap-3 py-2 my-1 select-none"
+                            aria-label={`Mensagens de ${dateLabel}`}
+                          >
+                            <div className="flex-1 h-px bg-white/10" />
+                            <span className="px-3 py-0.5 rounded-full bg-[#16181f] border border-white/10 text-[11px] font-semibold text-stone-300 whitespace-nowrap">
+                              {dateLabel}
+                            </span>
+                            <div className="flex-1 h-px bg-white/10" />
+                          </div>
+                        )}
+
+                        <div className={`flex flex-col ${isAdminMsg ? 'items-end' : 'items-start'}`}>
+                          <div
+                            className={`max-w-[85%] sm:max-w-[75%] rounded-2xl px-3.5 py-2.5 border ${
+                              isAdminMsg
+                                ? 'bg-[#e9c349] text-black border-[#e9c349] rounded-br-sm'
+                                : 'bg-[#181818] text-stone-100 border-[#353534] rounded-bl-sm'
                             }`}
                           >
-                            <span>{isAdminMsg ? 'Administração (Você)' : msg.senderName}</span>
-                            <span
-                              className={`font-mono tabular-nums ${
-                                isAdminMsg ? 'text-black/60' : 'text-stone-500'
-                              }`}
-                            >
-                              {formatFullMessageTime(msg.createdAtMs)}
-                            </span>
-                          </div>
-
-                          {msg.contextLessonTitle && (
                             <div
-                              className={`mb-1.5 px-2 py-1 rounded-lg text-[10px] flex items-center gap-1.5 ${
-                                isAdminMsg
-                                  ? 'bg-black/10 text-black/80'
-                                  : 'bg-black/40 text-stone-300 border border-white/5'
+                              className={`flex items-center justify-between gap-4 text-[10px] mb-1 ${
+                                isAdminMsg ? 'text-black/70 font-bold' : 'text-[#e9c349] font-bold'
                               }`}
                             >
-                              <BookOpen className="w-3 h-3 shrink-0" />
-                              <span className="truncate">
-                                {msg.contextCourseTitle ? `${msg.contextCourseTitle} · ` : ''}
-                                {msg.contextLessonTitle}
+                              <span>{isAdminMsg ? 'Administração (Você)' : msg.senderName}</span>
+                              <span
+                                className={`font-mono tabular-nums ${
+                                  isAdminMsg ? 'text-black/60' : 'text-stone-500'
+                                }`}
+                              >
+                                {formatMessageTimeOnly(msg.createdAtMs)}
                               </span>
                             </div>
-                          )}
 
-                          <p className="text-xs sm:text-sm leading-relaxed whitespace-pre-wrap break-words">
-                            {msg.text}
-                          </p>
+                            {msg.contextLessonTitle && (
+                              <div
+                                className={`mb-1.5 px-2 py-1 rounded-lg text-[10px] flex items-center gap-1.5 ${
+                                  isAdminMsg
+                                    ? 'bg-black/10 text-black/80'
+                                    : 'bg-black/40 text-stone-300 border border-white/5'
+                                }`}
+                              >
+                                <BookOpen className="w-3 h-3 shrink-0" />
+                                <span className="truncate">
+                                  {msg.contextCourseTitle ? `${msg.contextCourseTitle} · ` : ''}
+                                  {msg.contextLessonTitle}
+                                </span>
+                              </div>
+                            )}
+
+                            <p className="text-xs sm:text-sm leading-relaxed whitespace-pre-wrap break-words">
+                              {msg.text}
+                            </p>
+                          </div>
                         </div>
-                      </div>
+                      </React.Fragment>
                     );
                   })
                 )}
@@ -1001,6 +1086,16 @@ export default function AdminStudentChatsTab({
                 </div>
               )}
 
+              {(submitGuard.safetyStatus.stage === 'pacing' ||
+                submitGuard.safetyStatus.stage === 'compensating' ||
+                submitGuard.safetyStatus.stage === 'cooldown' ||
+                submitGuard.safetyStatus.stage === 'blocked_duplicate') && (
+                <div className="px-4 sm:px-6 py-1.5 bg-[#e9c349]/10 border-t border-[#e9c349]/25 text-[#e9c349] text-[11px] flex items-center gap-2 shrink-0">
+                  <Bell className="w-3.5 h-3.5 shrink-0" />
+                  <span>{submitGuard.safetyStatus.detail || 'Processando envio com segurança...'}</span>
+                </div>
+              )}
+
               {errorMsg && (
                 <div className="px-4 sm:px-6 py-2 bg-rose-950/60 border-t border-rose-500/30 text-rose-200 text-[11px] flex items-center gap-2 shrink-0">
                   <AlertCircle className="w-3.5 h-3.5 shrink-0" />
@@ -1024,11 +1119,17 @@ export default function AdminStudentChatsTab({
                 />
                 <button
                   type="submit"
-                  disabled={!draft.trim() || sending}
+                  disabled={!draft.trim() || sending || submitGuard.isBusy}
                   className="px-4 py-2.5 rounded-xl bg-[#e9c349] hover:bg-[#d4b03f] text-black font-extrabold text-xs flex items-center gap-1.5 transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed shrink-0"
                 >
                   <Send className="w-4 h-4" />
-                  <span>{sending ? 'Enviando...' : 'Enviar'}</span>
+                  <span>
+                    {sending
+                      ? 'Enviando...'
+                      : submitGuard.inCooldown
+                      ? 'Aguarde...'
+                      : 'Enviar'}
+                  </span>
                 </button>
               </form>
             </>
@@ -1179,6 +1280,14 @@ export default function AdminStudentChatsTab({
           </div>
         </div>
       )}
+
+      <GroupMessageModal
+        isOpen={isGroupModalOpen}
+        onClose={() => setIsGroupModalOpen(false)}
+        students={students}
+        courses={courses}
+        isMasterViewer={isMasterViewer}
+      />
     </>
   );
 }

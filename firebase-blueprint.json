@@ -41,6 +41,10 @@
           "maxLength": 32,
           "description": "Digits-only normalized phone number for automatic contact linking."
         },
+        "floatingChatAlertsEnabled": {
+          "type": "boolean",
+          "description": "Whether floating real-time chat alert popups are enabled for this user."
+        },
         "createdAt": {
           "type": "string",
           "format": "date-time",

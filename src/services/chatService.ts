@@ -8,6 +8,7 @@ import {
   onSnapshot,
   orderBy,
   query,
+  runTransaction,
   serverTimestamp,
   setDoc,
   updateDoc,
@@ -15,6 +16,17 @@ import {
 } from 'firebase/firestore';
 import { db, auth } from '../firebase';
 import { notifyNewChatMessage } from './notificationService';
+import {
+  MESSAGE_SAFETY_CONFIG,
+  SendSafetyStatus,
+  computeJitter,
+  createIdempotentMessageId,
+  enqueueSafeChannelSend,
+  executeWithSafetyCompensation,
+  getAdaptiveSafetyPressureMs,
+  registerContentionPressure,
+  sleepMs,
+} from '../utils/messageSendSafety';
 
 export type ChatSenderRole = 'admin' | 'student';
 
@@ -63,7 +75,6 @@ export interface LessonComment {
   createdAtMs: number;
 }
 
-const BELL_THROTTLE_MS = 60_000;
 
 export const normalizeContactEmail = (email?: string | null): string | null => {
   const clean = String(email || '').trim().toLowerCase();
@@ -325,6 +336,9 @@ export const sendDirectChatMessage = async (params: {
   contextLessonTitle?: string | null;
   contextCourseTitle?: string | null;
   contextCourseId?: string | null;
+  idempotencyKey?: string;
+  skipQueue?: boolean;
+  onSafetyStatus?: (status: SendSafetyStatus) => void;
 }) => {
   const cleanText = params.text.trim().slice(0, 2000);
   if (!cleanText) {
@@ -337,10 +351,9 @@ export const sendDirectChatMessage = async (params: {
   }
 
   let targetChatId = sanitizeDocId(params.studentId.trim()).slice(0, 128);
-  const nowMs = Date.now();
   let threadRef = doc(db, 'chats', targetChatId);
 
-  let existingThread: Partial<ChatThread> | null = null;
+  let preLookupThread: Partial<ChatThread> | null = null;
   try {
     const threadSnap = await getDoc(threadRef);
     if (threadSnap.exists()) {
@@ -349,23 +362,23 @@ export const sendDirectChatMessage = async (params: {
         targetChatId = sanitizeDocId(String(data.mergedIntoChatId)).slice(0, 128);
         threadRef = doc(db, 'chats', targetChatId);
         const targetSnap = await getDoc(threadRef);
-        existingThread = targetSnap.exists() ? (targetSnap.data() as Partial<ChatThread>) : null;
+        preLookupThread = targetSnap.exists() ? (targetSnap.data() as Partial<ChatThread>) : null;
       } else {
-        existingThread = data;
+        preLookupThread = data;
       }
     }
   } catch (err) {
     console.warn('Aviso ao consultar estado prévio da conversa:', err);
   }
 
-  let resolvedStudentName = (params.studentName || existingThread?.studentName || '').trim();
-  let resolvedStudentEmail = normalizeContactEmail(params.studentEmail || existingThread?.studentEmail || null);
-  let resolvedStudentPhone = (params.studentPhone || existingThread?.studentPhone || '').trim() || null;
+  let resolvedStudentName = (params.studentName || preLookupThread?.studentName || '').trim();
+  let resolvedStudentEmail = normalizeContactEmail(params.studentEmail || preLookupThread?.studentEmail || null);
+  let resolvedStudentPhone = (params.studentPhone || preLookupThread?.studentPhone || '').trim() || null;
 
   const isTargetPreReg =
     typeof params.isPreRegistered === 'boolean'
-      ? params.isPreRegistered && !existingThread?.linkedUserId
-      : isPreRegisteredChatId(targetChatId) && existingThread?.isPreRegistered !== false;
+      ? params.isPreRegistered && !preLookupThread?.linkedUserId
+      : isPreRegisteredChatId(targetChatId) && preLookupThread?.isPreRegistered !== false;
 
   if (!isTargetPreReg && (!resolvedStudentName || !resolvedStudentEmail || !resolvedStudentPhone)) {
     try {
@@ -395,13 +408,19 @@ export const sendDirectChatMessage = async (params: {
       .trim()
       .slice(0, 200) || 'Usuário';
 
+  const msgDocId = sanitizeDocId(
+    params.idempotencyKey || createIdempotentMessageId('msg')
+  ).slice(0, 128);
+  const msgRef = doc(db, 'chats', targetChatId, 'messages', msgDocId);
+  const baseCreatedAtMs = Date.now();
+
   const messagePayload: Record<string, any> = {
     chatId: targetChatId,
     senderId: currentUid,
     senderName: cleanSenderName,
     senderRole: params.senderRole,
     text: cleanText,
-    createdAtMs: nowMs,
+    createdAtMs: baseCreatedAtMs,
     createdAt: serverTimestamp(),
   };
 
@@ -415,49 +434,90 @@ export const sendDirectChatMessage = async (params: {
     messagePayload.contextCourseId = String(params.contextCourseId).trim().slice(0, 128);
   }
 
-  await addDoc(collection(db, 'chats', targetChatId, 'messages'), messagePayload);
+  const shouldNotifyAdminBell = params.senderRole === 'student';
+  const shouldNotifyStudentBell = params.senderRole === 'admin';
+  let messagePersisted = false;
+  let threadPersisted = false;
 
-  const prevUnreadAdmin = Number(existingThread?.unreadByAdmin || 0);
-  const prevUnreadStudent = Number(existingThread?.unreadByStudent || 0);
-  const prevLastAdminBellAtMs = existingThread?.lastAdminBellAtMs ?? null;
-  const prevLastStudentBellAtMs = existingThread?.lastStudentBellAtMs ?? null;
+  const runDispatch = async (attempt: number) => {
+    const nowMs = Math.max(baseCreatedAtMs, Date.now());
 
-  const shouldNotifyAdminBell =
-    params.senderRole === 'student' &&
-    (prevUnreadAdmin === 0 || !prevLastAdminBellAtMs || nowMs - prevLastAdminBellAtMs > BELL_THROTTLE_MS);
+    // 1. Gravação idempotente da mensagem (evita duplicação em retentativas por concorrência/rede)
+    if (!messagePersisted) {
+      if (attempt > 0) {
+        const existingSnap = await getDoc(msgRef).catch(() => null);
+        if (existingSnap && existingSnap.exists()) {
+          messagePersisted = true;
+        }
+      }
+      if (!messagePersisted) {
+        await setDoc(msgRef, messagePayload);
+        messagePersisted = true;
+      }
+    }
 
-  const shouldNotifyStudentBell =
-    params.senderRole === 'admin' &&
-    (prevUnreadStudent === 0 || !prevLastStudentBellAtMs || nowMs - prevLastStudentBellAtMs > BELL_THROTTLE_MS);
+    // 2. Atualização transacional dos contadores e resumo da conversa (evita race condition)
+    if (!threadPersisted) {
+      await runTransaction(db, async (tx) => {
+        const txSnap = await tx.get(threadRef);
+        const existingThread = txSnap.exists() ? (txSnap.data() as Partial<ChatThread>) : null;
 
-  const threadPayload: Record<string, any> = {
-    studentId: targetChatId,
-    studentName: resolvedStudentName,
-    studentEmail: resolvedStudentEmail,
-    studentPhone: resolvedStudentPhone,
-    normalizedPhone: normalizedPhone,
-    isPreRegistered: isTargetPreReg,
-    linkedUserId: existingThread?.linkedUserId || (isTargetPreReg ? null : targetChatId),
-    lastMessage: cleanText,
-    lastSenderRole: params.senderRole,
-    lastSenderId: currentUid,
-    lastMessageAtMs: nowMs,
-    updatedAt: serverTimestamp(),
-    unreadByAdmin: params.senderRole === 'student' ? prevUnreadAdmin + 1 : 0,
-    unreadByStudent: params.senderRole === 'admin' ? prevUnreadStudent + 1 : 0,
-    lastAdminBellAtMs: shouldNotifyAdminBell ? nowMs : prevLastAdminBellAtMs,
-    lastStudentBellAtMs: shouldNotifyStudentBell ? nowMs : prevLastStudentBellAtMs,
+        const prevUnreadAdmin = Number(existingThread?.unreadByAdmin || 0);
+        const prevUnreadStudent = Number(existingThread?.unreadByStudent || 0);
+        const prevLastAdminBellAtMs = existingThread?.lastAdminBellAtMs ?? null;
+        const prevLastStudentBellAtMs = existingThread?.lastStudentBellAtMs ?? null;
+        const prevLastMessageAtMs = Number(existingThread?.lastMessageAtMs || 0);
+        const isLatest = nowMs >= prevLastMessageAtMs;
+
+        const threadPayload: Record<string, any> = {
+          studentId: targetChatId,
+          studentName: resolvedStudentName,
+          studentEmail: resolvedStudentEmail,
+          studentPhone: resolvedStudentPhone,
+          normalizedPhone: normalizedPhone,
+          isPreRegistered: isTargetPreReg,
+          linkedUserId: existingThread?.linkedUserId || (isTargetPreReg ? null : targetChatId),
+          lastMessage: isLatest ? cleanText : String(existingThread?.lastMessage || cleanText).slice(0, 2000),
+          lastSenderRole: isLatest
+            ? params.senderRole
+            : existingThread?.lastSenderRole === 'admin'
+            ? 'admin'
+            : 'student',
+          lastSenderId: isLatest ? currentUid : String(existingThread?.lastSenderId || currentUid).slice(0, 128),
+          lastMessageAtMs: Math.max(nowMs, prevLastMessageAtMs),
+          updatedAt: serverTimestamp(),
+          unreadByAdmin: params.senderRole === 'student' ? prevUnreadAdmin + 1 : 0,
+          unreadByStudent: params.senderRole === 'admin' ? prevUnreadStudent + 1 : 0,
+          lastAdminBellAtMs: shouldNotifyAdminBell ? nowMs : prevLastAdminBellAtMs,
+          lastStudentBellAtMs: shouldNotifyStudentBell ? nowMs : prevLastStudentBellAtMs,
+        };
+
+        tx.set(threadRef, threadPayload, { merge: true });
+      });
+      threadPersisted = true;
+    }
   };
 
-  await setDoc(threadRef, threadPayload, { merge: true });
+  const channelKey = `chat:${targetChatId}`;
+  if (params.skipQueue) {
+    await executeWithSafetyCompensation(runDispatch, {
+      channelKey,
+      baseDelayMs: 60,
+      onStatus: params.onSafetyStatus,
+    });
+  } else {
+    await enqueueSafeChannelSend(channelKey, runDispatch, {
+      onStatus: params.onSafetyStatus,
+    });
+  }
 
   if (isTargetPreReg && params.senderRole === 'admin') {
-    await upsertChatClaimIndices({
+    upsertChatClaimIndices({
       chatId: targetChatId,
       email: resolvedStudentEmail,
       phone: resolvedStudentPhone,
-      nowMs,
-    });
+      nowMs: baseCreatedAtMs,
+    }).catch(() => {});
   }
 
   if (shouldNotifyAdminBell) {
@@ -470,18 +530,187 @@ export const sendDirectChatMessage = async (params: {
       messagePreview: cleanText,
       lessonTitle: params.contextLessonTitle || undefined,
     }).catch((err) => console.warn('Aviso ao enviar notificação de chat para admin:', err));
-  } else if (shouldNotifyStudentBell && !isTargetPreReg) {
+  } else if (shouldNotifyStudentBell && (!isTargetPreReg || resolvedStudentEmail)) {
     notifyNewChatMessage({
       recipientRole: 'student',
-      studentId: targetChatId,
+      studentId: isTargetPreReg ? '' : targetChatId,
       studentName: resolvedStudentName,
       studentEmail: resolvedStudentEmail,
       senderName: cleanSenderName,
       messagePreview: cleanText,
+      lessonTitle: params.contextLessonTitle || undefined,
     }).catch((err) => console.warn('Aviso ao enviar notificação de chat para estudante:', err));
   }
 
   return targetChatId;
+};
+
+export interface BulkChatRecipient {
+  studentId: string;
+  studentName: string;
+  studentEmail?: string | null;
+  studentPhone?: string | null;
+}
+
+export interface BulkSendProgress {
+  total: number;
+  completed: number;
+  succeeded: number;
+  failed: number;
+  phase?: 'pacing' | 'sending' | 'compensating' | 'done';
+  activeDelayMs?: number;
+  retries?: number;
+}
+
+const activeBulkBatchLocks = new Set<string>();
+
+/**
+ * Envia uma mensagem individual para múltiplos estudantes em lotes controlados,
+ * com atraso básico entre envios, tempos de compensação de segurança sob alta demanda
+ * e proteção contra disparos duplicados.
+ */
+export const sendBulkDirectChatMessages = async (params: {
+  recipients: BulkChatRecipient[];
+  senderId?: string;
+  senderName: string;
+  text: string;
+  contextCourseId?: string | null;
+  contextCourseTitle?: string | null;
+  idempotencySeed?: string;
+  onProgress?: (progress: BulkSendProgress) => void;
+}): Promise<BulkSendProgress> => {
+  const cleanText = params.text.trim().slice(0, 2000);
+  if (!cleanText) {
+    throw new Error('A mensagem não pode estar vazia.');
+  }
+
+  const bulkLockKey = `${params.senderId || 'admin'}:${cleanText.slice(0, 80)}`;
+  if (activeBulkBatchLocks.has(bulkLockKey)) {
+    throw new Error('Um envio em grupo com este mesmo conteúdo já está em processamento.');
+  }
+
+  const uniqueMap = new Map<string, BulkChatRecipient>();
+  params.recipients.forEach((r) => {
+    if (r?.studentId && !uniqueMap.has(r.studentId)) {
+      uniqueMap.set(r.studentId, r);
+    }
+  });
+
+  const targets = Array.from(uniqueMap.values());
+  const total = targets.length;
+  if (total === 0) {
+    return { total: 0, completed: 0, succeeded: 0, failed: 0, phase: 'done', retries: 0 };
+  }
+
+  activeBulkBatchLocks.add(bulkLockKey);
+  const batchPrefix = sanitizeDocId(params.idempotencySeed || createIdempotentMessageId('blk')).slice(0, 32);
+
+  let completed = 0;
+  let succeeded = 0;
+  let failed = 0;
+  let retries = 0;
+  const CHUNK_SIZE = 3;
+
+  try {
+    for (let i = 0; i < targets.length; i += CHUNK_SIZE) {
+      const batch = targets.slice(i, i + CHUNK_SIZE);
+      let batchHadContention = false;
+
+      await Promise.all(
+        batch.map(async (recipient, idxInBatch) => {
+          if (idxInBatch > 0) {
+            await sleepMs(idxInBatch * MESSAGE_SAFETY_CONFIG.BULK_ITEM_DELAY_MS + computeJitter(90));
+          }
+
+          const itemIdempotencyKey = sanitizeDocId(`${batchPrefix}_${recipient.studentId}`).slice(0, 120);
+
+          try {
+            await sendDirectChatMessage({
+              studentId: recipient.studentId,
+              studentName: recipient.studentName,
+              studentEmail: recipient.studentEmail || null,
+              studentPhone: recipient.studentPhone || null,
+              isPreRegistered: false,
+              senderId: params.senderId,
+              senderName: params.senderName,
+              senderRole: 'admin',
+              text: cleanText,
+              contextCourseId: params.contextCourseId || null,
+              contextCourseTitle: params.contextCourseTitle || null,
+              idempotencyKey: itemIdempotencyKey,
+              skipQueue: true,
+              onSafetyStatus: (st) => {
+                if (st.stage === 'compensating') {
+                  retries += 1;
+                  batchHadContention = true;
+                  params.onProgress?.({
+                    total,
+                    completed,
+                    succeeded,
+                    failed,
+                    phase: 'compensating',
+                    activeDelayMs: st.waitMs,
+                    retries,
+                  });
+                }
+              },
+            });
+            succeeded += 1;
+          } catch (err) {
+            console.warn(`Falha ao enviar mensagem em lote para ${recipient.studentId}:`, err);
+            failed += 1;
+            batchHadContention = true;
+          } finally {
+            completed += 1;
+            params.onProgress?.({
+              total,
+              completed,
+              succeeded,
+              failed,
+              phase: batchHadContention ? 'compensating' : 'sending',
+              retries,
+            });
+          }
+        })
+      );
+
+      if (i + CHUNK_SIZE < targets.length) {
+        if (batchHadContention) {
+          registerContentionPressure(1);
+        }
+        const interBatchDelay =
+          MESSAGE_SAFETY_CONFIG.BULK_BATCH_DELAY_MS +
+          getAdaptiveSafetyPressureMs() +
+          (batchHadContention ? MESSAGE_SAFETY_CONFIG.BASE_COMPENSATION_MS : 0) +
+          computeJitter(160);
+
+        params.onProgress?.({
+          total,
+          completed,
+          succeeded,
+          failed,
+          phase: batchHadContention ? 'compensating' : 'pacing',
+          activeDelayMs: interBatchDelay,
+          retries,
+        });
+
+        await sleepMs(interBatchDelay);
+      }
+    }
+  } finally {
+    activeBulkBatchLocks.delete(bulkLockKey);
+  }
+
+  const finalSummary: BulkSendProgress = {
+    total,
+    completed,
+    succeeded,
+    failed,
+    phase: 'done',
+    retries,
+  };
+  params.onProgress?.(finalSummary);
+  return finalSummary;
 };
 
 /**
@@ -857,20 +1086,44 @@ export const addLessonComment = async (params: {
   authorName: string;
   authorRole: ChatSenderRole;
   text: string;
+  idempotencyKey?: string;
+  onSafetyStatus?: (status: SendSafetyStatus) => void;
 }) => {
   const cleanText = params.text.trim().slice(0, 1500);
   if (!cleanText) return;
 
-  await addDoc(collection(db, 'lessonComments'), {
-    courseId: String(params.courseId).slice(0, 128),
-    lessonId: String(params.lessonId).slice(0, 128),
-    authorId: String(params.authorId).slice(0, 128),
-    authorName: (params.authorName || 'Estudante').trim().slice(0, 200) || 'Estudante',
-    authorRole: params.authorRole,
-    text: cleanText,
-    createdAtMs: Date.now(),
-    createdAt: serverTimestamp(),
-  });
+  const commentDocId = sanitizeDocId(
+    params.idempotencyKey || createIdempotentMessageId('cmt')
+  ).slice(0, 128);
+  const commentRef = doc(db, 'lessonComments', commentDocId);
+  const createdAtMs = Date.now();
+  let commentPersisted = false;
+
+  await enqueueSafeChannelSend(
+    `comment:${params.courseId}:${params.lessonId}`,
+    async (attempt) => {
+      if (commentPersisted) return;
+      if (attempt > 0) {
+        const existingSnap = await getDoc(commentRef).catch(() => null);
+        if (existingSnap && existingSnap.exists()) {
+          commentPersisted = true;
+          return;
+        }
+      }
+      await setDoc(commentRef, {
+        courseId: String(params.courseId).slice(0, 128),
+        lessonId: String(params.lessonId).slice(0, 128),
+        authorId: String(params.authorId).slice(0, 128),
+        authorName: (params.authorName || 'Estudante').trim().slice(0, 200) || 'Estudante',
+        authorRole: params.authorRole,
+        text: cleanText,
+        createdAtMs,
+        createdAt: serverTimestamp(),
+      });
+      commentPersisted = true;
+    },
+    { onStatus: params.onSafetyStatus }
+  );
 };
 
 /**

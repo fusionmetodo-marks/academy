@@ -209,6 +209,15 @@ export default function Sidebar() {
             )}
           </Link>
 
+          {/* Sino Desktop na Sidebar (para todas as rotas admin) */}
+          <div className="hidden lg:block">
+            <NotificationCenter
+              userRole="admin"
+              userId={auth.currentUser?.uid}
+              dropdownAlign="left"
+            />
+          </div>
+
           {/* Botão para fechar no Mobile */}
           <button
             onClick={() => setIsOpenMobile(false)}

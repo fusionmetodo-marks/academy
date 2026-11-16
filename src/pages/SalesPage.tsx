@@ -361,7 +361,14 @@ export default function SalesPage() {
             
             <div className="flex items-center gap-1.5 sm:gap-3">
               {currentUser && (
-                <NotificationCenter userRole={isAdmin ? 'admin' : 'student'} userId={currentUser.uid} />
+                <NotificationCenter
+                  userRole={
+                    isAdmin && localStorage.getItem('viewAsStudent') !== 'true'
+                      ? 'admin'
+                      : 'student'
+                  }
+                  userId={currentUser.uid}
+                />
               )}
 
               {/* Botão do App Ocultado na versão web */}

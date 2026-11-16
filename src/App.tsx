@@ -9,7 +9,9 @@ import { onAuthStateChanged, User } from 'firebase/auth';
 import { doc, onSnapshot, setDoc } from 'firebase/firestore';
 import { auth, db } from './firebase';
 import { subscribeUserEnrollments } from './services/enrollmentService';
+import { registerAdminPushOnServer } from './services/notificationService';
 import PushNotificationPrompt from './components/PushNotificationPrompt';
+import GlobalChatAlertToast from './components/GlobalChatAlertToast';
 import Login from './pages/Login';
 import StudentDirectory from './pages/StudentDirectory';
 import VideoLibrary from './pages/VideoLibrary';
@@ -65,6 +67,12 @@ export default function App() {
   const isReallyAdmin = userProfile?.role === 'admin' || userProfile?.role === 'producer' || isAdminEmail;
   const effectiveRole = (isReallyAdmin && viewAsStudent) ? 'student' : (isReallyAdmin ? 'admin' : userProfile?.role);
   const effectiveStatus = (isReallyAdmin && viewAsStudent) ? 'active' : (isReallyAdmin ? 'active' : userProfile?.subscriptionStatus);
+
+  useEffect(() => {
+    if (user && isReallyAdmin) {
+      registerAdminPushOnServer().catch(() => {});
+    }
+  }, [user, isReallyAdmin]);
 
   const checkDevice = async (uid: string, email?: string | null) => {
     const isMaster = isMasterEmail(email);
@@ -141,6 +149,18 @@ export default function App() {
   return (
     <BrowserRouter>
       {user && <PushNotificationPrompt />}
+      {user && (
+        <GlobalChatAlertToast
+          userRole={
+            effectiveRole === 'admin' || effectiveRole === 'producer'
+              ? effectiveRole
+              : 'student'
+          }
+          userId={user.uid}
+          userEmail={user.email}
+          enrolledCourses={userProfile?.enrolledCourses || []}
+        />
+      )}
       {deviceLock?.blocked && user && (
         <DeviceLimitModal
           userId={user.uid}

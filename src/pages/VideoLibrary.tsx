@@ -23,6 +23,7 @@ import {
   addLessonComment,
   deleteLessonComment,
 } from '../services/chatService';
+import { useSafeSubmitGuard } from '../utils/messageSendSafety';
 
 interface Lesson {
   id: string;
@@ -114,6 +115,7 @@ export default function VideoLibrary({ courseId }: VideoLibraryProps = {}) {
   const [comment, setComment] = useState('');
   const [comments, setComments] = useState<LessonComment[]>([]);
   const [isSendingComment, setIsSendingComment] = useState(false);
+  const commentSubmitGuard = useSafeSubmitGuard();
 
   // In-place student-admin chat drawer inside classroom
   const [isClassroomChatOpen, setIsClassroomChatOpen] = useState(false);
@@ -1327,7 +1329,15 @@ export default function VideoLibrary({ courseId }: VideoLibraryProps = {}) {
                         const resolvedCourseId = course.id || activeCourseId;
                         if (!cleanText || !resolvedCourseId || !activeLesson?.id || !currentUserId || isSendingComment) return;
 
+                        const lock = commentSubmitGuard.acquire(
+                          `comment:${resolvedCourseId}:${activeLesson.id}`,
+                          cleanText,
+                          'cmt'
+                        );
+                        if (!lock.allowed || !lock.release) return;
+
                         setIsSendingComment(true);
+                        let succeeded = false;
                         try {
                           const pAny = userProfile as any;
                           const resolvedName = isUserAdminOrProducer
@@ -1349,13 +1359,17 @@ export default function VideoLibrary({ courseId }: VideoLibraryProps = {}) {
                             authorName: resolvedName,
                             authorRole: isUserAdminOrProducer ? 'admin' : 'student',
                             text: cleanText,
+                            idempotencyKey: lock.idempotencyKey,
+                            onSafetyStatus: (st) => commentSubmitGuard.setSafetyStatus(st),
                           });
+                          succeeded = true;
                           setComment('');
                           showNotification('Comentário publicado!');
                         } catch (err) {
                           console.error('Erro ao publicar comentário:', err);
                           showNotification('Não foi possível publicar o comentário.');
                         } finally {
+                          lock.release(succeeded, cleanText);
                           setIsSendingComment(false);
                         }
                       }}
@@ -1370,7 +1384,7 @@ export default function VideoLibrary({ courseId }: VideoLibraryProps = {}) {
                       />
                       <button
                         type="submit"
-                        disabled={!comment.trim() || isSendingComment}
+                        disabled={!comment.trim() || isSendingComment || commentSubmitGuard.isBusy}
                         className="absolute right-3 top-1/2 -translate-y-1/2 text-[#e9c349] hover:opacity-80 disabled:opacity-40 cursor-pointer"
                       >
                         <span className="material-symbols-outlined text-[18px]">send</span>

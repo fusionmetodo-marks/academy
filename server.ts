@@ -31,7 +31,7 @@ app.use((req, res, next) => {
 // DDoS & Brute-Force Rate Limiting Middleware for API Endpoints
 const rateLimitMap = new Map<string, { count: number; resetTime: number }>();
 const RATE_LIMIT_WINDOW = 60000; // 1 min
-const RATE_LIMIT_MAX = 150; // max 150 requests per min per IP
+const RATE_LIMIT_MAX = 220; // max 220 requests per min per IP
 
 app.use('/api/', (req, res, next) => {
   const ip = req.ip || req.socket.remoteAddress || 'unknown';
@@ -44,7 +44,12 @@ app.use('/api/', (req, res, next) => {
   } else {
     record.count++;
     if (record.count > RATE_LIMIT_MAX) {
-      return res.status(429).json({ error: 'Muitas requisições detectadas. Limite de segurança atingido, aguarde um momento.' });
+      const retryAfterSec = Math.max(1, Math.ceil((record.resetTime - now) / 1000));
+      res.setHeader('Retry-After', String(retryAfterSec));
+      return res.status(429).json({
+        error: 'Muitas requisições detectadas. Limite de segurança atingido, aguarde um momento.',
+        retryAfterSec,
+      });
     }
   }
   next();
@@ -405,6 +410,61 @@ app.post('/api/lessons/verify-access', async (req, res) => {
   }
 });
 
+const adminPushSubscriptionsMap = new Map<string, any>();
+
+app.post('/api/push/register-admin', async (req, res) => {
+  const isAuthorized = await verifyAdminAuth(req);
+  if (!isAuthorized) {
+    return res.status(403).json({ error: 'Acesso negado.' });
+  }
+
+  const { subscriptions } = req.body || {};
+  if (!Array.isArray(subscriptions)) {
+    return res.status(400).json({ error: 'Subscriptions array is required' });
+  }
+
+  subscriptions.forEach((sub: any) => {
+    if (sub && typeof sub.endpoint === 'string' && sub.endpoint) {
+      adminPushSubscriptionsMap.set(sub.endpoint, sub);
+    }
+  });
+
+  res.status(200).json({ success: true, count: adminPushSubscriptionsMap.size });
+});
+
+app.post('/api/push/notify-admin', async (req, res) => {
+  const authHeader = req.headers['authorization'] || '';
+  const idToken = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : (req.body?.idToken || '');
+  const verified = await verifyFirebaseIdToken(idToken);
+  if (!verified) {
+    return res.status(401).json({ error: 'Autenticação obrigatória para notificar administração.' });
+  }
+
+  const subs = Array.from(adminPushSubscriptionsMap.values());
+  if (subs.length === 0) {
+    return res.status(200).json({ success: true, sent: 0 });
+  }
+
+  const { payload } = req.body || {};
+  const pushPayload = JSON.stringify({
+    title: String(payload?.title || 'Money Building').slice(0, 300),
+    body: String(payload?.body || 'Nova mensagem de estudante.').slice(0, 1000),
+    url: String(payload?.url || '/messages').slice(0, 500),
+  });
+
+  const promises = subs.map((sub) =>
+    webpush.sendNotification(sub, pushPayload).catch((err: any) => {
+      if (err?.statusCode === 410 || err?.statusCode === 404) {
+        adminPushSubscriptionsMap.delete(sub.endpoint);
+      }
+      return { status: 'failed' };
+    })
+  );
+
+  await Promise.all(promises);
+  res.status(200).json({ success: true, sent: subs.length });
+});
+
 app.post('/api/push/send', async (req, res) => {
   const isAuthorized = await verifyAdminAuth(req);
   if (!isAuthorized) {
@@ -418,19 +478,26 @@ app.post('/api/push/send', async (req, res) => {
   }
 
   const pushPayload = JSON.stringify({
-    title: payload.title || 'Marks o Monstro - ACADEMY',
-    body: payload.body || 'Nova notificação!',
-    url: payload.url || '/dashboard'
+    title: payload?.title || 'Money Building',
+    body: payload?.body || 'Nova notificação!',
+    url: payload?.url || '/dashboard'
   });
 
-  const promises = subscriptions.map(sub => 
-    webpush.sendNotification(sub, pushPayload).catch(err => {
-      console.error('Error sending push to a subscription', err);
-      return { status: 'failed', sub };
-    })
-  );
-
-  await Promise.all(promises);
+  const PUSH_BATCH_SIZE = 25;
+  for (let i = 0; i < subscriptions.length; i += PUSH_BATCH_SIZE) {
+    const chunk = subscriptions.slice(i, i + PUSH_BATCH_SIZE);
+    await Promise.all(
+      chunk.map((sub) =>
+        webpush.sendNotification(sub, pushPayload).catch((err) => {
+          console.error('Error sending push to a subscription', err);
+          return { status: 'failed', sub };
+        })
+      )
+    );
+    if (i + PUSH_BATCH_SIZE < subscriptions.length) {
+      await new Promise((resolve) => setTimeout(resolve, 120));
+    }
+  }
   res.status(200).json({ success: true });
 });
 

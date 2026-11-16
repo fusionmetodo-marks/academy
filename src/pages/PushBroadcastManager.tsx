@@ -49,6 +49,7 @@ import {
   generateDailyAdminSummaryNotification,
   SystemNotification
 } from '../services/notificationService';
+import { useSafeSubmitGuard } from '../utils/messageSendSafety';
 
 export default function PushBroadcastManager() {
   const [title, setTitle] = useState('');
@@ -118,6 +119,7 @@ export default function PushBroadcastManager() {
   const [history, setHistory] = useState<SystemNotification[]>([]);
   const [loadingHistory, setLoadingHistory] = useState(true);
   const [isSending, setIsSending] = useState(false);
+  const broadcastGuard = useSafeSubmitGuard({ cooldownMs: 1200, duplicateWindowMs: 5000 });
   const [isGeneratingSummary, setIsGeneratingSummary] = useState(false);
   const [pushStatus, setPushStatus] = useState<NotificationPermission | 'unsupported'>('default');
 
@@ -302,7 +304,16 @@ export default function PushBroadcastManager() {
       return;
     }
 
+    const lock = broadcastGuard.acquire('broadcast_push', `${title.trim()}::${message.trim()}`, 'brd');
+    if (!lock.allowed || !lock.release) {
+      if (lock.reason === 'duplicate') {
+        showToast('Transmissão idêntica já enviada há instantes.', 'info');
+      }
+      return;
+    }
+
     setIsSending(true);
+    let succeeded = false;
 
     try {
       const adminEmail = auth.currentUser?.email || 'Admin CFA';
@@ -317,6 +328,7 @@ export default function PushBroadcastManager() {
         senderName: adminEmail
       });
 
+      succeeded = true;
       showToast('🚀 Notificação Push disparada com sucesso para os destinatários!', 'success');
       
       // Reset form
@@ -328,6 +340,7 @@ export default function PushBroadcastManager() {
       console.error('Erro ao transmitir notificação:', err);
       showToast('Ocorreu um erro ao disparar a notificação. Tente novamente.', 'error');
     } finally {
+      lock.release(succeeded, `${title.trim()}::${message.trim()}`);
       setIsSending(false);
     }
   };
@@ -1021,7 +1034,7 @@ export default function PushBroadcastManager() {
 
                 <button
                   type="submit"
-                  disabled={isSending}
+                  disabled={isSending || broadcastGuard.isBusy}
                   className="w-full sm:w-auto px-6 py-3.5 bg-gradient-to-r from-[#e9c349] to-[#d4af37] text-black font-bold text-xs rounded-xl hover:brightness-110 active:scale-95 transition-all shadow-xl flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
                 >
                   {isSending ? (

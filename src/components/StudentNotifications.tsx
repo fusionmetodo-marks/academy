@@ -43,7 +43,7 @@ export default function StudentNotifications({
   const navigate = useNavigate();
   const [notifications, setNotifications] = useState<SystemNotification[]>([]);
   const [loading, setLoading] = useState(true);
-  const [filterMode, setFilterMode] = useState<'all' | 'individual' | 'collective' | 'unread'>('all');
+  const [filterMode, setFilterMode] = useState<'all' | 'individual' | 'collective' | 'messages' | 'unread'>('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [pushPermission, setPushPermission] = useState<NotificationPermission | 'unsupported'>('default');
 
@@ -79,22 +79,36 @@ export default function StudentNotifications({
     let unread = 0;
     let individual = 0;
     let collective = 0;
+    let messages = 0;
+    let totalSystem = 0;
     notifications.forEach((n) => {
       if (!n.read) unread += 1;
+      if (n.type === 'chat_message') {
+        messages += 1;
+        return;
+      }
+      totalSystem += 1;
       const scope = n.scope || inferNotificationScope(n);
       if (scope === 'individual') individual += 1;
       else collective += 1;
     });
-    return { total: notifications.length, unread, individual, collective };
+    return { total: totalSystem, unread, individual, collective, messages };
   }, [notifications]);
 
   const filteredNotifications = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
     return notifications.filter((n) => {
+      const isChat = n.type === 'chat_message';
       const scope = n.scope || inferNotificationScope(n);
-      if (filterMode === 'individual' && scope !== 'individual') return false;
-      if (filterMode === 'collective' && scope !== 'collective') return false;
-      if (filterMode === 'unread' && n.read) return false;
+      if (filterMode === 'messages') {
+        if (!isChat) return false;
+      } else if (filterMode === 'unread') {
+        if (n.read) return false;
+      } else {
+        if (isChat) return false;
+        if (filterMode === 'individual' && scope !== 'individual') return false;
+        if (filterMode === 'collective' && scope !== 'collective') return false;
+      }
 
       if (q) {
         const courseTitle = String(n.metadata?.courseTitle || '').toLowerCase();
@@ -316,9 +330,10 @@ export default function StudentNotifications({
         <div className="flex flex-wrap items-center gap-1.5 bg-[#131313] p-1 rounded-xl border border-white/10 self-start">
           {(
             [
-              { id: 'all', label: `Todas (${counts.total})` },
+              { id: 'all', label: `Notificações (${counts.total})` },
               { id: 'individual', label: `Individuais (${counts.individual})` },
               { id: 'collective', label: `Coletivas (${counts.collective})` },
+              { id: 'messages', label: `Mensagens (${counts.messages})` },
               { id: 'unread', label: `Não lidas (${counts.unread})` },
             ] as const
           ).map((tab) => (

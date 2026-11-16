@@ -3,7 +3,13 @@ import { useSearchParams } from 'react-router-dom';
 import Sidebar from '../components/Sidebar';
 import AdminStudentChatsTab from '../components/AdminStudentChatsTab';
 import { subscribeAllChatThreads } from '../services/chatService';
-import { MessageSquare, ShieldCheck } from 'lucide-react';
+import { auth } from '../firebase';
+import {
+  getFloatingChatAlertsEnabled,
+  setFloatingChatAlertsEnabled,
+  subscribeFloatingChatAlertsSetting,
+} from '../utils/chatHelpers';
+import { Bell, BellOff, Megaphone, MessageSquare, ShieldCheck } from 'lucide-react';
 
 export default function ProducerMessages() {
   const [searchParams] = useSearchParams();
@@ -16,6 +22,24 @@ export default function ProducerMessages() {
 
   const [selectedChatStudentId, setSelectedChatStudentId] = useState<string | null>(urlStudentId);
   const [unreadStudentChatsCount, setUnreadStudentChatsCount] = useState(0);
+  const [groupComposerTrigger, setGroupComposerTrigger] = useState(0);
+  const currentUid = auth.currentUser?.uid || null;
+  const [floatingAlertsEnabled, setFloatingAlertsEnabledState] = useState<boolean>(() =>
+    getFloatingChatAlertsEnabled(currentUid)
+  );
+
+  useEffect(() => {
+    const unsubPref = subscribeFloatingChatAlertsSetting(currentUid, (enabled) => {
+      setFloatingAlertsEnabledState(enabled);
+    });
+    return () => unsubPref();
+  }, [currentUid]);
+
+  const handleToggleFloatingAlerts = () => {
+    const next = !floatingAlertsEnabled;
+    setFloatingAlertsEnabledState(next);
+    setFloatingChatAlertsEnabled(currentUid, next);
+  };
 
   useEffect(() => {
     if (urlStudentId) {
@@ -59,9 +83,56 @@ export default function ProducerMessages() {
             </p>
           </div>
 
-          <div className="flex items-center gap-2 bg-[#181818] border border-[#353534] px-3.5 py-2 rounded-xl text-xs text-stone-300">
-            <ShieldCheck className="w-4 h-4 text-[#e9c349]" />
-            <span>Conversas Individuais Protegidas</span>
+          <div className="flex flex-wrap items-center gap-2.5">
+            <button
+              type="button"
+              id="btn-open-group-message-header"
+              onClick={() => setGroupComposerTrigger((n) => n + 1)}
+              className="flex items-center gap-2 px-3.5 py-2 rounded-xl bg-[#e9c349] hover:bg-[#d4b03f] text-black text-xs font-extrabold transition-all cursor-pointer shadow-md active:scale-95"
+            >
+              <Megaphone className="w-4 h-4 shrink-0" />
+              <span>Envios em Grupo</span>
+            </button>
+
+            <button
+              type="button"
+              id="btn-toggle-floating-alerts-admin"
+              onClick={handleToggleFloatingAlerts}
+              aria-pressed={floatingAlertsEnabled}
+              title={
+                floatingAlertsEnabled
+                  ? 'Desativar pop-up flutuante ao receber mensagens'
+                  : 'Ativar pop-up flutuante ao receber mensagens'
+              }
+              className={`flex items-center gap-2.5 px-3.5 py-2 rounded-xl border text-xs font-bold transition-all cursor-pointer ${
+                floatingAlertsEnabled
+                  ? 'bg-[#e9c349]/10 border-[#e9c349]/40 text-white hover:bg-[#e9c349]/15'
+                  : 'bg-[#181818] border-[#353534] text-stone-400 hover:text-white'
+              }`}
+            >
+              {floatingAlertsEnabled ? (
+                <Bell className="w-4 h-4 text-[#e9c349] shrink-0" />
+              ) : (
+                <BellOff className="w-4 h-4 text-stone-500 shrink-0" />
+              )}
+              <span>Pop-up flutuante</span>
+              <span
+                className={`relative inline-flex h-4 w-7 shrink-0 items-center rounded-full transition-colors ${
+                  floatingAlertsEnabled ? 'bg-[#e9c349]' : 'bg-stone-700'
+                }`}
+              >
+                <span
+                  className={`inline-block h-3 w-3 transform rounded-full bg-black transition-transform ${
+                    floatingAlertsEnabled ? 'translate-x-3.5' : 'translate-x-0.5'
+                  }`}
+                />
+              </span>
+            </button>
+
+            <div className="flex items-center gap-2 bg-[#181818] border border-[#353534] px-3.5 py-2 rounded-xl text-xs text-stone-300">
+              <ShieldCheck className="w-4 h-4 text-[#e9c349]" />
+              <span>Conversas Individuais Protegidas</span>
+            </div>
           </div>
         </div>
 
@@ -74,6 +145,7 @@ export default function ProducerMessages() {
             initialStudentPhone={urlStudentPhone}
             initialLessonTitle={urlLessonTitle}
             initialCourseTitle={urlCourseTitle}
+            groupComposerTrigger={groupComposerTrigger}
           />
         </div>
       </main>

@@ -16,6 +16,12 @@ import {
 } from 'firebase/firestore';
 import { db, auth } from '../firebase';
 import { slugify } from '../utils/slugify';
+import {
+  createIdempotentMessageId,
+  enqueueSafePushDispatch,
+  executeWithSafetyCompensation,
+  fetchWithRateCompensation,
+} from '../utils/messageSendSafety';
 
 export type NotificationType =
   | 'new_student'
@@ -115,6 +121,80 @@ export const vibrateDevice = () => {
   }
 };
 
+const sessionStartedAtMs = Date.now();
+const globallyAlertedIds = new Set<string>();
+export type IncomingAlertListener = (notif: SystemNotification) => void;
+const incomingAlertListeners = new Set<IncomingAlertListener>();
+
+export const subscribeToIncomingAlerts = (listener: IncomingAlertListener) => {
+  incomingAlertListeners.add(listener);
+  return () => {
+    incomingAlertListeners.delete(listener);
+  };
+};
+
+export const registerAdminPushOnServer = async (extraSubscriptions: any[] = []): Promise<void> => {
+  try {
+    const currentUser = auth.currentUser;
+    if (!currentUser) return;
+
+    const idToken = await currentUser.getIdToken().catch(() => '');
+    if (!idToken) return;
+
+    const collected: any[] = Array.isArray(extraSubscriptions) ? [...extraSubscriptions] : [];
+
+    try {
+      const userSnap = await getDoc(doc(db, 'users', currentUser.uid));
+      if (userSnap.exists()) {
+        const uData = userSnap.data();
+        if (Array.isArray(uData.pushSubscriptions)) {
+          collected.push(...uData.pushSubscriptions);
+        }
+      }
+    } catch {
+      // ignore
+    }
+
+    if (typeof navigator !== 'undefined' && 'serviceWorker' in navigator) {
+      try {
+        const reg =
+          (await navigator.serviceWorker.getRegistration('/sw.js')) ||
+          (await navigator.serviceWorker.getRegistration());
+        const sub = await reg?.pushManager?.getSubscription();
+        if (sub) {
+          collected.push(JSON.parse(JSON.stringify(sub)));
+        }
+      } catch {
+        // ignore
+      }
+    }
+
+    const uniqueByEndpoint = new Map<string, any>();
+    collected.forEach((s) => {
+      if (s && typeof s.endpoint === 'string' && s.endpoint) {
+        uniqueByEndpoint.set(s.endpoint, s);
+      }
+    });
+
+    if (uniqueByEndpoint.size === 0) return;
+
+    await fetch('/api/push/register-admin', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${idToken}`,
+        'x-user-id': currentUser.uid,
+        'x-user-email': currentUser.email || '',
+      },
+      body: JSON.stringify({
+        subscriptions: Array.from(uniqueByEndpoint.values()),
+      }),
+    }).catch(() => {});
+  } catch {
+    // ignore
+  }
+};
+
 /**
  * Solicita permissão para Notificações do Navegador / Telemóvel
  */
@@ -139,6 +219,8 @@ export const requestPushPermission = async (userId?: string): Promise<boolean> =
           applicationServerKey: convertedVapidKey,
         });
 
+        const parsedSub = JSON.parse(JSON.stringify(subscription));
+
         const resolvedUid = userId || auth.currentUser?.uid;
         if (resolvedUid) {
           const userRef = doc(db, 'users', resolvedUid);
@@ -146,16 +228,18 @@ export const requestPushPermission = async (userId?: string): Promise<boolean> =
           if (userSnap.exists()) {
             const userData = userSnap.data();
             const currentSubs = userData.pushSubscriptions || [];
-            const subStr = JSON.stringify(subscription);
+            const subStr = JSON.stringify(parsedSub);
             const isDuplicate = currentSubs.some((s: any) => JSON.stringify(s) === subStr);
 
             if (!isDuplicate) {
               await updateDoc(userRef, {
-                pushSubscriptions: [...currentSubs, JSON.parse(subStr)],
+                pushSubscriptions: [...currentSubs, parsedSub],
               });
             }
           }
         }
+
+        registerAdminPushOnServer([parsedSub]).catch(() => {});
 
         showNativeNotification(
           'Notificações Push Ativas!',
@@ -209,6 +293,31 @@ export const showNativeNotification = (title: string, body: string, link: string
       console.error('Falha ao exibir notificação nativa:', err);
     }
   }
+};
+
+const triggerAlertOnce = (notif: SystemNotification) => {
+  const key = notif.id || `${notif.type}:${notif.timestamp || Date.now()}:${notif.message.slice(0, 40)}`;
+  if (globallyAlertedIds.has(key)) return;
+  globallyAlertedIds.add(key);
+
+  if (globallyAlertedIds.size > 400) {
+    const firstKey = globallyAlertedIds.values().next().value;
+    if (firstKey) globallyAlertedIds.delete(firstKey);
+  }
+
+  showNativeNotification(
+    notif.title || 'Money Building',
+    notif.message || 'Nova atualização na plataforma',
+    notif.link || '/'
+  );
+
+  incomingAlertListeners.forEach((listener) => {
+    try {
+      listener(notif);
+    } catch {
+      // ignore
+    }
+  });
 };
 
 const normalizeEnrolledCourses = (raw: any): string[] => {
@@ -347,71 +456,132 @@ export const sendSystemNotification = async (payload: {
       createdAt: serverTimestamp(),
     };
 
-    await addDoc(collection(db, 'notifications'), notificationData);
+    const notifDocId = createIdempotentMessageId('ntf');
+    const notifRef = doc(db, 'notifications', notifDocId);
+    let notifPersisted = false;
 
-    // Web Push via backend (falha silenciosa caso o destinatário não tenha ativado o push)
-    try {
-      let usersSnap;
-      if (cleanTargetUserId && cleanTargetUserId !== 'admin_default') {
-        usersSnap = await getDocs(query(collection(db, 'users'), where('__name__', '==', cleanTargetUserId)));
-      } else if (cleanTargetEmail) {
-        usersSnap = await getDocs(query(collection(db, 'users'), where('email', '==', cleanTargetEmail)));
-      } else if (resolvedTargetRole === 'all' || resolvedTargetRole === 'student') {
-        usersSnap = await getDocs(query(collection(db, 'users')));
-      } else {
-        usersSnap = await getDocs(query(collection(db, 'users'), where('role', '==', resolvedTargetRole)));
-      }
-
-      const courseFilterId =
-        payload.type === 'new_lesson' || payload.type === 'new_module'
-          ? payload.metadata?.courseId
-          : null;
-
-      let allSubscriptions: any[] = [];
-      usersSnap.forEach((docSnap) => {
-        const data = docSnap.data();
-        if (!Array.isArray(data.pushSubscriptions) || data.pushSubscriptions.length === 0) return;
-
-        if (
-          resolvedTargetRole === 'admin' &&
-          data.role !== 'admin' &&
-          data.roleType !== 'producer' &&
-          data.email !== 'fusionmetodo@gmail.com'
-        ) {
-          return;
+    await executeWithSafetyCompensation(
+      async (attempt) => {
+        if (notifPersisted) return;
+        if (attempt > 0) {
+          const snap = await getDoc(notifRef).catch(() => null);
+          if (snap && snap.exists()) {
+            notifPersisted = true;
+            return;
+          }
         }
+        await setDoc(notifRef, notificationData);
+        notifPersisted = true;
+      },
+      {
+        channelKey: `notif:${cleanTargetUserId || resolvedTargetRole}`,
+        baseDelayMs: 80,
+        maxRetries: 2,
+      }
+    );
 
-        if (courseFilterId) {
-          const isAdminAccount =
-            data.role === 'admin' ||
-            data.roleType === 'producer' ||
-            data.email === 'fusionmetodo@gmail.com';
-          const enrolled = normalizeEnrolledCourses(data.enrolledCourses);
-          if (!isAdminAccount && !enrolled.includes(courseFilterId)) {
+    // Web Push via backend enfileirado com compensação contra 429 (não bloqueia a UI de chat)
+    enqueueSafePushDispatch(async () => {
+      try {
+        const currentUser = auth.currentUser;
+        const idToken = currentUser ? await currentUser.getIdToken().catch(() => '') : '';
+        const pushHeaders: Record<string, string> = {
+          'Content-Type': 'application/json',
+        };
+        if (idToken) pushHeaders['Authorization'] = `Bearer ${idToken}`;
+        if (currentUser?.uid) pushHeaders['x-user-id'] = currentUser.uid;
+        if (currentUser?.email) pushHeaders['x-user-email'] = currentUser.email;
+
+        if (resolvedTargetRole === 'admin') {
+          const notifyRes = await fetchWithRateCompensation('/api/push/notify-admin', {
+            method: 'POST',
+            headers: pushHeaders,
+            body: JSON.stringify({
+              payload: {
+                title: notificationData.title,
+                body: notificationData.message,
+                url: notificationData.link,
+              },
+            }),
+          });
+
+          const notifyData = notifyRes && notifyRes.ok ? await notifyRes.json().catch(() => null) : null;
+          if (notifyData && Number(notifyData.sent || 0) > 0) {
+            return;
+          }
+
+          const callerEmail = (currentUser?.email || '').trim().toLowerCase();
+          if (
+            !['fusionmetodo@gmail.com', 'grupocassaminha@gmail.com', 'exportacoes.extras@gmail.com'].includes(
+              callerEmail
+            )
+          ) {
             return;
           }
         }
 
-        allSubscriptions = [...allSubscriptions, ...data.pushSubscriptions];
-      });
+        let usersSnap;
+        if (cleanTargetUserId && cleanTargetUserId !== 'admin_default') {
+          usersSnap = await getDocs(query(collection(db, 'users'), where('__name__', '==', cleanTargetUserId)));
+        } else if (cleanTargetEmail) {
+          usersSnap = await getDocs(query(collection(db, 'users'), where('email', '==', cleanTargetEmail)));
+        } else if (resolvedTargetRole === 'all' || resolvedTargetRole === 'student') {
+          usersSnap = await getDocs(query(collection(db, 'users')));
+        } else {
+          usersSnap = await getDocs(query(collection(db, 'users'), where('role', '==', resolvedTargetRole)));
+        }
 
-      if (allSubscriptions.length > 0) {
-        await fetch('/api/push/send', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            subscriptions: allSubscriptions,
-            payload: {
-              title: notificationData.title,
-              body: notificationData.message,
-              url: notificationData.link,
-            },
-          }),
-        }).catch((err) => console.error('Falha ao enviar push para o backend:', err));
+        const courseFilterId =
+          payload.type === 'new_lesson' || payload.type === 'new_module'
+            ? payload.metadata?.courseId
+            : null;
+
+        let allSubscriptions: any[] = [];
+        usersSnap.forEach((docSnap) => {
+          const data = docSnap.data();
+          if (!Array.isArray(data.pushSubscriptions) || data.pushSubscriptions.length === 0) return;
+
+          if (
+            resolvedTargetRole === 'admin' &&
+            data.role !== 'admin' &&
+            data.roleType !== 'producer' &&
+            data.email !== 'fusionmetodo@gmail.com'
+          ) {
+            return;
+          }
+
+          if (courseFilterId) {
+            const isAdminAccount =
+              data.role === 'admin' ||
+              data.roleType === 'producer' ||
+              data.email === 'fusionmetodo@gmail.com';
+            const enrolled = normalizeEnrolledCourses(data.enrolledCourses);
+            if (!isAdminAccount && !enrolled.includes(courseFilterId)) {
+              return;
+            }
+          }
+
+          allSubscriptions = [...allSubscriptions, ...data.pushSubscriptions];
+        });
+
+        if (allSubscriptions.length > 0) {
+          await fetchWithRateCompensation('/api/push/send', {
+            method: 'POST',
+            headers: pushHeaders,
+            body: JSON.stringify({
+              subscriptions: allSubscriptions,
+              payload: {
+                title: notificationData.title,
+                body: notificationData.message,
+                url: notificationData.link,
+              },
+            }),
+          });
+        }
+      } catch (pushLookupErr) {
+        console.warn('Aviso ao preparar push Web (notificação salva no sininho):', pushLookupErr);
       }
-    } catch (pushLookupErr) {
-      console.warn('Aviso ao preparar push Web (notificação salva no sininho):', pushLookupErr);
-    }
+    }).catch(() => {});
   } catch (error) {
     console.error('Erro ao registrar notificação no Firestore:', error);
   }
@@ -695,11 +865,12 @@ export const notifyNewChatMessage = async (params: {
   messagePreview: string;
   lessonTitle?: string;
 }) => {
-  const cleanPreview = params.messagePreview.trim().slice(0, 140);
-  const ellipsis = params.messagePreview.trim().length > 140 ? '...' : '';
+  const trimmedMsg = params.messagePreview.trim();
+  const cleanPreview = trimmedMsg.slice(0, 140);
+  const ellipsis = trimmedMsg.length > 140 ? '...' : '';
+  const contextSuffix = params.lessonTitle ? ` · Aula: ${params.lessonTitle}` : '';
 
   if (params.recipientRole === 'admin') {
-    const contextSuffix = params.lessonTitle ? ` (Aula: ${params.lessonTitle})` : '';
     return sendSystemNotification({
       type: 'chat_message',
       scope: 'admin',
@@ -707,33 +878,45 @@ export const notifyNewChatMessage = async (params: {
       message: `${cleanPreview}${ellipsis}${contextSuffix}`,
       link: `/messages?tab=chat&studentId=${encodeURIComponent(params.studentId)}`,
       targetRole: 'admin',
-      targetUserId: params.studentId,
-      targetEmail: params.studentEmail ? params.studentEmail.trim().toLowerCase() : null,
+      targetUserId: null,
+      targetEmail: null,
       metadata: {
         scope: 'admin',
         studentId: params.studentId,
         studentName: params.studentName,
         studentEmail: params.studentEmail || '',
+        senderName: params.senderName,
+        messagePreview: `${cleanPreview}${ellipsis}`,
         lessonTitle: params.lessonTitle || '',
       },
     });
   }
 
+  const validTargetUid =
+    params.studentId &&
+    !params.studentId.startsWith('pre_') &&
+    !params.studentId.startsWith('guest_')
+      ? params.studentId
+      : null;
+  const cleanStudentEmail = params.studentEmail ? params.studentEmail.trim().toLowerCase() : null;
+
   return sendSystemNotification({
     type: 'chat_message',
     scope: 'individual',
-    title: '💬 Nova resposta da Administração',
-    message: `${params.senderName}: ${cleanPreview}${ellipsis}`,
+    title: '💬 Nova mensagem da Administração',
+    message: `${cleanPreview}${ellipsis}${contextSuffix}`,
     link: '/library/chat',
     targetRole: 'student',
-    targetUserId: params.studentId,
-    targetEmail: params.studentEmail ? params.studentEmail.trim().toLowerCase() : null,
+    targetUserId: validTargetUid,
+    targetEmail: cleanStudentEmail,
     metadata: {
       scope: 'individual',
-      studentId: params.studentId,
+      studentId: validTargetUid || params.studentId,
       studentName: params.studentName,
-      studentEmail: params.studentEmail || '',
+      studentEmail: cleanStudentEmail || '',
       senderName: params.senderName,
+      messagePreview: `${cleanPreview}${ellipsis}`,
+      lessonTitle: params.lessonTitle || '',
     },
   });
 };
@@ -789,8 +972,14 @@ export const subscribeToNotifications = (
     const passesStudentRule = (data: any): { keep: boolean; scope: 'individual' | 'collective' } => {
       const notifType = data.type || 'general';
       const docRole = data.targetRole || 'all';
+      const docScope = data.scope || '';
       const targetUid = data.targetUserId || null;
       const targetEmail = (data.targetEmail || data.metadata?.targetEmail || '').trim().toLowerCase();
+
+      // Notificações endereçadas à administração/produção nunca pertencem ao estudante
+      if (docRole === 'admin' || docRole === 'producer' || docScope === 'admin') {
+        return { keep: false, scope: 'individual' };
+      }
 
       const isForMeByUid = Boolean(targetUid && targetUid === resolvedUid);
       const isForMeByEmail = Boolean(targetEmail && liveEmail && targetEmail === liveEmail);
@@ -801,8 +990,8 @@ export const subscribeToNotifications = (
         return { keep: false, scope: 'individual' };
       }
 
-      // Nunca vazar avisos internos de admin/produtor para aluno (salvo se explicitamente enviado para ele)
-      if (!isIndividualForMe && (docRole === 'admin' || docRole === 'producer' || ADMIN_ONLY_TYPES.has(notifType))) {
+      // Nunca vazar avisos internos de admin/produtor para aluno
+      if (!isIndividualForMe && ADMIN_ONLY_TYPES.has(notifType)) {
         return { keep: false, scope: 'collective' };
       }
 
@@ -859,7 +1048,7 @@ export const subscribeToNotifications = (
           id,
           type: data.type || 'general',
           scope: check.scope,
-          title: data.title || 'Notificação Marks ACADEMY',
+          title: data.title || 'Notificação Money Building',
           message: data.message || '',
           link: data.link || '/library',
           targetRole: data.targetRole || 'all',
@@ -881,12 +1070,30 @@ export const subscribeToNotifications = (
           if (seenIds.has(id)) return;
           seenIds.add(id);
           const check = passesStudentRule(data);
-          if (check.keep && !stateMap.get(id)?.dismissed) {
-            showNativeNotification(
-              data.title || 'Marks o Monstro - ACADEMY',
-              data.message || 'Nova atualização na plataforma',
-              data.link || '/library/notificacoes'
-            );
+          const userState = stateMap.get(id);
+          const isRead = userState
+            ? Boolean(userState.read)
+            : check.scope === 'individual'
+            ? Boolean(data.read)
+            : false;
+          const docTs =
+            data.timestamp || (data.createdAt?.toMillis ? data.createdAt.toMillis() : Date.now());
+
+          if (check.keep && !userState?.dismissed && !isRead && docTs >= sessionStartedAtMs - 15_000) {
+            triggerAlertOnce({
+              id,
+              type: data.type || 'general',
+              scope: check.scope,
+              title: data.title || 'Money Building',
+              message: data.message || 'Nova atualização na plataforma',
+              link: data.link || '/library/notificacoes',
+              targetRole: data.targetRole || 'all',
+              targetUserId: data.targetUserId || null,
+              targetEmail: data.targetEmail || null,
+              read: false,
+              metadata: data.metadata || {},
+              timestamp: docTs,
+            });
           }
         });
       } else {
@@ -993,50 +1200,69 @@ export const subscribeToNotifications = (
 
   // Fluxo de Admin e Produtor
   let initialLoad = true;
+  let initialBurstDone = false;
+  const seenAdminIds = new Set<string>();
+  const burstTimer = setTimeout(() => {
+    initialBurstDone = true;
+  }, 1200);
+
   const q = query(collection(db, 'notifications'), orderBy('createdAt', 'desc'), limit(60));
 
-  return onSnapshot(
+  const shouldIncludeDocForAdminOrProducer = (data: any): boolean => {
+    const docRole = data.targetRole || 'all';
+    const isProducer = targetRole === 'producer';
+    const isAdmin = targetRole === 'admin';
+    const notifType = data.type;
+    const currentUserEmail = auth.currentUser?.email;
+    const targetEmail = data.targetEmail || data.metadata?.targetEmail;
+
+    if (isAdmin) {
+      // O administrador não deve receber notificações enviadas PARA alunos (respostas de chat, liberações individuais, etc.)
+      const isOutgoingStudentIndividual =
+        docRole === 'student' &&
+        (data.scope === 'individual' ||
+          notifType === 'chat_message' ||
+          notifType === 'course_access_approved' ||
+          notifType === 'payment_approved');
+      return !isOutgoingStudentIndividual;
+    }
+
+    if (isProducer) {
+      if (['new_lesson', 'new_module', 'new_course', 'usdt_rate_update'].includes(notifType)) {
+        return true;
+      }
+      if (docRole === 'producer') {
+        if (data.targetUserId && data.targetUserId === userId) return true;
+        if (
+          targetEmail &&
+          currentUserEmail &&
+          String(targetEmail).toLowerCase() === currentUserEmail.toLowerCase()
+        ) {
+          return true;
+        }
+      }
+    }
+
+    return false;
+  };
+
+  const unsubSnapshot = onSnapshot(
     q,
     (snapshot) => {
       const notifs: SystemNotification[] = [];
 
       snapshot.forEach((docSnap) => {
         const data = docSnap.data();
-        const docRole = data.targetRole || 'all';
-        const isProducer = targetRole === 'producer';
-        const isAdmin = targetRole === 'admin';
-        const notifType = data.type;
-        const currentUserEmail = auth.currentUser?.email;
-        const targetEmail = data.targetEmail || data.metadata?.targetEmail;
-
-        let shouldKeep = false;
-
-        if (isAdmin) {
-          shouldKeep = true;
-        } else if (isProducer) {
-          if (['new_lesson', 'new_module', 'new_course', 'usdt_rate_update'].includes(notifType)) {
-            shouldKeep = true;
-          }
-          if (docRole === 'producer') {
-            let isMine = false;
-            if (data.targetUserId && data.targetUserId === userId) isMine = true;
-            if (targetEmail && currentUserEmail && targetEmail.toLowerCase() === currentUserEmail.toLowerCase()) {
-              isMine = true;
-            }
-            if (isMine) shouldKeep = true;
-          }
-        }
-
-        if (!shouldKeep) return;
+        if (!shouldIncludeDocForAdminOrProducer(data)) return;
 
         notifs.push({
           id: docSnap.id,
           type: data.type || 'general',
           scope: inferNotificationScope(data),
-          title: data.title || 'Notificação Marks ACADEMY',
+          title: data.title || 'Notificação Money Building',
           message: data.message || '',
           link: data.link || '/dashboard',
-          targetRole: docRole,
+          targetRole: data.targetRole || 'all',
           targetUserId: data.targetUserId,
           targetEmail: data.targetEmail || null,
           read: data.read || false,
@@ -1046,42 +1272,39 @@ export const subscribeToNotifications = (
         });
       });
 
-      if (!initialLoad) {
+      if (!initialLoad && initialBurstDone) {
         snapshot.docChanges().forEach((change) => {
           if (change.type === 'added') {
+            const id = change.doc.id;
+            if (seenAdminIds.has(id)) return;
+            seenAdminIds.add(id);
+
             const data = change.doc.data();
-            const docRole = data.targetRole || 'all';
-            let shouldNotify = false;
-            const isProducer = targetRole === 'producer';
-            const isAdmin = targetRole === 'admin';
-            const notifType = data.type;
-            const currentUserEmail = auth.currentUser?.email;
-            const targetEmail = data.targetEmail || data.metadata?.targetEmail;
+            if (!shouldIncludeDocForAdminOrProducer(data)) return;
 
-            if (isAdmin) {
-              shouldNotify = true;
-            } else if (isProducer) {
-              if (['new_lesson', 'new_module', 'new_course', 'usdt_rate_update'].includes(notifType)) {
-                shouldNotify = true;
-              }
-              if (docRole === 'producer') {
-                let isMine = false;
-                if (data.targetUserId && data.targetUserId === userId) isMine = true;
-                if (targetEmail && currentUserEmail && targetEmail.toLowerCase() === currentUserEmail.toLowerCase()) {
-                  isMine = true;
-                }
-                if (isMine) shouldNotify = true;
-              }
-            }
-
-            if (shouldNotify) {
-              showNativeNotification(
-                data.title || 'Marks o Monstro - ACADEMY',
-                data.message || 'Nova atualização na plataforma',
-                data.link || '/dashboard'
-              );
+            const docTs =
+              data.timestamp || (data.createdAt?.toMillis ? data.createdAt.toMillis() : Date.now());
+            if (!data.read && docTs >= sessionStartedAtMs - 15_000) {
+              triggerAlertOnce({
+                id,
+                type: data.type || 'general',
+                scope: inferNotificationScope(data),
+                title: data.title || 'Money Building',
+                message: data.message || 'Nova atualização na plataforma',
+                link: data.link || '/dashboard',
+                targetRole: data.targetRole || 'all',
+                targetUserId: data.targetUserId || null,
+                targetEmail: data.targetEmail || null,
+                read: false,
+                metadata: data.metadata || {},
+                timestamp: docTs,
+              });
             }
           }
+        });
+      } else {
+        notifs.forEach((n) => {
+          if (n.id) seenAdminIds.add(n.id);
         });
       }
 
@@ -1092,6 +1315,11 @@ export const subscribeToNotifications = (
       console.error('Erro no listener de notificações:', error);
     }
   );
+
+  return () => {
+    clearTimeout(burstTimer);
+    unsubSnapshot();
+  };
 };
 
 /**
