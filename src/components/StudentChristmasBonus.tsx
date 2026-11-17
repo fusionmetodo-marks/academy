@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   AlertCircle,
   ArrowUpRight,
@@ -17,6 +17,7 @@ import {
   ShieldCheck,
   Sparkles,
   TreePine,
+  Upload,
 } from 'lucide-react';
 import christmasBonusCoverImg from '../assets/images/christmas_bonus_cover_1794907721101.jpg';
 import { auth } from '../firebase';
@@ -31,6 +32,7 @@ import {
   saveChristmasBonusConfig,
   subscribeChristmasBonusConfig,
 } from '../services/christmasBonusService';
+import { compressCoverImageFile } from '../utils/imageCompression';
 
 interface StudentChristmasBonusProps {
   studentName?: string | null;
@@ -55,6 +57,8 @@ export default function StudentChristmasBonus({
   const [isEditorOpen, setIsEditorOpen] = useState<boolean>(false);
   const [draftForm, setDraftForm] = useState<ChristmasBonusConfig>(DEFAULT_CHRISTMAS_BONUS_CONFIG);
   const [isSaving, setIsSaving] = useState<boolean>(false);
+  const [isUploadingCover, setIsUploadingCover] = useState<boolean>(false);
+  const coverFileRef = useRef<HTMLInputElement | null>(null);
   const [saveFeedback, setSaveFeedback] = useState<{
     type: 'success' | 'error' | 'info';
     text: string;
@@ -107,6 +111,28 @@ export default function StudentChristmasBonus({
           : day
       ),
     }));
+  };
+
+  const handleInlineCoverFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    try {
+      setIsUploadingCover(true);
+      const compressed = await compressCoverImageFile(file, 1280, 720, 0.82);
+      setDraftForm((prev) => ({ ...prev, coverImageUrl: compressed }));
+      setSaveFeedback({
+        type: 'info',
+        text: 'Nova capa carregada! Clique em "Salvar Informações do Bônus" para confirmar.',
+      });
+    } catch (err: any) {
+      setSaveFeedback({
+        type: 'error',
+        text: err?.message || 'Erro ao carregar imagem.',
+      });
+    } finally {
+      setIsUploadingCover(false);
+      if (coverFileRef.current) coverFileRef.current.value = '';
+    }
   };
 
   const handleResetDefaults = () => {
@@ -388,13 +414,48 @@ export default function StudentChristmasBonus({
 
                 <div>
                   <label className="block text-xs font-bold text-stone-300 uppercase tracking-wider mb-1.5">
-                    Capa Personalizada (URL opcional)
+                    Capa Personalizada (Upload Manual ou URL)
                   </label>
+                  <div className="flex flex-wrap items-center gap-2 mb-2">
+                    <input
+                      ref={coverFileRef}
+                      type="file"
+                      accept="image/*"
+                      onChange={handleInlineCoverFileChange}
+                      className="hidden"
+                    />
+                    <button
+                      type="button"
+                      disabled={isUploadingCover}
+                      onClick={() => coverFileRef.current?.click()}
+                      className="px-3 py-2 rounded-xl bg-[#e9c349]/15 hover:bg-[#e9c349]/25 border border-[#e9c349]/40 text-[#e9c349] text-xs font-bold flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                    >
+                      <Upload className="w-3.5 h-3.5" />
+                      <span>{isUploadingCover ? 'A carregar...' : 'Alterar Capa do Dispositivo'}</span>
+                    </button>
+                    {draftForm.coverImageUrl?.trim() && (
+                      <button
+                        type="button"
+                        onClick={() => setDraftForm({ ...draftForm, coverImageUrl: '' })}
+                        className="px-3 py-2 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-stone-300 text-xs font-semibold cursor-pointer"
+                      >
+                        Restaurar Capa Padrão
+                      </button>
+                    )}
+                  </div>
                   <input
-                    type="url"
-                    value={draftForm.coverImageUrl}
+                    type="text"
+                    value={
+                      draftForm.coverImageUrl.startsWith('data:image/')
+                        ? ''
+                        : draftForm.coverImageUrl
+                    }
                     onChange={(e) => setDraftForm({ ...draftForm, coverImageUrl: e.target.value })}
-                    placeholder="Deixe vazio para usar a imagem natalícia padrão"
+                    placeholder={
+                      draftForm.coverImageUrl.startsWith('data:image/')
+                        ? 'Imagem carregada manualmente do dispositivo (pronta para salvar)'
+                        : 'Ou cole o link URL da imagem (vazio = imagem padrão)'
+                    }
                     className="w-full bg-[#0d0d0d] border border-white/15 focus:border-[#e9c349] rounded-xl py-2.5 px-3.5 text-white font-mono text-xs outline-none"
                   />
                 </div>

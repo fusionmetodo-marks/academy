@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, Edit, Trash2, MoreVertical, Copy, BookOpen, Layers, X, Check, Globe, Lock, AlertTriangle, ExternalLink, Image as ImageIcon, DollarSign, ClipboardPaste, Tag, Briefcase, TrendingUp, GraduationCap, ShieldCheck, FileText, ArrowRight, CreditCard } from 'lucide-react';
+import { Plus, Edit, Trash2, MoreVertical, Copy, BookOpen, Layers, X, Check, Globe, Lock, AlertTriangle, ExternalLink, Image as ImageIcon, DollarSign, ClipboardPaste, Tag, Briefcase, TrendingUp, GraduationCap, ShieldCheck, FileText, ArrowRight, CreditCard, Gift, TreePine, Eye, EyeOff, Link2, Calendar, Clock } from 'lucide-react';
 import { doc, deleteDoc, setDoc, updateDoc, getDoc, serverTimestamp } from 'firebase/firestore';
 import { db, auth } from '../firebase';
 import { isMasterEmail } from '../utils/constants';
@@ -9,6 +9,16 @@ import { subscribeCoupons, getCourseDiscountInfo } from '../utils/discountUtils'
 import { getCourseLevelOrder, sortCoursesByLevel } from '../utils/courseSorting';
 import { getCachedUserProfile, subscribeSharedCourses } from '../services/sharedFirestoreStore';
 import { slugify } from '../utils/slugify';
+import christmasBonusCoverImg from '../assets/images/christmas_bonus_cover_1794907721101.jpg';
+import {
+  ChristmasBonusConfig,
+  DEFAULT_CHRISTMAS_BONUS_CONFIG,
+  getChristmasBonusStatusMeta,
+  isChristmasBonusCardActive,
+  saveChristmasBonusConfig,
+  subscribeChristmasBonusConfig,
+} from '../services/christmasBonusService';
+import ChristmasBonusEditorModal from './ChristmasBonusEditorModal';
 
 interface CourseItem {
   id: string;
@@ -85,6 +95,14 @@ export default function CoursesList({ onSelectCourse }: CoursesListProps) {
     serviceWhatsApp: ''
   });
   const [isCreating, setIsCreating] = useState(false);
+
+  // Estado e Modal do Bônus de Natal
+  const [christmasBonus, setChristmasBonus] = useState<ChristmasBonusConfig>(
+    DEFAULT_CHRISTMAS_BONUS_CONFIG
+  );
+  const [isChristmasModalOpen, setIsChristmasModalOpen] = useState(false);
+  const [isTogglingChristmas, setIsTogglingChristmas] = useState(false);
+  const [christmasCoverFailed, setChristmasCoverFailed] = useState(false);
 
   // Notificações Toast
   const [toastMessage, setToastMessage] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
@@ -265,6 +283,60 @@ export default function CoursesList({ onSelectCourse }: CoursesListProps) {
     });
     return () => unsub();
   }, []);
+
+  // Escutar configuração do Bônus de Natal em tempo real
+  useEffect(() => {
+    const unsub = subscribeChristmasBonusConfig((next) => {
+      setChristmasBonus(next);
+      setChristmasCoverFailed(false);
+    });
+    return () => unsub();
+  }, []);
+
+  const isChristmasActive = isChristmasBonusCardActive(christmasBonus);
+  const christmasCoverSrc = christmasBonus.coverImageUrl?.trim()
+    ? christmasBonus.coverImageUrl.trim()
+    : christmasBonusCoverImg;
+  const christmasStatusMeta = getChristmasBonusStatusMeta(christmasBonus.status);
+
+  const handleToggleChristmasVisibility = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (isTogglingChristmas) return;
+    try {
+      setIsTogglingChristmas(true);
+      const nextVisible = !isChristmasActive;
+      const adminName =
+        auth.currentUser?.displayName || auth.currentUser?.email || 'Administrador Master';
+      await saveChristmasBonusConfig(
+        {
+          ...christmasBonus,
+          isCardVisible: nextVisible,
+          status: nextVisible && christmasBonus.status === 'ended' ? 'scheduled' : christmasBonus.status,
+        },
+        adminName
+      );
+      showToast(
+        nextVisible
+          ? 'Bônus de Natal ATIVADO! Agora está visível na Home Page e na Vitrine dos alunos.'
+          : 'Bônus de Natal DESATIVADO! O card foi ocultado da Home Page e da Vitrine.',
+        'success'
+      );
+      setOpenMenuId(null);
+    } catch (err) {
+      console.error('Erro ao alternar visibilidade do Bônus de Natal:', err);
+      showToast('Erro ao atualizar visibilidade do Bônus de Natal.', 'error');
+    } finally {
+      setIsTogglingChristmas(false);
+    }
+  };
+
+  const handleCopyChristmasBonusLink = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    const link = `${window.location.origin}/library/bonus-natal`;
+    navigator.clipboard.writeText(link);
+    showToast('Link da página do Bônus de Natal copiado!', 'success');
+    setOpenMenuId(null);
+  };
 
   // Abrir Modal de Exclusão
   const handleOpenDeleteModal = (course: CourseItem, e: React.MouseEvent) => {
@@ -561,14 +633,14 @@ export default function CoursesList({ onSelectCourse }: CoursesListProps) {
         <div className="py-20 text-center text-gray-500">
           <p className="text-sm animate-pulse">Carregando cursos e serviços cadastrados...</p>
         </div>
-      ) : courses.length === 0 ? (
+      ) : courses.length === 0 && activeTab !== 'all' ? (
         <div className="bg-[#131313] border border-dashed border-gray-800 rounded-3xl p-12 text-center max-w-xl mx-auto my-8">
           <div className="w-16 h-16 rounded-full bg-[#e9c349]/10 text-[#e9c349] flex items-center justify-center mx-auto mb-4">
             <BookOpen className="w-8 h-8" />
           </div>
-          <h3 className="text-xl font-bold text-white mb-2">Nenhum Curso ou Serviço Cadastrado</h3>
+          <h3 className="text-xl font-bold text-white mb-2">Nenhum Curso ou Serviço nesta Aba</h3>
           <p className="text-sm text-gray-400 mb-6">
-            Você ainda não possui cursos ou serviços cadastrados. Clique no botão abaixo para adicionar sua primeira oferta.
+            Você ainda não possui itens cadastrados nesta categoria. Clique no botão abaixo para adicionar.
           </p>
           <button
             id="btn-new-course-empty"
@@ -581,6 +653,234 @@ export default function CoursesList({ onSelectCourse }: CoursesListProps) {
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          {/* CARD DE GESTÃO DO BÔNUS DE NATAL (Ativar/Desativar, Capa Manual, Links & 7 Dias) */}
+          {activeTab === 'all' && (
+            <div
+              id="course-card-christmas-bonus"
+              className={`bg-[#131313] border rounded-2xl p-6 transition-all shadow-xl flex flex-col justify-between group ${
+                isChristmasActive
+                  ? 'border-[#e9c349]/45 hover:border-[#e9c349]'
+                  : 'border-gray-800 hover:border-gray-700 opacity-90'
+              }`}
+            >
+              <div>
+                <div className="flex justify-between items-start mb-4">
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <span
+                      className={`text-[10px] font-bold px-2.5 py-1 rounded-md tracking-wider uppercase ${
+                        isChristmasActive
+                          ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30'
+                          : 'bg-stone-700/40 text-stone-300 border border-stone-600/40'
+                      }`}
+                    >
+                      {isChristmasActive ? 'ATIVADO NA VITRINE' : 'DESATIVADO'}
+                    </span>
+                    <span className="text-[10px] font-bold px-2.5 py-1 rounded-md tracking-wider uppercase bg-[#e9c349]/15 text-[#e9c349] border border-[#e9c349]/30 inline-flex items-center gap-1">
+                      <Gift className="w-3 h-3 text-rose-400" />
+                      <span>BÔNUS · 7 DIAS</span>
+                    </span>
+                  </div>
+
+                  {/* Menu de Ações do Bônus de Natal */}
+                  <div className="relative">
+                    <button
+                      type="button"
+                      id="btn-menu-christmas-bonus"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setOpenMenuId(openMenuId === 'christmas-bonus' ? null : 'christmas-bonus');
+                      }}
+                      className="text-gray-400 hover:text-white p-2 rounded-lg hover:bg-gray-800 transition-all cursor-pointer focus:outline-none"
+                    >
+                      <MoreVertical className="w-5 h-5" />
+                    </button>
+
+                    {openMenuId === 'christmas-bonus' && (
+                      <>
+                        <div
+                          className="fixed inset-0 z-30"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setOpenMenuId(null);
+                          }}
+                        />
+                        <div className="absolute right-0 mt-2 w-64 bg-[#181818] border border-gray-800 rounded-xl shadow-2xl py-1.5 z-40 overflow-hidden animate-in fade-in zoom-in-95">
+                          <div className="px-3.5 py-1.5 text-[10px] font-bold uppercase tracking-wider text-gray-500 border-b border-gray-800/80">
+                            Ações do Bônus de Natal
+                          </div>
+
+                          <button
+                            type="button"
+                            onClick={handleCopyChristmasBonusLink}
+                            className="w-full flex items-center gap-3 px-4 py-2.5 text-left hover:bg-gray-800 transition-colors cursor-pointer group/link border-b border-gray-800/80"
+                          >
+                            <div className="w-7 h-7 rounded-lg bg-[#e9c349]/15 border border-[#e9c349]/30 text-[#e9c349] flex items-center justify-center shrink-0">
+                              <Link2 className="w-3.5 h-3.5" />
+                            </div>
+                            <div className="min-w-0 flex-1">
+                              <span className="block text-xs font-bold text-white group-hover/link:text-[#e9c349] transition-colors">
+                                Copiar Link do Bônus
+                              </span>
+                              <span className="block text-[10px] text-gray-400 truncate">
+                                /library/bonus-natal
+                              </span>
+                            </div>
+                            <Copy className="w-3.5 h-3.5 text-gray-500 group-hover/link:text-[#e9c349] shrink-0" />
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setOpenMenuId(null);
+                              setIsChristmasModalOpen(true);
+                            }}
+                            className="w-full flex items-center gap-3 px-4 py-3 text-sm text-gray-300 hover:bg-gray-800 hover:text-white transition-colors cursor-pointer"
+                          >
+                            <Edit className="w-4 h-4 text-[#e9c349]" />
+                            <span>Editar Links, Capa e 7 Dias</span>
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={handleToggleChristmasVisibility}
+                            disabled={isTogglingChristmas}
+                            className={`w-full flex items-center gap-3 px-4 py-3 text-sm transition-colors cursor-pointer ${
+                              isChristmasActive
+                                ? 'text-amber-300 hover:bg-amber-500/10'
+                                : 'text-emerald-400 hover:bg-emerald-500/10'
+                            }`}
+                          >
+                            {isChristmasActive ? (
+                              <>
+                                <EyeOff className="w-4 h-4" />
+                                <span>Desativar da Vitrine</span>
+                              </>
+                            ) : (
+                              <>
+                                <Eye className="w-4 h-4" />
+                                <span>Ativar na Vitrine</span>
+                              </>
+                            )}
+                          </button>
+
+                          <a
+                            href="/library/bonus-natal"
+                            onClick={() => setOpenMenuId(null)}
+                            className="w-full flex items-center gap-3 px-4 py-3 text-sm text-gray-300 hover:bg-gray-800 hover:text-white transition-colors border-t border-gray-800/80"
+                          >
+                            <ExternalLink className="w-4 h-4 text-emerald-400" />
+                            <span>Abrir Página do Bônus</span>
+                          </a>
+                        </div>
+                      </>
+                    )}
+                  </div>
+                </div>
+
+                {/* Capa do Bônus de Natal (Atualiza em tempo real quando alterada manualmente) */}
+                <div
+                  onClick={() => setIsChristmasModalOpen(true)}
+                  className="w-full h-36 rounded-xl overflow-hidden mb-4 bg-[radial-gradient(circle_at_25%_20%,rgba(16,185,129,0.22),transparent_50%),linear-gradient(135deg,#07130e_0%,#0c0c0c_100%)] border border-gray-800/80 relative cursor-pointer"
+                >
+                  {!christmasCoverFailed && christmasCoverSrc && (
+                    <img
+                      src={christmasCoverSrc}
+                      alt={christmasBonus.title || 'Bônus de Natal'}
+                      className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                      referrerPolicy="no-referrer"
+                      onError={() => setChristmasCoverFailed(true)}
+                    />
+                  )}
+                  <div className="absolute inset-0 bg-gradient-to-t from-black/75 via-transparent to-black/20" />
+                  <div className="absolute top-2.5 left-2.5 flex items-center gap-1.5">
+                    <span className="w-7 h-7 rounded-lg bg-black/75 border border-emerald-500/35 text-emerald-400 flex items-center justify-center">
+                      <TreePine className="w-3.5 h-3.5" />
+                    </span>
+                  </div>
+                  <span className="absolute bottom-2.5 left-2.5 px-2 py-0.5 rounded bg-black/80 border border-white/15 text-[10px] font-bold text-stone-200">
+                    {christmasStatusMeta.shortLabel}
+                  </span>
+                  <span className="absolute bottom-2.5 right-2.5 px-2 py-0.5 rounded bg-black/80 border border-[#e9c349]/35 text-[10px] font-bold text-[#e9c349] inline-flex items-center gap-1">
+                    <ImageIcon className="w-3 h-3" />
+                    <span>Alterar Capa</span>
+                  </span>
+                </div>
+
+                <h3
+                  onClick={() => setIsChristmasModalOpen(true)}
+                  className="text-xl font-bold mb-1.5 text-white group-hover:text-[#e9c349] transition-colors line-clamp-2 font-headline cursor-pointer"
+                >
+                  {christmasBonus.title || 'Bônus de Natal'} —{' '}
+                  <span className="text-stone-300 font-semibold text-base">
+                    {christmasBonus.subtitle}
+                  </span>
+                </h3>
+
+                <p className="text-xs text-gray-400 line-clamp-3 leading-relaxed mb-3">
+                  {christmasBonus.description}
+                </p>
+
+                <div className="space-y-1.5 text-[11px] font-mono text-stone-300 pt-2 border-t border-gray-800/80">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="inline-flex items-center gap-1.5 text-stone-400 truncate">
+                      <Calendar className="w-3.5 h-3.5 text-[#e9c349] shrink-0" />
+                      <span className="truncate">{christmasBonus.startDate}</span>
+                    </span>
+                    <span className="inline-flex items-center gap-1 text-emerald-400 font-bold shrink-0">
+                      <Clock className="w-3.5 h-3.5 shrink-0" />
+                      <span>{christmasBonus.liveTimeWat?.split('(')[0]?.trim() || '20:00 WAT'}</span>
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-1.5 text-[11px]">
+                    <Link2 className="w-3.5 h-3.5 text-[#e9c349] shrink-0" />
+                    <span className={christmasBonus.liveRoomUrl?.trim() ? 'text-emerald-400 truncate' : 'text-stone-500'}>
+                      {christmasBonus.liveRoomUrl?.trim()
+                        ? 'Link da reunião configurado'
+                        : 'Sem link de reunião configurado'}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex flex-wrap justify-between items-center gap-2 mt-5 pt-4 border-t border-gray-800/80 text-xs">
+                <button
+                  type="button"
+                  id="btn-toggle-christmas-visibility-card"
+                  onClick={handleToggleChristmasVisibility}
+                  disabled={isTogglingChristmas}
+                  className={`px-3 py-1.5 rounded-lg font-bold text-xs flex items-center gap-1.5 transition-colors cursor-pointer border disabled:opacity-50 ${
+                    isChristmasActive
+                      ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/35 hover:bg-rose-500/15 hover:text-rose-300 hover:border-rose-500/35'
+                      : 'bg-stone-800 text-stone-300 border-stone-700 hover:bg-emerald-500/15 hover:text-emerald-300 hover:border-emerald-500/35'
+                  }`}
+                  title={isChristmasActive ? 'Clique para desativar e ocultar da vitrine' : 'Clique para ativar na Home e Vitrine'}
+                >
+                  {isChristmasActive ? (
+                    <>
+                      <EyeOff className="w-3.5 h-3.5" />
+                      <span>Desativar</span>
+                    </>
+                  ) : (
+                    <>
+                      <Eye className="w-3.5 h-3.5" />
+                      <span>Ativar</span>
+                    </>
+                  )}
+                </button>
+
+                <button
+                  type="button"
+                  id="btn-edit-christmas-bonus-card"
+                  onClick={() => setIsChristmasModalOpen(true)}
+                  className="text-[#e9c349] font-bold hover:underline cursor-pointer flex items-center gap-1 text-xs"
+                >
+                  <span>Editar Links &amp; Capa →</span>
+                </button>
+              </div>
+            </div>
+          )}
+
           {courses
             .filter(course => {
               if (activeTab === 'courses') return course.category !== 'service' && course.category !== 'mentorship';
@@ -1404,6 +1704,18 @@ export default function CoursesList({ onSelectCourse }: CoursesListProps) {
           </div>
         </div>
       )}
+
+      {/* ======================================================== */}
+      {/* MODAL 4: EDIÇÃO DO BÔNUS DE NATAL (ATIVAR/DESATIVAR, CAPA, LINKS & 7 DIAS) */}
+      {/* ======================================================== */}
+      <ChristmasBonusEditorModal
+        isOpen={isChristmasModalOpen}
+        config={christmasBonus}
+        onClose={() => setIsChristmasModalOpen(false)}
+        onSaved={() => {
+          showToast('Bônus de Natal atualizado com sucesso na plataforma!', 'success');
+        }}
+      />
     </div>
   );
 }
