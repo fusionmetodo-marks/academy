@@ -150,6 +150,11 @@ export default function AdminStudentChatsTab({
 
   const [searchQuery, setSearchQuery] = useState('');
   const [filterMode, setFilterMode] = useState<'all' | 'enrolled' | 'unread'>('all');
+  const [chatPage, setChatPage] = useState(1);
+
+  useEffect(() => {
+    setChatPage(1);
+  }, [searchQuery, filterMode]);
   const [draft, setDraft] = useState('');
   const [sending, setSending] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
@@ -486,6 +491,11 @@ export default function AdminStudentChatsTab({
     if (searchQuery.trim()) return filteredThreads;
     return filteredThreads.slice(0, 10);
   }, [filteredThreads, searchQuery]);
+
+  const paginatedThreads = useMemo(() => {
+    const start = (chatPage - 1) * 10;
+    return filteredThreads.slice(start, start + 10);
+  }, [filteredThreads, chatPage]);
 
   const displayedNewCandidates = useMemo(() => {
     if (searchQuery.trim()) return newChatCandidates;
@@ -844,7 +854,7 @@ export default function AdminStudentChatsTab({
               </div>
             ) : (
               <>
-                {displayedThreads.map((t) => {
+                {paginatedThreads.map((t) => {
                   const isSelected = selectedStudentId === t.studentId;
                   const hasUnread = t.unreadByAdmin > 0;
                   const initial = (t.studentName?.[0] || 'E').toUpperCase();
@@ -919,23 +929,41 @@ export default function AdminStudentChatsTab({
                   );
                 })}
 
-                {!searchQuery.trim() && filteredThreads.length > 10 && (
-                  <div className="px-4 py-2.5 text-center text-[10px] text-stone-400 bg-[#0d0d0d] border-t border-[#353534]/50">
-                    Mostrando 10 de {filteredThreads.length} conversas. Use a pesquisa acima para encontrar as demais.
+                {filteredThreads.length > 10 && (
+                  <div className="px-4 py-2.5 bg-[#0d0d0d] border-t border-[#353534]/50 flex items-center justify-between text-xs text-stone-300">
+                    <button
+                      type="button"
+                      disabled={chatPage <= 1}
+                      onClick={() => setChatPage((p) => Math.max(1, p - 1))}
+                      className="px-2.5 py-1 rounded-lg bg-[#1c1c1c] hover:bg-[#282828] text-stone-300 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer font-bold text-[10px]"
+                    >
+                      Anterior
+                    </button>
+                    <span className="font-mono tabular-nums text-[10px] text-stone-400">
+                      Página {chatPage} de {Math.ceil(filteredThreads.length / 10)}
+                    </span>
+                    <button
+                      type="button"
+                      disabled={chatPage >= Math.ceil(filteredThreads.length / 10)}
+                      onClick={() => setChatPage((p) => Math.min(Math.ceil(filteredThreads.length / 10), p + 1))}
+                      className="px-2.5 py-1 rounded-lg bg-[#1c1c1c] hover:bg-[#282828] text-stone-300 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer font-bold text-[10px]"
+                    >
+                      Próxima
+                    </button>
                   </div>
                 )}
 
-                {filteredThreads.length === 0 && newChatCandidates.length === 0 && (
+                {filteredThreads.length === 0 && (
                   <div className="p-8 text-center text-xs text-stone-500">
-                    Nenhuma conversa encontrada para os filtros atuais.
+                    Nenhuma conversa iniciada. Use a pesquisa acima para encontrar alunos e iniciar conversas.
                   </div>
                 )}
 
-                {/* Lista de Todos os Estudantes & Compradores sem histórico para iniciar nova conversa */}
-                {newChatCandidates.length > 0 && (
+                {/* Exibe contatos sem conversa iniciada APENAS quando o admin está a pesquisar */}
+                {searchQuery.trim() && newChatCandidates.length > 0 && (
                   <div className="pt-2">
                     <div className="px-4 py-2 bg-[#0d0d0d] text-[10px] uppercase tracking-wider font-bold text-stone-500 flex items-center justify-between">
-                      <span>Todos os estudantes & contatos</span>
+                      <span>Outros alunos & contatos encontrados na busca</span>
                       <span className="font-mono text-stone-400">{newChatCandidates.length}</span>
                     </div>
                     <div className="divide-y divide-[#353534]/40">
@@ -987,11 +1015,6 @@ export default function AdminStudentChatsTab({
                         );
                       })}
                     </div>
-                    {!searchQuery.trim() && newChatCandidates.length > 10 && (
-                      <div className="px-4 py-2 text-center text-[10px] text-stone-400 bg-[#0d0d0d] border-t border-[#353534]/50">
-                        Mostrando 10 de {newChatCandidates.length} contatos. Use a pesquisa acima para encontrar outros.
-                      </div>
-                    )}
                   </div>
                 )}
               </>
