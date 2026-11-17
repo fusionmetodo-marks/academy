@@ -60,11 +60,11 @@ export const DEFAULT_CHRISTMAS_BONUS_OPERATORS: ChristmasBonusOperator[] = [
 ];
 
 export const DEFAULT_CHRISTMAS_BONUS_CONFIG: ChristmasBonusConfig = {
-  title: 'Bônus de Natal',
+  title: '7 dias de operação ao vivo com a comunidade Monstros',
   festiveTag: 'Bônus de Boas Festas',
-  subtitle: 'Sete dias de operação ao vivo com Marks, o Monstro',
+  subtitle: 'Operações ao vivo com Lúrio, Rich Mem, Markes e a comunidade de monstros',
   description:
-    'Uma imersão especial de Boas Festas dedicada aos estudantes da Money Building: sete dias consecutivos operando ao vivo com o Marks no mercado, unindo espírito natalício, disciplina e lucratividade.',
+    'Uma imersão especial dedicada aos estudantes da Money Building: sete dias consecutivos de operação ao vivo com a comunidade Monstros no mercado, unindo disciplina e lucratividade.',
   status: 'draft',
   startDate: 'Datas a definir (Dezembro)',
   endDate: '7 Dias Consecutivos',
