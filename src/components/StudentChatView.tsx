@@ -9,6 +9,7 @@ import {
   AlertCircle,
   Bell,
   BellOff,
+  Radio,
 } from 'lucide-react';
 import { auth } from '../firebase';
 import {
@@ -20,6 +21,13 @@ import {
   subscribeStudentChatThread,
 } from '../services/chatService';
 import {
+  CHRISTMAS_LIVE_ROOM_ID,
+  LiveRoomConfig,
+  buildDefaultLiveRoomConfig,
+  subscribeLiveRoom,
+  subscribeLiveRoomMembership,
+} from '../services/liveRoomService';
+import {
   formatChatDateDividerLabel,
   formatMessageTimeOnly,
   getChatDayKey,
@@ -29,6 +37,7 @@ import {
 } from '../utils/chatHelpers';
 import { useSafeSubmitGuard } from '../utils/messageSendSafety';
 import { LinkifiedText } from './LinkifiedText';
+import StudentLiveRoomView from './StudentLiveRoomView';
 
 export interface ChatLessonContext {
   courseId?: string;
@@ -46,6 +55,7 @@ interface StudentChatViewProps {
   studentPhone?: string | null;
   mode?: 'full' | 'drawer';
   initialContext?: ChatLessonContext | null;
+  initialChannel?: 'individual' | 'live-room';
   onClearContext?: () => void;
   onCloseDrawer?: () => void;
   onExpandFull?: () => void;
@@ -58,12 +68,16 @@ export default function StudentChatView({
   studentPhone,
   mode = 'full',
   initialContext = null,
+  initialChannel = 'individual',
   onClearContext,
   onCloseDrawer,
   onExpandFull,
 }: StudentChatViewProps) {
   const resolvedUid = studentId || auth.currentUser?.uid || '';
   const authUid = auth.currentUser?.uid || resolvedUid;
+  const [activeChannel, setActiveChannel] = useState<'individual' | 'live-room'>(initialChannel);
+  const [isRoomMember, setIsRoomMember] = useState(false);
+  const [liveRoom, setLiveRoom] = useState<LiveRoomConfig>(() => buildDefaultLiveRoomConfig());
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [thread, setThread] = useState<ChatThread | null>(null);
   const [loading, setLoading] = useState(true);
@@ -77,6 +91,27 @@ export default function StudentChatView({
   const submitGuard = useSafeSubmitGuard();
   const listEndRef = useRef<HTMLDivElement>(null);
   const prefilledPaymentRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (initialChannel === 'live-room') {
+      setActiveChannel('live-room');
+    }
+  }, [initialChannel]);
+
+  useEffect(() => {
+    if (!authUid) {
+      setIsRoomMember(false);
+      return;
+    }
+    const unsubMember = subscribeLiveRoomMembership(CHRISTMAS_LIVE_ROOM_ID, authUid, setIsRoomMember);
+    return () => unsubMember();
+  }, [authUid]);
+
+  useEffect(() => {
+    if (!isRoomMember && activeChannel !== 'live-room') return;
+    const unsubRoom = subscribeLiveRoom(CHRISTMAS_LIVE_ROOM_ID, setLiveRoom);
+    return () => unsubRoom();
+  }, [isRoomMember, activeChannel]);
 
   useEffect(() => {
     const unsubPref = subscribeFloatingChatAlertsSetting(authUid, (enabled) => {
@@ -215,14 +250,22 @@ export default function StudentChatView({
       <div className="px-4 sm:px-5 py-3.5 bg-[#0d0d0d] border-b border-white/10 flex items-center justify-between gap-3 shrink-0">
         <div className="flex items-center gap-3 min-w-0">
           <div className="w-9 h-9 rounded-xl bg-[#e9c349]/15 border border-[#e9c349]/30 text-[#e9c349] flex items-center justify-center shrink-0">
-            <ShieldCheck className="w-4.5 h-4.5" />
+            {activeChannel === 'live-room' ? (
+              <Radio className="w-4.5 h-4.5" />
+            ) : (
+              <ShieldCheck className="w-4.5 h-4.5" />
+            )}
           </div>
           <div className="min-w-0">
             <h2 className="text-sm font-bold text-white font-headline truncate">
-              Administração Money Building
+              {activeChannel === 'live-room' ? liveRoom.title : 'Administração Money Building'}
             </h2>
-            <p className="text-[11px] text-stone-400 truncate">
-              Canal direto e individual com o administrador
+            <p className="text-[11px] text-stone-400 truncate font-mono tabular-nums">
+              {activeChannel === 'live-room'
+                ? `${liveRoom.memberCount} inscritos · ${
+                    liveRoom.status === 'open' ? 'Sala Liberada' : 'Modo de Espera'
+                  }`
+                : 'Canal direto e individual com o administrador'}
             </p>
           </div>
         </div>
@@ -286,6 +329,72 @@ export default function StudentChatView({
         </div>
       </div>
 
+      {/* Seletor de Canal: Suporte Individual vs Sala Bônus de Natal (quando inscrito ou selecionado) */}
+      {(isRoomMember || activeChannel === 'live-room') && (
+        <div className="px-3 sm:px-4 py-2 bg-[#101010] border-b border-white/10 flex items-center gap-2 shrink-0">
+          <button
+            type="button"
+            id="btn-student-channel-individual"
+            onClick={() => setActiveChannel('individual')}
+            className={`flex-1 py-1.5 px-3 rounded-xl text-[11px] font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer whitespace-nowrap ${
+              activeChannel === 'individual'
+                ? 'bg-[#e9c349] text-black shadow-sm'
+                : 'bg-[#181818] text-stone-300 hover:text-white border border-white/5'
+            }`}
+          >
+            <MessageSquare className="w-3.5 h-3.5 shrink-0" />
+            <span>Suporte Individual</span>
+            {(thread?.unreadByStudent || 0) > 0 && (
+              <span
+                className={`px-1.5 py-0.2 rounded-full text-[9px] font-extrabold font-mono tabular-nums ${
+                  activeChannel === 'individual' ? 'bg-black text-[#e9c349]' : 'bg-[#e9c349] text-black'
+                }`}
+              >
+                {thread?.unreadByStudent}
+              </span>
+            )}
+          </button>
+
+          <button
+            type="button"
+            id="btn-student-channel-live-room"
+            onClick={() => setActiveChannel('live-room')}
+            className={`flex-1 py-1.5 px-3 rounded-xl text-[11px] font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer whitespace-nowrap ${
+              activeChannel === 'live-room'
+                ? 'bg-[#e9c349] text-black shadow-sm'
+                : 'bg-[#181818] text-stone-300 hover:text-white border border-white/5'
+            }`}
+          >
+            <Radio className="w-3.5 h-3.5 shrink-0" />
+            <span>Sala Bônus de Natal</span>
+            <span
+              className={`text-[10px] font-mono ${
+                activeChannel === 'live-room'
+                  ? 'text-black/75 font-bold'
+                  : liveRoom.status === 'open'
+                  ? 'text-emerald-400'
+                  : 'text-stone-400'
+              }`}
+            >
+              · {liveRoom.status === 'open' ? 'Liberada' : 'Espera'}
+            </span>
+          </button>
+        </div>
+      )}
+
+      {activeChannel === 'live-room' ? (
+        <StudentLiveRoomView
+          room={liveRoom}
+          isMember={isRoomMember}
+          studentId={resolvedUid}
+          studentName={
+            studentName ||
+            auth.currentUser?.displayName ||
+            (auth.currentUser?.email ? auth.currentUser.email.split('@')[0] : 'Participante')
+          }
+        />
+      ) : (
+        <>
       {/* Área de Mensagens */}
       <div className="flex-1 overflow-y-auto px-4 sm:px-5 py-4 space-y-3 bg-[#0b0b0b]">
         {loading ? (
@@ -464,6 +573,8 @@ export default function StudentChatView({
           </span>
         </button>
       </form>
+        </>
+      )}
     </div>
   );
 }

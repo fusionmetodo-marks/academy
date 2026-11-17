@@ -19,6 +19,7 @@ export default function ProducerMessages() {
   const urlStudentPhone = searchParams.get('studentPhone');
   const urlLessonTitle = searchParams.get('lessonTitle');
   const urlCourseTitle = searchParams.get('courseTitle');
+  const urlChannel = searchParams.get('channel') === 'live-room' ? 'live-room' : 'individual';
 
   const [selectedChatStudentId, setSelectedChatStudentId] = useState<string | null>(urlStudentId);
   const [unreadStudentChatsCount, setUnreadStudentChatsCount] = useState(0);
@@ -145,6 +146,7 @@ export default function ProducerMessages() {
             initialStudentPhone={urlStudentPhone}
             initialLessonTitle={urlLessonTitle}
             initialCourseTitle={urlCourseTitle}
+            initialChannel={urlChannel}
             groupComposerTrigger={groupComposerTrigger}
           />
         </div>

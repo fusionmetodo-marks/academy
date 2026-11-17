@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ArrowUpRight,
   BookOpen,
@@ -7,12 +7,17 @@ import {
   Clock,
   Gift,
   Link2,
+  MessageSquare,
   Radio,
   ShieldCheck,
   Sparkles,
   TreePine,
+  Users,
 } from 'lucide-react';
+import { useSearchParams } from 'react-router-dom';
+import { auth } from '../firebase';
 import christmasBonusCoverImg from '../assets/images/christmas_bonus_cover_1794907721101.jpg';
+import ChristmasBonusAuthModal from './ChristmasBonusAuthModal';
 import {
   ChristmasBonusConfig,
   DEFAULT_CHRISTMAS_BONUS_CONFIG,
@@ -20,12 +25,21 @@ import {
   getChristmasBonusStatusMeta,
   subscribeChristmasBonusConfig,
 } from '../services/christmasBonusService';
+import {
+  CHRISTMAS_LIVE_ROOM_ID,
+  LiveRoomConfig,
+  buildDefaultLiveRoomConfig,
+  joinLiveRoom,
+  subscribeLiveRoom,
+  subscribeLiveRoomMembership,
+} from '../services/liveRoomService';
 
 interface StudentChristmasBonusProps {
   studentName?: string | null;
   studentEmail?: string | null;
   onBackCatalog?: () => void;
   onOpenMyCourses?: () => void;
+  onOpenLiveRoomMessages?: () => void;
 }
 
 export default function StudentChristmasBonus({
@@ -33,10 +47,78 @@ export default function StudentChristmasBonus({
   studentEmail,
   onBackCatalog,
   onOpenMyCourses,
+  onOpenLiveRoomMessages,
 }: StudentChristmasBonusProps) {
+  const [searchParams, setSearchParams] = useSearchParams();
   const [config, setConfig] = useState<ChristmasBonusConfig>(DEFAULT_CHRISTMAS_BONUS_CONFIG);
   const [selectedDay, setSelectedDay] = useState<number>(1);
   const [coverFailed, setCoverFailed] = useState<boolean>(false);
+
+  const [currentUserId, setCurrentUserId] = useState<string | null>(() => auth.currentUser?.uid || null);
+  const [liveRoom, setLiveRoom] = useState<LiveRoomConfig>(() => buildDefaultLiveRoomConfig());
+  const [isRoomMember, setIsRoomMember] = useState(false);
+  const [isJoiningRoom, setIsJoiningRoom] = useState(false);
+  const [joinError, setJoinError] = useState<string | null>(null);
+  const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
+  const autoJoinedOnceRef = useRef(false);
+
+  useEffect(() => {
+    const unsubAuth = auth.onAuthStateChanged((u) => {
+      setCurrentUserId(u?.uid || null);
+    });
+    return () => unsubAuth();
+  }, []);
+
+  useEffect(() => {
+    const unsubRoom = subscribeLiveRoom(CHRISTMAS_LIVE_ROOM_ID, setLiveRoom);
+    return () => unsubRoom();
+  }, []);
+
+  useEffect(() => {
+    if (!currentUserId) {
+      setIsRoomMember(false);
+      return;
+    }
+    const unsubMember = subscribeLiveRoomMembership(CHRISTMAS_LIVE_ROOM_ID, currentUserId, setIsRoomMember);
+    return () => unsubMember();
+  }, [currentUserId]);
+
+  const handleJoinLiveRoom = useCallback(async () => {
+    const activeUid = auth.currentUser?.uid || currentUserId;
+    if (!activeUid) {
+      setIsAuthModalOpen(true);
+      return;
+    }
+    if (isJoiningRoom || isRoomMember) return;
+
+    setIsJoiningRoom(true);
+    setJoinError(null);
+    try {
+      await joinLiveRoom({
+        roomId: CHRISTMAS_LIVE_ROOM_ID,
+        userId: activeUid,
+        displayName: studentName || auth.currentUser?.displayName || undefined,
+        email: studentEmail || auth.currentUser?.email || undefined,
+      });
+    } catch (err) {
+      console.error('Erro ao aderir à Sala de Operação Ao Vivo:', err);
+      setJoinError('Não foi possível confirmar sua entrada na sala. Tente novamente.');
+    } finally {
+      setIsJoiningRoom(false);
+    }
+  }, [currentUserId, isJoiningRoom, isRoomMember, studentName, studentEmail]);
+
+  useEffect(() => {
+    const shouldAutoJoin = searchParams.get('autoJoinRoom') === '1';
+    if (shouldAutoJoin && currentUserId && !autoJoinedOnceRef.current) {
+      autoJoinedOnceRef.current = true;
+      handleJoinLiveRoom().finally(() => {
+        const nextParams = new URLSearchParams(searchParams);
+        nextParams.delete('autoJoinRoom');
+        setSearchParams(nextParams, { replace: true });
+      });
+    }
+  }, [searchParams, setSearchParams, currentUserId, handleJoinLiveRoom]);
 
   useEffect(() => {
     const unsub = subscribeChristmasBonusConfig((next) => {
@@ -325,14 +407,20 @@ export default function StudentChristmasBonus({
                 <div className="flex items-center justify-between gap-2">
                   <span className="text-stone-400">Participante:</span>
                   <span className="font-bold text-white truncate max-w-[200px]">
-                    {studentName || studentEmail || 'Estudante da Plataforma'}
+                    {studentName || studentEmail || 'Visitante'}
                   </span>
                 </div>
                 <div className="flex items-center justify-between gap-2 pt-2 border-t border-white/5">
-                  <span className="text-stone-400">Acesso ao Bônus:</span>
-                  <span className="inline-flex items-center gap-1 text-emerald-400 font-bold">
-                    <CheckCircle2 className="w-3.5 h-3.5" />
-                    Liberado para Todos
+                  <span className="text-stone-400">Sala Ao Vivo:</span>
+                  <span className="inline-flex items-center gap-1.5 font-mono font-bold text-[#e9c349] tabular-nums">
+                    <Users className="w-3.5 h-3.5 text-emerald-400" />
+                    <span>
+                      {liveRoom.memberCount} {liveRoom.memberCount === 1 ? 'inscrito' : 'inscritos'}
+                    </span>
+                    <span className="text-stone-600" aria-hidden="true">·</span>
+                    <span className={liveRoom.status === 'open' ? 'text-emerald-400' : 'text-stone-300'}>
+                      {liveRoom.status === 'open' ? 'Liberada' : 'Em espera'}
+                    </span>
                   </span>
                 </div>
                 <div className="flex items-center justify-between gap-2 pt-2 border-t border-white/5">
@@ -343,40 +431,75 @@ export default function StudentChristmasBonus({
                 </div>
               </div>
 
-              {config.status === 'draft' && !isDayJoinablePlaceholder(canJoinLive) && (
-                <div className="p-4 rounded-2xl bg-rose-500/10 border border-rose-500/25 text-stone-200 leading-relaxed">
-                  <strong className="text-rose-300 block mb-1">
-                    Em Preparação pela Administração
-                  </strong>
-                  O Marks está a finalizar as datas e o link da sala ao vivo deste Bônus de Boas Festas. Assim que o link for salvo e liberado, o botão abaixo ficará ativo automaticamente.
+              {/* Aderir à Sala de Operação Ao Vivo + Acompanhar exclusivamente em Mensagens */}
+              <div className="p-4 rounded-2xl bg-black/60 border border-[#e9c349]/30 space-y-3">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="font-bold text-white text-xs sm:text-sm">
+                    {liveRoom.title}
+                  </span>
+                  <span
+                    className={`text-[10px] font-bold font-mono whitespace-nowrap ${
+                      liveRoom.status === 'open' ? 'text-emerald-400' : 'text-[#e9c349]'
+                    }`}
+                  >
+                    {liveRoom.status === 'open' ? 'Liberada' : 'Modo de Espera'}
+                  </span>
                 </div>
-              )}
 
-              {canJoinLive ? (
+                {isRoomMember ? (
+                  <>
+                    <div className="flex items-start gap-2 text-emerald-300 text-xs leading-relaxed">
+                      <CheckCircle2 className="w-4 h-4 shrink-0 mt-0.5" />
+                      <span>
+                        Você aderiu à sala. Acompanhe o contador e a liberação oficial diretamente na sua aba <strong>Mensagens</strong>.
+                      </span>
+                    </div>
+
+                    {onOpenLiveRoomMessages && (
+                      <button
+                        type="button"
+                        id="btn-go-live-room-messages"
+                        onClick={onOpenLiveRoomMessages}
+                        className="w-full py-3.5 px-5 rounded-xl bg-[#e9c349] hover:bg-[#d4b03f] text-black font-black text-xs sm:text-sm transition-all shadow-lg shadow-[#e9c349]/20 flex items-center justify-center gap-2 cursor-pointer whitespace-nowrap"
+                      >
+                        <MessageSquare className="w-4 h-4" />
+                        <span>Ir para Mensagens (Acompanhar Sala)</span>
+                      </button>
+                    )}
+                  </>
+                ) : (
+                  <>
+                    <p className="text-stone-300 text-xs leading-relaxed">
+                      Garanta a sua vaga na sala de espera oficial. Quando o administrador liberar a sala, receberá os links e orientações diretamente em Mensagens.
+                    </p>
+                    <button
+                      type="button"
+                      id="btn-join-christmas-live-room"
+                      onClick={handleJoinLiveRoom}
+                      disabled={isJoiningRoom}
+                      className="w-full py-3.5 px-5 rounded-xl bg-[#e9c349] hover:bg-[#d4b03f] text-black font-black text-xs sm:text-sm transition-all shadow-lg shadow-[#e9c349]/20 flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50 whitespace-nowrap"
+                    >
+                      <Radio className="w-4 h-4" />
+                      <span>{isJoiningRoom ? 'Confirmando adesão...' : 'Aderir à Sala Ao Vivo'}</span>
+                    </button>
+                  </>
+                )}
+
+                {joinError && (
+                  <p className="text-[11px] text-rose-300 font-medium">{joinError}</p>
+                )}
+              </div>
+
+              {canJoinLive && (
                 <a
                   href={effectiveRoomUrl}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="w-full py-3.5 px-5 rounded-xl bg-[#e9c349] hover:bg-[#d4b03f] text-black font-black text-xs sm:text-sm transition-all shadow-lg shadow-[#e9c349]/20 flex items-center justify-center gap-2 whitespace-nowrap"
+                  className="w-full py-3 px-5 rounded-xl bg-white/5 hover:bg-white/10 border border-white/15 text-stone-100 font-bold text-xs transition-all flex items-center justify-center gap-2 whitespace-nowrap"
                 >
-                  <span>Entrar na Sala Ao Vivo · Dia 0{activeDay.dayNumber}</span>
-                  <ArrowUpRight className="w-4 h-4" />
+                  <span>Link Direto da Sessão · Dia 0{activeDay.dayNumber}</span>
+                  <ArrowUpRight className="w-4 h-4 text-[#e9c349]" />
                 </a>
-              ) : (
-                <button
-                  type="button"
-                  disabled
-                  className="w-full py-3.5 px-5 rounded-xl bg-stone-800/80 text-stone-400 border border-white/10 font-bold text-xs sm:text-sm flex items-center justify-center gap-2 cursor-not-allowed whitespace-nowrap"
-                >
-                  <Clock className="w-4 h-4 text-[#e9c349]" />
-                  <span>
-                    {isEventClosed
-                      ? 'Sessão Concluída'
-                      : activeDay.sessionState === 'postponed'
-                      ? 'Sessão Reagendada — Aguarde Novo Horário'
-                      : 'Link da Sala Será Liberado em Breve'}
-                  </span>
-                </button>
               )}
             </div>
 
@@ -414,10 +537,13 @@ export default function StudentChristmasBonus({
           </div>
         </div>
       </div>
+
+      <ChristmasBonusAuthModal
+        isOpen={isAuthModalOpen}
+        onClose={() => setIsAuthModalOpen(false)}
+        title={liveRoom.title}
+        redirectTo="/library/bonus-natal?autoJoinRoom=1"
+      />
     </div>
   );
-}
-
-function isDayJoinablePlaceholder(canJoin: boolean): boolean {
-  return canJoin;
 }

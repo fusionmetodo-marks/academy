@@ -51,6 +51,18 @@ export default function StudentPortal() {
   const [unreadChatCount, setUnreadChatCount] = useState(0);
   const [isFloatingChatOpen, setIsFloatingChatOpen] = useState(false);
   const [chatLessonContext, setChatLessonContext] = useState<ChatLessonContext | null>(null);
+  const [initialChatChannel, setInitialChatChannel] = useState<'individual' | 'live-room'>(
+    () => (searchParams.get('channel') === 'live-room' ? 'live-room' : 'individual')
+  );
+
+  useEffect(() => {
+    const ch = searchParams.get('channel');
+    if (ch === 'live-room') {
+      setInitialChatChannel('live-room');
+    } else if (ch === 'individual') {
+      setInitialChatChannel('individual');
+    }
+  }, [searchParams]);
 
   useEffect(() => {
     const syncViewMode = () => {
@@ -433,6 +445,7 @@ export default function StudentPortal() {
       }
     }
     else if (view === 'chat') {
+      setInitialChatChannel('individual');
       const activeUser = auth.currentUser || user;
       if (!activeUser) {
         navigate(`/entrar?redirect=${encodeURIComponent('/library/chat')}`);
@@ -844,6 +857,17 @@ export default function StudentPortal() {
             studentEmail={user?.email}
             onBackCatalog={() => handleSetView('catalog')}
             onOpenMyCourses={() => handleSetView('my-courses')}
+            onOpenLiveRoomMessages={() => {
+              setInitialChatChannel('live-room');
+              const activeUser = auth.currentUser || user;
+              if (!activeUser) {
+                navigate(`/entrar?redirect=${encodeURIComponent('/library/chat?channel=live-room')}`);
+              } else {
+                setCurrentView('chat');
+                setIsFloatingChatOpen(false);
+                navigate('/library/chat?channel=live-room');
+              }
+            }}
           />
         )}
 
@@ -868,7 +892,7 @@ export default function StudentPortal() {
         {currentView === 'chat' && (
           <div className={`w-full ${isRealAdmin ? 'max-w-6xl' : 'max-w-4xl'} mx-auto px-3.5 sm:px-6 lg:px-8 pt-4 sm:pt-6`}>
             {isRealAdmin ? (
-              <AdminStudentChatsTab mode="full" />
+              <AdminStudentChatsTab mode="full" initialChannel={initialChatChannel} />
             ) : (
               <StudentChatView
                 studentId={user?.uid}
@@ -886,6 +910,7 @@ export default function StudentPortal() {
                 }
                 mode="full"
                 initialContext={chatLessonContext}
+                initialChannel={initialChatChannel}
                 onClearContext={() => {
                   setChatLessonContext(null);
                   if (

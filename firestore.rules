@@ -365,5 +365,127 @@ service cloud.firestore {
       allow update: if isValidDocId(commentId) && isAdmin() && isValidLessonComment(request.resource.data);
       allow delete: if isValidDocId(commentId) && (isAdmin() || (isSignedIn() && resource.data.authorId == request.auth.uid));
     }
+
+    // 10. Sala de Operação Ao Vivo (ex: Bônus de Natal):
+    // Modo de espera controlado pelo Admin, lista de inscritos em subcoleção e mensagens protegidas.
+    function isValidLiveRoom(data, roomId) {
+      return data.keys().hasAll([
+          'roomId', 'title', 'status', 'allowStudentMessages',
+          'memberCount', 'lastMessage', 'lastSenderName', 'lastSenderRole',
+          'lastMessageAtMs', 'createdAtMs'
+        ]) &&
+        data.keys().hasOnly([
+          'roomId', 'title', 'status', 'allowStudentMessages',
+          'memberCount', 'lastMessage', 'lastSenderName', 'lastSenderRole',
+          'lastMessageAtMs', 'createdAtMs', 'updatedAt'
+        ]) &&
+        data.roomId is string && data.roomId == roomId && data.roomId.size() <= 128 &&
+        data.title is string && data.title.size() > 0 && data.title.size() <= 200 &&
+        data.status in ['waiting', 'open'] &&
+        data.allowStudentMessages is bool &&
+        data.memberCount is number && data.memberCount >= 0 && data.memberCount <= 1000000 &&
+        data.lastMessage is string && data.lastMessage.size() <= 2000 &&
+        data.lastSenderName is string && data.lastSenderName.size() <= 200 &&
+        data.lastSenderRole in ['admin', 'student'] &&
+        data.lastMessageAtMs is number && data.lastMessageAtMs >= 0 &&
+        data.createdAtMs is number && data.createdAtMs > 0;
+    }
+
+    function isValidLiveRoomMember(data, roomId, userId) {
+      return data.keys().hasAll(['userId', 'roomId', 'displayName', 'joinedAtMs']) &&
+        data.keys().hasOnly(['userId', 'roomId', 'displayName', 'email', 'joinedAtMs', 'joinedAt']) &&
+        data.userId is string && data.userId == userId && data.userId.size() <= 128 &&
+        data.roomId is string && data.roomId == roomId && data.roomId.size() <= 128 &&
+        data.displayName is string && data.displayName.size() > 0 && data.displayName.size() <= 200 &&
+        (!('email' in data) || data.email == null || (data.email is string && data.email.size() <= 200)) &&
+        data.joinedAtMs is number && data.joinedAtMs > 0;
+    }
+
+    function isValidLiveRoomMessage(data, roomId) {
+      return data.keys().hasAll(['roomId', 'senderId', 'senderName', 'senderRole', 'text', 'createdAtMs']) &&
+        data.keys().hasOnly(['roomId', 'senderId', 'senderName', 'senderRole', 'text', 'createdAtMs', 'createdAt']) &&
+        data.roomId is string && data.roomId == roomId && data.roomId.size() <= 128 &&
+        data.senderId is string && data.senderId.size() > 0 && data.senderId.size() <= 128 &&
+        data.senderName is string && data.senderName.size() > 0 && data.senderName.size() <= 200 &&
+        data.senderRole in ['admin', 'student'] &&
+        data.text is string && data.text.size() > 0 && data.text.size() <= 2000 &&
+        data.createdAtMs is number && data.createdAtMs > 0;
+    }
+
+    match /liveRooms/{roomId} {
+      // Sem PII neste documento: qualquer visitante pode acompanhar o contador de inscritos e o estado da sala.
+      allow get: if isValidDocId(roomId);
+      allow list: if isAdmin();
+
+      allow create: if isValidDocId(roomId) && isSignedIn() && isValidLiveRoom(request.resource.data, roomId) && (
+        isAdmin() || (
+          request.resource.data.status == 'waiting' &&
+          request.resource.data.allowStudentMessages == false &&
+          request.resource.data.memberCount == 1 &&
+          request.resource.data.lastMessage == '' &&
+          request.resource.data.lastSenderRole == 'admin' &&
+          !exists(/databases/$(database)/documents/liveRooms/$(roomId)/members/$(request.auth.uid)) &&
+          existsAfter(/databases/$(database)/documents/liveRooms/$(roomId)/members/$(request.auth.uid))
+        )
+      );
+
+      allow update: if isValidDocId(roomId) && isSignedIn() && isValidLiveRoom(request.resource.data, roomId) && (
+        isAdmin() || (
+          !exists(/databases/$(database)/documents/liveRooms/$(roomId)/members/$(request.auth.uid)) &&
+          existsAfter(/databases/$(database)/documents/liveRooms/$(roomId)/members/$(request.auth.uid)) &&
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['memberCount', 'updatedAt']) &&
+          request.resource.data.memberCount == resource.data.memberCount + 1
+        ) || (
+          exists(/databases/$(database)/documents/liveRooms/$(roomId)/members/$(request.auth.uid)) &&
+          resource.data.status == 'open' &&
+          resource.data.allowStudentMessages == true &&
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['lastMessage', 'lastSenderName', 'lastSenderRole', 'lastMessageAtMs', 'updatedAt']) &&
+          request.resource.data.lastSenderRole == 'student'
+        )
+      );
+
+      allow delete: if isValidDocId(roomId) && isAdmin();
+
+      match /members/{userId} {
+        allow get: if isValidDocId(roomId) && isValidDocId(userId) && (
+          isAdmin() || (isSignedIn() && request.auth.uid == userId)
+        );
+        allow list: if isAdmin() || (
+          isSignedIn() && resource.data.userId == request.auth.uid
+        );
+        allow create: if isValidDocId(roomId) && isValidDocId(userId) && isSignedIn() && (
+          isAdmin() || request.auth.uid == userId
+        ) && isValidLiveRoomMember(request.resource.data, roomId, userId);
+        allow update, delete: if isValidDocId(roomId) && isValidDocId(userId) && isAdmin();
+      }
+
+      match /messages/{messageId} {
+        allow get: if isValidDocId(roomId) && isValidDocId(messageId) && (
+          isAdmin() || (
+            isSignedIn() &&
+            exists(/databases/$(database)/documents/liveRooms/$(roomId)) &&
+            get(/databases/$(database)/documents/liveRooms/$(roomId)).data.status == 'open' &&
+            exists(/databases/$(database)/documents/liveRooms/$(roomId)/members/$(request.auth.uid))
+          )
+        );
+        allow list: if isAdmin() || (
+          isSignedIn() &&
+          exists(/databases/$(database)/documents/liveRooms/$(roomId)) &&
+          get(/databases/$(database)/documents/liveRooms/$(roomId)).data.status == 'open' &&
+          exists(/databases/$(database)/documents/liveRooms/$(roomId)/members/$(request.auth.uid))
+        );
+        allow create: if isValidDocId(roomId) && isValidDocId(messageId) && isSignedIn() && isValidLiveRoomMessage(request.resource.data, roomId) && (
+          isAdmin() || (
+            request.resource.data.senderRole == 'student' &&
+            request.resource.data.senderId == request.auth.uid &&
+            exists(/databases/$(database)/documents/liveRooms/$(roomId)) &&
+            get(/databases/$(database)/documents/liveRooms/$(roomId)).data.status == 'open' &&
+            get(/databases/$(database)/documents/liveRooms/$(roomId)).data.allowStudentMessages == true &&
+            exists(/databases/$(database)/documents/liveRooms/$(roomId)/members/$(request.auth.uid))
+          )
+        );
+        allow update, delete: if isValidDocId(roomId) && isValidDocId(messageId) && isAdmin();
+      }
+    }
   }
 }

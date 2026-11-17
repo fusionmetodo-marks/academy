@@ -305,6 +305,54 @@
         "createdAt": { "type": "string", "format": "date-time" }
       },
       "required": ["courseId", "lessonId", "authorId", "authorName", "authorRole", "text", "createdAtMs"]
+    },
+    "LiveRoom": {
+      "title": "LiveRoom",
+      "description": "Shared live operation room metadata (e.g. Sala de Operação Ao Vivo Bônus de Natal) tracking waiting/open state, student message permission, and subscriber count.",
+      "type": "object",
+      "properties": {
+        "roomId": { "type": "string", "maxLength": 128 },
+        "title": { "type": "string", "maxLength": 200 },
+        "status": { "type": "string", "enum": ["waiting", "open"] },
+        "allowStudentMessages": { "type": "boolean" },
+        "memberCount": { "type": "number" },
+        "lastMessage": { "type": "string", "maxLength": 2000 },
+        "lastSenderName": { "type": "string", "maxLength": 200 },
+        "lastSenderRole": { "type": "string", "enum": ["admin", "student"] },
+        "lastMessageAtMs": { "type": "number" },
+        "createdAtMs": { "type": "number" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["roomId", "title", "status", "allowStudentMessages", "memberCount", "lastMessage", "lastSenderName", "lastSenderRole", "lastMessageAtMs", "createdAtMs"]
+    },
+    "LiveRoomMember": {
+      "title": "LiveRoomMember",
+      "description": "Enrolled participant document inside a live operation room subcollection.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "maxLength": 128 },
+        "roomId": { "type": "string", "maxLength": 128 },
+        "displayName": { "type": "string", "maxLength": 200 },
+        "email": { "type": "string", "format": "email", "maxLength": 200 },
+        "joinedAtMs": { "type": "number" },
+        "joinedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "roomId", "displayName", "joinedAtMs"]
+    },
+    "LiveRoomMessage": {
+      "title": "LiveRoomMessage",
+      "description": "Chronological broadcast or interactive message inside a live operation room.",
+      "type": "object",
+      "properties": {
+        "roomId": { "type": "string", "maxLength": 128 },
+        "senderId": { "type": "string", "maxLength": 128 },
+        "senderName": { "type": "string", "maxLength": 200 },
+        "senderRole": { "type": "string", "enum": ["admin", "student"] },
+        "text": { "type": "string", "minLength": 1, "maxLength": 2000 },
+        "createdAtMs": { "type": "number" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["roomId", "senderId", "senderName", "senderRole", "text", "createdAtMs"]
     }
   },
   "firestore": {
@@ -385,6 +433,24 @@
         "$ref": "#/entities/Settings"
       },
       "description": "Stores system configurations such as payment methods."
+    },
+    "/liveRooms/{roomId}": {
+      "schema": {
+        "$ref": "#/entities/LiveRoom"
+      },
+      "description": "Stores live operation room status, student messaging permission, and atomic member counters."
+    },
+    "/liveRooms/{roomId}/members/{userId}": {
+      "schema": {
+        "$ref": "#/entities/LiveRoomMember"
+      },
+      "description": "Stores enrolled participants for a live operation room."
+    },
+    "/liveRooms/{roomId}/messages/{messageId}": {
+      "schema": {
+        "$ref": "#/entities/LiveRoomMessage"
+      },
+      "description": "Stores chronological messages for a live operation room."
     }
   }
 }

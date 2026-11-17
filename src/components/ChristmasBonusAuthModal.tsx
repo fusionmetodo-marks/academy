@@ -6,12 +6,14 @@ interface ChristmasBonusAuthModalProps {
   isOpen: boolean;
   onClose: () => void;
   title?: string;
+  redirectTo?: string;
 }
 
 export default function ChristmasBonusAuthModal({
   isOpen,
   onClose,
   title = 'Bônus de Natal',
+  redirectTo = '/library/bonus-natal',
 }: ChristmasBonusAuthModalProps) {
   const navigate = useNavigate();
 
@@ -22,7 +24,7 @@ export default function ChristmasBonusAuthModal({
     sessionStorage.removeItem('post_register_course_id');
     sessionStorage.removeItem('post_register_action');
     onClose();
-    navigate(`${path}?redirect=${encodeURIComponent('/library/bonus-natal')}`);
+    navigate(`${path}?redirect=${encodeURIComponent(redirectTo)}`);
   };
 
   return (

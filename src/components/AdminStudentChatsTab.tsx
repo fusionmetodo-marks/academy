@@ -16,8 +16,16 @@ import {
   Inbox,
   Megaphone,
   Maximize2,
+  Radio,
 } from 'lucide-react';
 import { auth } from '../firebase';
+import {
+  CHRISTMAS_LIVE_ROOM_ID,
+  LiveRoomConfig,
+  buildDefaultLiveRoomConfig,
+  subscribeLiveRoom,
+} from '../services/liveRoomService';
+import AdminLiveRoomPanel from './AdminLiveRoomPanel';
 import {
   subscribeSharedCourses,
   subscribeSharedTransactions,
@@ -59,6 +67,8 @@ interface ContactOption {
   sourceLabel?: string;
 }
 
+export const CHRISTMAS_LIVE_ROOM_SELECTION = '__live_room__christmas_bonus__';
+
 interface AdminStudentChatsTabProps {
   initialStudentId?: string | null;
   initialStudentName?: string | null;
@@ -66,6 +76,7 @@ interface AdminStudentChatsTabProps {
   initialStudentPhone?: string | null;
   initialLessonTitle?: string | null;
   initialCourseTitle?: string | null;
+  initialChannel?: 'individual' | 'live-room';
   groupComposerTrigger?: number;
   mode?: 'full' | 'drawer';
   onCloseDrawer?: () => void;
@@ -116,12 +127,14 @@ export default function AdminStudentChatsTab({
   initialStudentPhone = null,
   initialLessonTitle = null,
   initialCourseTitle = null,
+  initialChannel = 'individual',
   groupComposerTrigger = 0,
   mode = 'full',
   onCloseDrawer,
   onExpandFull,
 }: AdminStudentChatsTabProps) {
   const isDrawer = mode === 'drawer';
+  const [liveRoom, setLiveRoom] = useState<LiveRoomConfig>(() => buildDefaultLiveRoomConfig());
   const [threads, setThreads] = useState<ChatThread[]>([]);
   const [students, setStudents] = useState<ContactOption[]>([]);
   const [courses, setCourses] = useState<GroupCourseOption[]>([]);
@@ -129,7 +142,9 @@ export default function AdminStudentChatsTab({
   const [manualContacts, setManualContacts] = useState<Record<string, ContactOption>>({});
   const [loadingThreads, setLoadingThreads] = useState(true);
 
-  const [selectedStudentId, setSelectedStudentId] = useState<string | null>(initialStudentId);
+  const [selectedStudentId, setSelectedStudentId] = useState<string | null>(
+    initialChannel === 'live-room' ? CHRISTMAS_LIVE_ROOM_SELECTION : initialStudentId
+  );
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [loadingMessages, setLoadingMessages] = useState(false);
 
@@ -193,7 +208,14 @@ export default function AdminStudentChatsTab({
   }, [initialLessonTitle, initialCourseTitle]);
 
   useEffect(() => {
+    if (initialChannel === 'live-room') {
+      setSelectedStudentId(CHRISTMAS_LIVE_ROOM_SELECTION);
+    }
+  }, [initialChannel]);
+
+  useEffect(() => {
     setLoadingThreads(true);
+    const unsubLiveRoom = subscribeLiveRoom(CHRISTMAS_LIVE_ROOM_ID, setLiveRoom);
     const unsubThreads = subscribeAllChatThreads((list) => {
       setThreads(list);
       setLoadingThreads(false);
@@ -297,6 +319,7 @@ export default function AdminStudentChatsTab({
     );
 
     return () => {
+      unsubLiveRoom();
       unsubThreads();
       unsubUsers();
       unsubCourses();
@@ -304,9 +327,11 @@ export default function AdminStudentChatsTab({
     };
   }, []);
 
+  const isLiveRoomSelected = selectedStudentId === CHRISTMAS_LIVE_ROOM_SELECTION;
+
   // Redireciona automaticamente caso o ID selecionado tenha sido mesclado a uma conta cadastrada
   useEffect(() => {
-    if (!selectedStudentId) return;
+    if (!selectedStudentId || selectedStudentId === CHRISTMAS_LIVE_ROOM_SELECTION) return;
     const matchedThread = threads.find((t) => t.studentId === selectedStudentId);
     if (matchedThread?.mergedIntoChatId && matchedThread.mergedIntoChatId !== selectedStudentId) {
       setSelectedStudentId(matchedThread.mergedIntoChatId);
@@ -338,7 +363,7 @@ export default function AdminStudentChatsTab({
 
   // Inscreve-se nas mensagens do estudante selecionado
   useEffect(() => {
-    if (!selectedStudentId) {
+    if (!selectedStudentId || selectedStudentId === CHRISTMAS_LIVE_ROOM_SELECTION) {
       setMessages([]);
       setLoadingMessages(false);
       return;
@@ -471,7 +496,7 @@ export default function AdminStudentChatsTab({
   }, [students, modalSearchQuery, modalFilterMode]);
 
   const selectedStudentInfo = useMemo(() => {
-    if (!selectedStudentId) return null;
+    if (!selectedStudentId || selectedStudentId === CHRISTMAS_LIVE_ROOM_SELECTION) return null;
     const fromThread = activeThreads.find((t) => t.studentId === selectedStudentId);
     const fromUsers = studentByIdMap.get(selectedStudentId);
     const fromPending = pendingBuyerContacts.find((p) => p.id === selectedStudentId);
@@ -757,6 +782,52 @@ export default function AdminStudentChatsTab({
           </div>
 
           <div className="flex-1 overflow-y-auto divide-y divide-[#353534]/50">
+            {/* Sala de Operação Ao Vivo Bônus de Natal — Fixada no Topo */}
+            <button
+              type="button"
+              id="btn-pinned-christmas-live-room"
+              onClick={() => setSelectedStudentId(CHRISTMAS_LIVE_ROOM_SELECTION)}
+              className={`w-full text-left px-4 py-3.5 flex items-start gap-3 transition-colors cursor-pointer border-b border-[#e9c349]/25 ${
+                isLiveRoomSelected
+                  ? 'bg-[#e9c349]/15'
+                  : 'bg-[#17150e]/80 hover:bg-[#1f1b10]'
+              }`}
+            >
+              <div className="w-9 h-9 rounded-xl bg-[#e9c349]/15 border border-[#e9c349]/35 text-[#e9c349] flex items-center justify-center shrink-0 mt-0.5">
+                <Radio className="w-4.5 h-4.5" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-xs font-extrabold text-white truncate">
+                    {liveRoom.title}
+                  </span>
+                  {liveRoom.lastMessageAtMs > 0 && (
+                    <span className="text-[10px] font-mono tabular-nums text-stone-400 shrink-0">
+                      {formatListTime(liveRoom.lastMessageAtMs)}
+                    </span>
+                  )}
+                </div>
+
+                <p className="text-[10px] font-mono tabular-nums text-stone-300 truncate mt-0.5">
+                  <span className={liveRoom.status === 'open' ? 'text-emerald-400 font-bold' : 'text-[#e9c349] font-bold'}>
+                    {liveRoom.status === 'open' ? 'Liberada' : 'Modo de Espera'}
+                  </span>
+                  <span className="text-stone-600" aria-hidden="true"> · </span>
+                  <span>
+                    {liveRoom.memberCount} {liveRoom.memberCount === 1 ? 'inscrito' : 'inscritos'}
+                  </span>
+                  <span className="text-stone-600" aria-hidden="true"> · </span>
+                  <span>{liveRoom.allowStudentMessages ? 'Todos falam' : 'Só Admin'}</span>
+                </p>
+
+                <p className="text-[11px] text-stone-400 truncate mt-1">
+                  {liveRoom.lastMessage
+                    ? `${liveRoom.lastSenderRole === 'admin' ? 'Admin: ' : `${liveRoom.lastSenderName}: `}${liveRoom.lastMessage}`
+                    : 'Clique para gerenciar a sala, liberar acesso ou enviar links'}
+                </p>
+              </div>
+            </button>
+
             {loadingThreads ? (
               <div className="p-8 text-center text-xs text-stone-500">
                 Carregando conversas...
@@ -917,7 +988,16 @@ export default function AdminStudentChatsTab({
                 }`
           }
         >
-          {!selectedStudentInfo ? (
+          {isLiveRoomSelected ? (
+            <AdminLiveRoomPanel
+              room={liveRoom}
+              isDrawer={isDrawer}
+              isMasterViewer={isMasterViewer}
+              onBack={() => setSelectedStudentId(null)}
+              onCloseDrawer={onCloseDrawer}
+              onExpandFull={onExpandFull}
+            />
+          ) : !selectedStudentInfo ? (
             <div className="flex-1 flex flex-col items-center justify-center p-8 text-center">
               <div className="w-14 h-14 rounded-2xl bg-[#181818] border border-[#353534] text-[#e9c349] flex items-center justify-center mb-4">
                 <MessageSquare className="w-6 h-6" />
