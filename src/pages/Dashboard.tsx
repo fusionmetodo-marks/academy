@@ -4,11 +4,17 @@ import { AreaChart, Area, XAxis, YAxis, Tooltip as RechartsTooltip, ResponsiveCo
 import Sidebar from '../components/Sidebar';
 import { NotificationCenter } from '../components/NotificationCenter';
 import { PushSubscriptionBanner } from '../components/PushSubscriptionBanner';
-import { collection, onSnapshot, updateDoc, doc, arrayRemove, deleteDoc, query, where, getDocs, getDoc } from 'firebase/firestore';
+import { collection, updateDoc, doc, arrayRemove, deleteDoc, query, where, getDocs, getDoc } from 'firebase/firestore';
 import { db, auth, approveStudentTransaction } from '../firebase';
 import { Transaction } from '../types';
 import { isMasterEmail } from '../utils/constants';
 import { extractStudentPhoneString, resolveChatTargetForContact } from '../services/chatService';
+import {
+  getCachedUserProfile,
+  subscribeSharedCourses,
+  subscribeSharedTransactions,
+  subscribeSharedUsers,
+} from '../services/sharedFirestoreStore';
 import { 
   BarChart3, 
   TrendingUp, 
@@ -142,22 +148,18 @@ export default function Dashboard() {
     navigate(`/messages?${params.toString()}`);
   };
 
-  // Listen to Users, Transactions and Courses in real-time
+  // Listen to Users, Transactions and Courses via shared multiplexed listeners
   useEffect(() => {
     const user = auth.currentUser;
     if (user) {
-      getDoc(doc(db, 'users', user.uid)).then((snap) => {
-        if (snap.exists()) {
-          setCurrentUserProfile(snap.data());
+      getCachedUserProfile(user.uid).then((profile) => {
+        if (profile) {
+          setCurrentUserProfile(profile);
         }
       }).catch((err) => console.warn("Could not fetch user profile in dashboard:", err));
     }
 
-    const unsubUsers = onSnapshot(collection(db, 'users'), (snap) => {
-      const list: any[] = [];
-      snap.forEach((docSnap) => {
-        list.push({ id: docSnap.id, ...docSnap.data() });
-      });
+    const unsubUsers = subscribeSharedUsers((list) => {
       setStudents(list);
       setLoading(false);
     }, (err) => {
@@ -165,12 +167,8 @@ export default function Dashboard() {
       setLoading(false);
     });
 
-    const unsubTransactions = onSnapshot(collection(db, 'transactions'), (snap) => {
-      const txList: Transaction[] = [];
-      snap.forEach((docSnap) => {
-        txList.push({ id: docSnap.id, ...docSnap.data() } as Transaction);
-      });
-      // sort latest first
+    const unsubTransactions = subscribeSharedTransactions((rawList) => {
+      const txList: Transaction[] = rawList.map((item) => ({ ...item } as Transaction));
       txList.sort((a, b) => {
         const timeA = parseDate(a.createdAt)?.getTime() || 0;
         const timeB = parseDate(b.createdAt)?.getTime() || 0;
@@ -181,13 +179,9 @@ export default function Dashboard() {
       console.error("Dashboard failed to subscribe to transactions:", err);
     });
 
-    const unsubCourses = onSnapshot(collection(db, 'courses'), (snap) => {
-      const cList: any[] = [];
-      snap.forEach((docSnap) => {
-        cList.push({ id: docSnap.id, ...docSnap.data() });
-      });
+    const unsubCourses = subscribeSharedCourses((cList, size) => {
       setCoursesList(cList);
-      setCoursesCount(snap.size);
+      setCoursesCount(size);
     }, (err) => {
       console.error("Dashboard failed to subscribe to courses:", err);
     });

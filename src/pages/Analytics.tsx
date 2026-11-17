@@ -1,13 +1,17 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import Sidebar from '../components/Sidebar';
-import { collection, onSnapshot, doc, getDoc } from 'firebase/firestore';
-import { db, auth } from '../firebase';
+import { auth } from '../firebase';
 import { isMasterEmail } from '../utils/constants';
 import { maskEmail, maskPhone } from '../utils/maskUtils';
 import { subscribeToLessonPlaybacks } from '../services/playbackService';
 import { LessonPlaybackLog, StudentLessonPlaybackSummary } from '../types';
 import { onAuthStateChanged } from 'firebase/auth';
+import {
+  getCachedUserProfile,
+  subscribeSharedCourses,
+  subscribeSharedUsers,
+} from '../services/sharedFirestoreStore';
 import { 
   BarChart3, 
   Layers, 
@@ -116,21 +120,16 @@ export default function Analytics() {
   useEffect(() => {
     const user = auth.currentUser;
     if (user) {
-      getDoc(doc(db, 'users', user.uid)).then(snap => {
-        if (snap.exists()) setCurrentUserProfile(snap.data());
+      getCachedUserProfile(user.uid).then((profile) => {
+        if (profile) setCurrentUserProfile(profile);
       }).catch(err => console.warn("Could not fetch user profile for analytics:", err));
     }
   }, []);
 
-  // 1. Listen to Real Courses Collection
+  // 1. Listen to Real Courses Collection (canal compartilhado)
   useEffect(() => {
-    const coursesRef = collection(db, 'courses');
-    const unsubCourses = onSnapshot(coursesRef, (snap) => {
-      const cList: CourseData[] = [];
-      snap.forEach((docSnap) => {
-        cList.push({ id: docSnap.id, ...docSnap.data() } as CourseData);
-      });
-      setCourses(cList);
+    const unsubCourses = subscribeSharedCourses((cList) => {
+      setCourses(cList as CourseData[]);
     }, (err) => {
       console.error("Failed to subscribe to courses in analytics:", err);
     });
@@ -138,14 +137,9 @@ export default function Analytics() {
     return () => unsubCourses();
   }, []);
 
-  // 2. Listen to Users Collection
+  // 2. Listen to Users Collection (canal compartilhado)
   useEffect(() => {
-    const usersRef = collection(db, 'users');
-    const unsubUsers = onSnapshot(usersRef, (snap) => {
-      const uList: any[] = [];
-      snap.forEach((docSnap) => {
-        uList.push({ id: docSnap.id, ...docSnap.data() });
-      });
+    const unsubUsers = subscribeSharedUsers((uList) => {
       setUsers(uList);
       setLoading(false);
     }, (err) => {

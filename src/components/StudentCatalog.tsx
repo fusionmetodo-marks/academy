@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { collection, getDocs, query, where, onSnapshot, doc, getDoc } from 'firebase/firestore';
+import { collection, getDocs } from 'firebase/firestore';
 import { onAuthStateChanged, User } from 'firebase/auth';
 import { auth, db } from '../firebase';
 import { subscribeUserEnrollments, addCourseToUser } from '../services/enrollmentService';
+import { getCachedDocument, subscribeSharedCourses } from '../services/sharedFirestoreStore';
 import { Play, SearchX, Plus, Check, BookmarkCheck, Sparkles, CheckCircle2, BookOpen, ChevronLeft, ChevronRight } from 'lucide-react';
 import ExpandableSearch from './ExpandableSearch';
 import { Coupon } from '../types';
@@ -47,10 +48,10 @@ export default function StudentCatalog({ onSelectCourse }: StudentCatalogProps) 
   useEffect(() => {
     const fetchCoupons = async () => {
       try {
-        const couponsSnap = await getDoc(doc(db, 'settings', 'coupons')).catch(() => null);
+        const couponsData = await getCachedDocument<{ list?: Coupon[] }>('settings', 'coupons').catch(() => null);
         let loadedCoupons: Coupon[] = [];
-        if (couponsSnap?.exists() && Array.isArray(couponsSnap.data().list)) {
-          loadedCoupons = couponsSnap.data().list;
+        if (Array.isArray(couponsData?.list)) {
+          loadedCoupons = couponsData.list;
         } else {
           const directCouponsSnap = await getDocs(collection(db, 'coupons')).catch(() => null);
           if (directCouponsSnap && !directCouponsSnap.empty) {
@@ -188,11 +189,8 @@ export default function StudentCatalog({ onSelectCourse }: StudentCatalogProps) 
   };
 
   useEffect(() => {
-    const unsub = onSnapshot(query(collection(db, 'courses'), where("isPublished", "==", true)), (snapshot) => {
-      const coursesList = snapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      })) as Course[];
+    const unsub = subscribeSharedCourses((allCourses) => {
+      const coursesList = allCourses.filter((c) => c.isPublished === true) as Course[];
       setCourses(sortCoursesByLevel(coursesList));
       setIsLoading(false);
     }, (error) => {

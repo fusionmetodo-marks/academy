@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { collection, getDocs, onSnapshot } from 'firebase/firestore';
-import { auth, db } from '../firebase';
+import { auth } from '../firebase';
 import { subscribeUserEnrollments } from '../services/enrollmentService';
+import { subscribeSharedCourses } from '../services/sharedFirestoreStore';
 import { BookOpen, Play, CheckCircle2, Award, ArrowRight, Clock, ExternalLink, MessageSquare } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { sortCoursesByLevel } from '../utils/courseSorting';
@@ -43,14 +43,10 @@ export default function StudentMyCourses({ onExplore, onOpenChat }: { onExplore:
     return () => unsubEnrollments();
   }, []);
 
-  // 2. Escutar em tempo real a coleção de cursos cadastrados
+  // 2. Escutar coleção de cursos via canal compartilhado
   useEffect(() => {
-    const unsubCourses = onSnapshot(collection(db, 'courses'), (snap) => {
-      const fetched = snap.docs.map(d => ({
-        id: d.id,
-        ...d.data()
-      })) as Course[];
-      setAllCourses(fetched);
+    const unsubCourses = subscribeSharedCourses((fetched) => {
+      setAllCourses(fetched as Course[]);
       setLoading(false);
     }, (err) => {
       console.error("Erro ao carregar coleção de cursos em StudentMyCourses:", err);

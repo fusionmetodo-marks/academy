@@ -1308,9 +1308,11 @@ export default function VideoLibrary({ courseId }: VideoLibraryProps = {}) {
                                 </div>
                               </div>
 
-                              <p className="text-gray-300 mt-2 leading-relaxed whitespace-pre-wrap break-words">
-                                {c.text}
-                              </p>
+                              <LinkifiedText
+                                text={c.text}
+                                className="text-gray-300 mt-2 text-xs"
+                                linkClassName="text-[#e9c349] font-semibold underline decoration-[#e9c349]/80 hover:text-[#f5d76e]"
+                              />
                             </div>
                           );
                         })

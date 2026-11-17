@@ -34,12 +34,15 @@ import {
   limit, 
   deleteDoc, 
   doc, 
-  getDocs,
-  getDoc,
   setDoc,
   serverTimestamp
 } from 'firebase/firestore';
 import { db, auth } from '../firebase';
+import {
+  getCachedDocument,
+  invalidateSharedDocCache,
+  subscribeSharedUsers,
+} from '../services/sharedFirestoreStore';
 import { isMasterEmail } from '../utils/constants';
 import { 
   sendBroadcastPushNotification, 
@@ -135,13 +138,13 @@ export default function PushBroadcastManager() {
   const [reportTime, setReportTime] = useState('20:00');
   const [isSavingTime, setIsSavingTime] = useState(false);
 
-  // Carrega configuração de horário salva no Firestore
+  // Carrega configuração de horário salva no Firestore (com cache em memória)
   useEffect(() => {
     const loadReportConfig = async () => {
       try {
-        const snap = await getDoc(doc(db, 'settings', 'dailyReport'));
-        if (snap.exists() && snap.data().time) {
-          setReportTime(snap.data().time);
+        const reportData = await getCachedDocument<{ time?: string }>('settings', 'dailyReport');
+        if (reportData?.time) {
+          setReportTime(reportData.time);
         }
       } catch (err) {
         console.warn('Erro ao carregar horário do relatório:', err);
@@ -159,6 +162,7 @@ export default function PushBroadcastManager() {
         updatedAt: serverTimestamp(),
         updatedBy: auth.currentUser?.email || 'Admin'
       }, { merge: true });
+      invalidateSharedDocCache('settings', 'dailyReport');
       showToast(`⏰ Horário do relatório atualizado para as ${newTime}!`, 'success');
     } catch (err) {
       console.error('Erro ao guardar horário do relatório:', err);
@@ -215,22 +219,14 @@ export default function PushBroadcastManager() {
     }
   }, []);
 
-  // Fetch Students for Specific Targeting
+  // Fetch Students for Specific Targeting via canal compartilhado
   useEffect(() => {
-    const fetchStudents = async () => {
-      try {
-        const snap = await getDocs(collection(db, 'users'));
-        const list: any[] = [];
-        snap.forEach((d) => {
-          const data = d.data();
-          list.push({ id: d.id, ...data });
-        });
-        setStudentsList(list);
-      } catch (err) {
-        console.warn('Erro ao carregar lista de alunos:', err);
-      }
-    };
-    fetchStudents();
+    const unsubUsers = subscribeSharedUsers((list) => {
+      setStudentsList(list);
+    }, (err) => {
+      console.warn('Erro ao carregar lista de alunos:', err);
+    });
+    return () => unsubUsers();
   }, []);
 
   // Fetch Notification Broadcast History
@@ -238,7 +234,7 @@ export default function PushBroadcastManager() {
     const q = query(
       collection(db, 'notifications'),
       orderBy('createdAt', 'desc'),
-      limit(50)
+      limit(35)
     );
 
     const unsub = onSnapshot(q, (snap) => {

@@ -56,12 +56,35 @@ export const shouldShowInstallPopup = (): boolean => {
   return true;
 };
 
+const DEVICE_SYNC_THROTTLE_MS = 6 * 60 * 60 * 1000; // 6 horas
+const DEVICE_LOGIN_THROTTLE_MS = 2 * 60 * 60 * 1000; // 2 horas
+
 export const syncUserDeviceStatus = async (userId: string) => {
   if (!userId) return;
   try {
     const isMobile = isMobileOrTabletDevice();
     const isInstalled = isAppInstalledOrStandalone();
     const pushPermission = typeof window !== 'undefined' && 'Notification' in window ? Notification.permission : 'unsupported';
+    const currentSig = `${isMobile}|${isInstalled}|${pushPermission}`;
+    const storageKey = `mb_dev_sync_${userId}`;
+
+    if (typeof localStorage !== 'undefined') {
+      try {
+        const raw = localStorage.getItem(storageKey);
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          if (
+            parsed?.sig === currentSig &&
+            typeof parsed?.ts === 'number' &&
+            Date.now() - parsed.ts < DEVICE_SYNC_THROTTLE_MS
+          ) {
+            return;
+          }
+        }
+      } catch {
+        // ignore parse error
+      }
+    }
 
     const updates: Record<string, any> = {
       isMobileDevice: isMobile,
@@ -76,6 +99,14 @@ export const syncUserDeviceStatus = async (userId: string) => {
     }
 
     await updateDoc(doc(db, 'users', userId), updates);
+
+    if (typeof localStorage !== 'undefined') {
+      try {
+        localStorage.setItem(storageKey, JSON.stringify({ sig: currentSig, ts: Date.now() }));
+      } catch {
+        // ignore quota error
+      }
+    }
   } catch (err) {
     console.warn('Erro ao sincronizar status do dispositivo:', err);
   }
@@ -165,19 +196,29 @@ export const validateAndRegisterDevice = async (
     const existingIndex = existingDevices.findIndex(d => d.deviceId === currentDeviceId);
 
     if (existingIndex >= 0) {
-      // Dispositivo já registrado: atualiza última atividade
-      existingDevices[existingIndex] = {
-        ...existingDevices[existingIndex],
-        deviceName,
-        os,
-        browser,
-        lastLoginAt: new Date().toISOString()
-      };
+      const prevDevice = existingDevices[existingIndex];
+      const prevLoginMs = prevDevice?.lastLoginAt ? new Date(prevDevice.lastLoginAt).getTime() : 0;
+      const detailsChanged =
+        prevDevice?.deviceName !== deviceName ||
+        prevDevice?.os !== os ||
+        prevDevice?.browser !== browser;
+      const staleLogin = isNaN(prevLoginMs) || Date.now() - prevLoginMs > DEVICE_LOGIN_THROTTLE_MS;
 
-      await updateDoc(userRef, {
-        registeredDevices: existingDevices,
-        lastLoginAt: new Date().toISOString()
-      });
+      if (detailsChanged || staleLogin) {
+        // Dispositivo já registrado: atualiza última atividade apenas quando necessário
+        existingDevices[existingIndex] = {
+          ...prevDevice,
+          deviceName,
+          os,
+          browser,
+          lastLoginAt: new Date().toISOString()
+        };
+
+        await updateDoc(userRef, {
+          registeredDevices: existingDevices,
+          lastLoginAt: new Date().toISOString()
+        });
+      }
 
       return {
         allowed: true,

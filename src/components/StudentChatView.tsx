@@ -28,6 +28,7 @@ import {
   subscribeFloatingChatAlertsSetting,
 } from '../utils/chatHelpers';
 import { useSafeSubmitGuard } from '../utils/messageSendSafety';
+import { LinkifiedText } from './LinkifiedText';
 
 export interface ChatLessonContext {
   courseId?: string;
@@ -366,9 +367,15 @@ export default function StudentChatView({
                       </div>
                     )}
 
-                    <p className="text-xs sm:text-sm leading-relaxed whitespace-pre-wrap break-words">
-                      {msg.text}
-                    </p>
+                    <LinkifiedText
+                      text={msg.text}
+                      className="text-xs sm:text-sm"
+                      linkClassName={
+                        isMine
+                          ? 'text-black font-bold underline decoration-black/80 hover:opacity-75'
+                          : 'text-[#e9c349] font-semibold underline decoration-[#e9c349]/80 hover:text-[#f5d76e]'
+                      }
+                    />
                   </div>
                 </div>
               </React.Fragment>

@@ -5,6 +5,8 @@ import {
   doc,
   getDoc,
   getDocs,
+  limit,
+  limitToLast,
   onSnapshot,
   orderBy,
   query,
@@ -14,6 +16,7 @@ import {
   updateDoc,
   where,
 } from 'firebase/firestore';
+import { onAuthStateChanged } from 'firebase/auth';
 import { db, auth } from '../firebase';
 import { notifyNewChatMessage } from './notificationService';
 import {
@@ -951,47 +954,113 @@ export const subscribeStudentChatThread = (
 };
 
 /**
- * Escuta em tempo real todas as conversas individuais (uso administrativo)
+ * Multiplexador compartilhado para conversas individuais (evita duplicação entre Sidebar e Chat Tab)
  */
-export const subscribeAllChatThreads = (onUpdate: (threads: ChatThread[]) => void) => {
-  return onSnapshot(
-    collection(db, 'chats'),
-    (snap) => {
-      const list: ChatThread[] = [];
-      snap.forEach((docSnap) => {
-        const data = docSnap.data();
-        list.push({
-          id: docSnap.id,
-          studentId: data.studentId || docSnap.id,
-          studentName: data.studentName || 'Estudante',
-          studentEmail: data.studentEmail || null,
-          studentPhone: data.studentPhone || null,
-          normalizedPhone: data.normalizedPhone || null,
-          isPreRegistered: Boolean(data.isPreRegistered),
-          linkedUserId: data.linkedUserId || null,
-          mergedIntoChatId: data.mergedIntoChatId || null,
-          lastMessage: data.lastMessage || '',
-          lastSenderRole: data.lastSenderRole === 'admin' ? 'admin' : 'student',
-          lastSenderId: data.lastSenderId || '',
-          lastMessageAtMs: Number(data.lastMessageAtMs || 0),
-          unreadByAdmin: Number(data.unreadByAdmin || 0),
-          unreadByStudent: Number(data.unreadByStudent || 0),
-          lastAdminBellAtMs: data.lastAdminBellAtMs ?? null,
-          lastStudentBellAtMs: data.lastStudentBellAtMs ?? null,
-        });
-      });
-      list.sort((a, b) => b.lastMessageAtMs - a.lastMessageAtMs);
-      onUpdate(list);
-    },
-    (err) => {
-      console.warn('Erro ao listar conversas com alunos:', err);
-      onUpdate([]);
+const CHAT_THREADS_KEEP_ALIVE_MS = 3 * 60 * 1000;
+let sharedThreadsLatest: ChatThread[] | null = null;
+const sharedThreadsSubscribers = new Set<(threads: ChatThread[]) => void>();
+let sharedThreadsFirestoreUnsub: (() => void) | null = null;
+let sharedThreadsTeardownTimer: ReturnType<typeof setTimeout> | null = null;
+
+const stopSharedThreadsListener = () => {
+  if (sharedThreadsTeardownTimer) {
+    clearTimeout(sharedThreadsTeardownTimer);
+    sharedThreadsTeardownTimer = null;
+  }
+  if (sharedThreadsFirestoreUnsub) {
+    sharedThreadsFirestoreUnsub();
+    sharedThreadsFirestoreUnsub = null;
+  }
+  sharedThreadsLatest = null;
+};
+
+if (typeof window !== 'undefined') {
+  let prevUid: string | null = null;
+  onAuthStateChanged(auth, (u) => {
+    const nextUid = u?.uid || null;
+    if (prevUid && !nextUid) {
+      stopSharedThreadsListener();
     }
-  );
+    prevUid = nextUid;
+  });
+}
+
+export const subscribeAllChatThreads = (onUpdate: (threads: ChatThread[]) => void) => {
+  sharedThreadsSubscribers.add(onUpdate);
+
+  if (sharedThreadsLatest !== null) {
+    onUpdate(sharedThreadsLatest);
+  }
+
+  if (sharedThreadsTeardownTimer) {
+    clearTimeout(sharedThreadsTeardownTimer);
+    sharedThreadsTeardownTimer = null;
+  }
+
+  if (!sharedThreadsFirestoreUnsub) {
+    sharedThreadsFirestoreUnsub = onSnapshot(
+      collection(db, 'chats'),
+      (snap) => {
+        const list: ChatThread[] = [];
+        snap.forEach((docSnap) => {
+          const data = docSnap.data();
+          list.push({
+            id: docSnap.id,
+            studentId: data.studentId || docSnap.id,
+            studentName: data.studentName || 'Estudante',
+            studentEmail: data.studentEmail || null,
+            studentPhone: data.studentPhone || null,
+            normalizedPhone: data.normalizedPhone || null,
+            isPreRegistered: Boolean(data.isPreRegistered),
+            linkedUserId: data.linkedUserId || null,
+            mergedIntoChatId: data.mergedIntoChatId || null,
+            lastMessage: data.lastMessage || '',
+            lastSenderRole: data.lastSenderRole === 'admin' ? 'admin' : 'student',
+            lastSenderId: data.lastSenderId || '',
+            lastMessageAtMs: Number(data.lastMessageAtMs || 0),
+            unreadByAdmin: Number(data.unreadByAdmin || 0),
+            unreadByStudent: Number(data.unreadByStudent || 0),
+            lastAdminBellAtMs: data.lastAdminBellAtMs ?? null,
+            lastStudentBellAtMs: data.lastStudentBellAtMs ?? null,
+          });
+        });
+        list.sort((a, b) => b.lastMessageAtMs - a.lastMessageAtMs);
+        sharedThreadsLatest = list;
+        sharedThreadsSubscribers.forEach((cb) => {
+          try {
+            cb(list);
+          } catch {
+            // ignore
+          }
+        });
+      },
+      (err) => {
+        console.warn('Erro ao listar conversas com alunos:', err);
+        sharedThreadsSubscribers.forEach((cb) => {
+          try {
+            cb([]);
+          } catch {
+            // ignore
+          }
+        });
+      }
+    );
+  }
+
+  return () => {
+    sharedThreadsSubscribers.delete(onUpdate);
+    if (sharedThreadsSubscribers.size === 0 && !sharedThreadsTeardownTimer) {
+      sharedThreadsTeardownTimer = setTimeout(() => {
+        if (sharedThreadsSubscribers.size === 0) {
+          stopSharedThreadsListener();
+        }
+      }, CHAT_THREADS_KEEP_ALIVE_MS);
+    }
+  };
 };
 
 /**
- * Escuta em tempo real as mensagens cronológicas de uma conversa 1-para-1
+ * Escuta em tempo real as mensagens cronológicas recentes de uma conversa 1-para-1 (máx. 150)
  */
 export const subscribeChatMessages = (
   studentId: string,
@@ -1002,7 +1071,11 @@ export const subscribeChatMessages = (
     return () => {};
   }
 
-  const q = query(collection(db, 'chats', studentId, 'messages'), orderBy('createdAtMs', 'asc'));
+  const q = query(
+    collection(db, 'chats', studentId, 'messages'),
+    orderBy('createdAtMs', 'asc'),
+    limitToLast(150)
+  );
 
   return onSnapshot(
     q,
@@ -1034,7 +1107,7 @@ export const subscribeChatMessages = (
 };
 
 /**
- * Escuta comentários persistidos de uma aula específica em tempo real
+ * Escuta comentários persistidos de uma aula específica em tempo real (máx. 100)
  */
 export const subscribeLessonComments = (
   courseId: string,
@@ -1046,7 +1119,7 @@ export const subscribeLessonComments = (
     return () => {};
   }
 
-  const q = query(collection(db, 'lessonComments'), where('lessonId', '==', lessonId));
+  const q = query(collection(db, 'lessonComments'), where('lessonId', '==', lessonId), limit(100));
 
   return onSnapshot(
     q,

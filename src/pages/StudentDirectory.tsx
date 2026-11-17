@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { collection, onSnapshot, updateDoc, doc, deleteDoc, getDocs, getDoc, arrayUnion, arrayRemove, query, where, addDoc, serverTimestamp } from 'firebase/firestore';
+import { collection, updateDoc, doc, deleteDoc, getDocs, getDoc, arrayUnion, arrayRemove, query, where, addDoc, serverTimestamp } from 'firebase/firestore';
 import { onAuthStateChanged } from 'firebase/auth';
 import { db, adminCreateStudentAccount, auth } from '../firebase';
 import Sidebar from '../components/Sidebar';
@@ -8,6 +8,12 @@ import { ProducerContractModal } from '../components/ProducerContractModal';
 import { isMasterEmail } from '../utils/constants';
 import { maskEmail, maskPhone } from '../utils/maskUtils';
 import { notifyStudentCourseApproved } from '../services/notificationService';
+import {
+  getCachedUserProfile,
+  subscribeSharedCourses,
+  subscribeSharedTransactions,
+  subscribeSharedUsers,
+} from '../services/sharedFirestoreStore';
 import { 
   UserPlus, 
   Search, 
@@ -308,22 +314,18 @@ export default function StudentDirectory() {
     setTimeout(() => setShowToast(false), 4000);
   };
 
-  // Carregar Cursos Reais do Banco em Tempo Real
+  // Carregar Cursos Reais do Banco via canal compartilhado
   useEffect(() => {
-    const unsubCourses = onSnapshot(collection(db, 'courses'), (snap) => {
-      const list: CourseOption[] = [];
-      snap.forEach(d => {
-        const cData = d.data();
-        list.push({
-          id: d.id,
-          title: cData.title || 'Curso Sem Título',
-          price: Number(cData.price) || 0,
-          authorId: cData.authorId || '',
-          producerName: cData.producerName || cData.instructor || '',
-          producerPhone: cData.producerPhone || cData.producerWhatsApp || '',
-          isPublished: (cData.isPublished ?? cData.status === 'published')
-        });
-      });
+    const unsubCourses = subscribeSharedCourses((rawCourses) => {
+      const list: CourseOption[] = rawCourses.map((cData) => ({
+        id: cData.id,
+        title: cData.title || 'Curso Sem Título',
+        price: Number(cData.price) || 0,
+        authorId: cData.authorId || '',
+        producerName: cData.producerName || cData.instructor || '',
+        producerPhone: cData.producerPhone || cData.producerWhatsApp || '',
+        isPublished: cData.isPublished ?? cData.status === 'published',
+      }));
       setAvailableCourses(list);
     }, (err) => {
       console.warn("Erro ao buscar cursos do banco:", err);
@@ -335,19 +337,15 @@ export default function StudentDirectory() {
   useEffect(() => {
     const user = auth.currentUser;
     if (user) {
-      getDoc(doc(db, 'users', user.uid)).then(snap => {
-        if (snap.exists()) setCurrentUserProfile(snap.data());
+      getCachedUserProfile(user.uid).then((profile) => {
+        if (profile) setCurrentUserProfile(profile);
       }).catch(err => console.warn("Could not fetch user profile:", err));
     }
   }, []);
 
-  // Escutar Usuários em Tempo Real
+  // Escutar Usuários via canal compartilhado
   useEffect(() => {
-    const unsub = onSnapshot(collection(db, 'users'), (snapshot) => {
-      const list: any[] = [];
-      snapshot.forEach((docSnap) => {
-        list.push({ id: docSnap.id, ...docSnap.data() });
-      });
+    const unsub = subscribeSharedUsers((list) => {
       setUsers(list);
       setLoading(false);
     }, (error) => {
@@ -358,7 +356,7 @@ export default function StudentDirectory() {
     return () => unsub();
   }, []);
 
-  // Escutar Transações Aprovadas para reconstruir a data exata da última confirmação de assinatura
+  // Escutar Transações Aprovadas a partir do canal compartilhado de transações (0 leituras extras)
   useEffect(() => {
     let unsubTx = () => {};
 
@@ -369,11 +367,10 @@ export default function StudentDirectory() {
         return;
       }
 
-      const approvedTxQuery = query(collection(db, 'transactions'), where('status', '==', 'approved'));
-      unsubTx = onSnapshot(approvedTxQuery, (snapshot) => {
+      unsubTx = subscribeSharedTransactions((txList) => {
         const timeMap: Record<string, number> = {};
-        snapshot.forEach((docSnap) => {
-          const d = docSnap.data();
+        txList.forEach((d) => {
+          if (d.status !== 'approved') return;
           const txTime =
             parseTimestampValue(d.approvedAt) ||
             parseTimestampValue(d.updatedAt) ||

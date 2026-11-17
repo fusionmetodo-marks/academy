@@ -8,6 +8,14 @@ import { DEFAULT_CFA_LOGO, getValidLogoUrl, isMasterEmail } from '../utils/const
 import { CertificateModal } from '../components/CertificateModal';
 import { compressImage, compressDataUrl } from '../utils/imageCompressor';
 import { DEFAULT_USDT_CONFIG, formatPublicationDateTime } from '../services/usdtExchangeService';
+import { FirestoreQuotaModal } from '../components/FirestoreQuotaModal';
+import {
+  FIRESTORE_SPARK_LIMITS,
+  FirestoreQuotaSnapshot,
+  getNextFirestoreResetInfo,
+  getQuotaState,
+  subscribeQuotaState,
+} from '../services/firestoreQuotaService';
 import { 
   Award,
   Eye,
@@ -38,7 +46,8 @@ import {
   Percent,
   DollarSign,
   Check,
-  FileText
+  FileText,
+  Database
 } from 'lucide-react';
 
 interface CustomRole {
@@ -64,6 +73,20 @@ export default function Settings() {
   const [isTestCertOpen, setIsTestCertOpen] = useState(false);
   const [isProducerFeesModalOpen, setIsProducerFeesModalOpen] = useState(false);
   const [isUsdtModalOpen, setIsUsdtModalOpen] = useState(false);
+  const [isQuotaModalOpen, setIsQuotaModalOpen] = useState(false);
+  const [quotaState, setQuotaState] = useState<FirestoreQuotaSnapshot>(() => getQuotaState());
+  const [quotaResetInfo, setQuotaResetInfo] = useState(() => getNextFirestoreResetInfo());
+
+  useEffect(() => {
+    const unsub = subscribeQuotaState((next) => setQuotaState(next));
+    const timer = setInterval(() => {
+      setQuotaResetInfo(getNextFirestoreResetInfo());
+    }, 30_000);
+    return () => {
+      unsub();
+      clearInterval(timer);
+    };
+  }, []);
 
   // USDT Exchange States (Configured by Admin, displayed for all students)
   const [usdtRate, setUsdtRate] = useState<number | string>(1050);
@@ -1449,6 +1472,97 @@ export default function Settings() {
               </div>
             </div>
           </section>
+
+          {/* BUTTON 7: Cotas Gratuitas & Limites do Firestore */}
+          {(() => {
+            const effectiveReadsUsed =
+              quotaState.quotaExhaustedDetected && quotaState.consoleReadsOffset === null
+                ? FIRESTORE_SPARK_LIMITS.readUnitsDaily
+                : quotaState.consoleReadsOffset !== null
+                ? Math.min(FIRESTORE_SPARK_LIMITS.readUnitsDaily, Math.max(0, quotaState.consoleReadsOffset))
+                : Math.min(FIRESTORE_SPARK_LIMITS.readUnitsDaily, quotaState.sessionReads);
+            const readsRemaining = Math.max(0, FIRESTORE_SPARK_LIMITS.readUnitsDaily - effectiveReadsUsed);
+            const readsPct = Math.min(
+              100,
+              Math.round((effectiveReadsUsed / FIRESTORE_SPARK_LIMITS.readUnitsDaily) * 1000) / 10
+            );
+            const isExhausted = quotaState.quotaExhaustedDetected;
+            const isHigh = !isExhausted && readsPct >= quotaState.warningThresholdPct;
+
+            return (
+              <section
+                id="card-btn-firestore-quotas"
+                onClick={() => {
+                  setQuotaResetInfo(getNextFirestoreResetInfo());
+                  setIsQuotaModalOpen(true);
+                }}
+                className="group relative bg-surface-container-low hover:bg-surface-container rounded-2xl p-6 sm:p-7 border border-outline-variant/10 hover:border-[#e9c349]/50 shadow-lg hover:shadow-[0_8px_30px_rgba(233,195,73,0.15)] transition-all cursor-pointer flex flex-col justify-between"
+              >
+                <div>
+                  <div className="flex items-center justify-between mb-5">
+                    <div className="w-12 h-12 rounded-2xl bg-[#e9c349]/10 group-hover:bg-[#e9c349] text-[#e9c349] group-hover:text-black flex items-center justify-center border border-[#e9c349]/20 transition-all">
+                      <Database className="w-6 h-6" />
+                    </div>
+                    <span className="p-2 rounded-xl bg-surface-container-highest group-hover:bg-[#e9c349]/20 text-stone-400 group-hover:text-[#e9c349] transition-colors">
+                      <ArrowUpRight className="w-4 h-4" />
+                    </span>
+                  </div>
+
+                  <div className="mb-4">
+                    <span className="text-[10px] uppercase font-bold tracking-widest text-[#e9c349] block mb-1">
+                      Módulo 7
+                    </span>
+                    <h3 className="font-headline text-xl font-bold text-white group-hover:text-[#e9c349] transition-colors">
+                      Cotas Gratuitas Firestore
+                    </h3>
+                    <p className="text-xs text-stone-400 mt-1.5 line-clamp-5 leading-relaxed">
+                      Acompanhe o uso diário do plano gratuito, quanto falta consumir, modo de economia e hora de reinício em Angola.
+                    </p>
+                  </div>
+
+                  <div className="space-y-2 pt-2 border-t border-outline-variant/10 text-xs">
+                    <div className="flex justify-between items-center text-stone-400">
+                      <span>Estado da Cota:</span>
+                      <span
+                        className={`font-bold text-[11px] ${
+                          isExhausted
+                            ? 'text-red-400'
+                            : isHigh
+                            ? 'text-amber-400'
+                            : 'text-emerald-400'
+                        }`}
+                      >
+                        {isExhausted
+                          ? 'Esgotada (429)'
+                          : isHigh
+                          ? `Alerta (${readsPct.toFixed(0)}%)`
+                          : 'Dentro da Cota'}
+                      </span>
+                    </div>
+                    <div className="flex justify-between items-center text-stone-400">
+                      <span>Usado / Falta (Dia):</span>
+                      <span className="font-mono text-white font-bold text-[11px]">
+                        {effectiveReadsUsed.toLocaleString('pt-AO')} / {readsRemaining.toLocaleString('pt-AO')}
+                      </span>
+                    </div>
+                    <div className="flex justify-between items-center text-stone-400">
+                      <span>Reinício (Angola):</span>
+                      <span className="font-mono text-[#e9c349] font-bold text-[11px]">
+                        {quotaResetInfo.angolaTime} WAT ({quotaResetInfo.remainingFormatted.slice(0, 7)})
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="mt-6 pt-4 border-t border-outline-variant/10">
+                  <div className="w-full py-2.5 px-4 bg-surface-container-highest group-hover:bg-[#e9c349] text-stone-300 group-hover:text-black font-bold text-xs rounded-xl transition-all flex items-center justify-center gap-2">
+                    <span>Abrir Painel de Cotas</span>
+                    <ChevronRight className="w-4 h-4" />
+                  </div>
+                </div>
+              </section>
+            );
+          })()}
         </div>
         )}
 
@@ -3497,6 +3611,13 @@ export default function Settings() {
           initialStudentName="Pedro Cassaminha (Aluno Exemplo)"
         />
       )}
+
+      {/* Modal de Controle de Cotas Gratuitas do Firestore */}
+      <FirestoreQuotaModal
+        isOpen={isQuotaModalOpen}
+        onClose={() => setIsQuotaModalOpen(false)}
+        onNotify={showNotification}
+      />
     </div>
   );
 }

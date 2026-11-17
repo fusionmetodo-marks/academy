@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { logout, db, auth } from '../firebase';
-import { doc, getDoc } from 'firebase/firestore';
+import { logout, auth } from '../firebase';
+import { getCachedDocument } from '../services/sharedFirestoreStore';
 import { DEFAULT_CFA_LOGO, getValidLogoUrl, isMasterEmail } from '../utils/constants';
 import { AndroidInstallModal } from './AndroidInstallModal';
 import { shouldShowInstallPopup } from '../utils/deviceDetection';
@@ -79,20 +79,20 @@ export default function Sidebar() {
     }
   }, []);
 
-  // Fetch support and logo details from settings
+  // Fetch support and logo details from settings (com cache em memória)
   useEffect(() => {
     const fetchSettingsInfo = async () => {
       try {
-        const genSnap = await getDoc(doc(db, 'settings', 'general'));
-        if (genSnap.exists()) {
-          if (genSnap.data().supportWhatsApp) setSupportWhatsApp(genSnap.data().supportWhatsApp);
-          if (genSnap.data().supportEmail) setSupportEmail(genSnap.data().supportEmail);
-          if (genSnap.data().logoUrl) setLogoUrl(getValidLogoUrl(genSnap.data().logoUrl));
+        const genData = await getCachedDocument<Record<string, any>>('settings', 'general');
+        if (genData) {
+          if (genData.supportWhatsApp) setSupportWhatsApp(genData.supportWhatsApp);
+          if (genData.supportEmail) setSupportEmail(genData.supportEmail);
+          if (genData.logoUrl) setLogoUrl(getValidLogoUrl(genData.logoUrl));
         }
-        const platSnap = await getDoc(doc(db, 'settings', 'platform'));
-        if (platSnap.exists()) {
-          if (platSnap.data().supportWhatsApp) setSupportWhatsApp(platSnap.data().supportWhatsApp);
-          if (platSnap.data().logoUrl) setLogoUrl(getValidLogoUrl(platSnap.data().logoUrl));
+        const platData = await getCachedDocument<Record<string, any>>('settings', 'platform');
+        if (platData) {
+          if (platData.supportWhatsApp) setSupportWhatsApp(platData.supportWhatsApp);
+          if (platData.logoUrl) setLogoUrl(getValidLogoUrl(platData.logoUrl));
         }
       } catch (err) {
         console.warn('Could not fetch real-time settings info (offline fallback active):', err);

@@ -1,9 +1,14 @@
 import React, { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { collection, getDocs, query, where, doc, getDoc, onSnapshot } from 'firebase/firestore';
+import { collection, getDocs } from 'firebase/firestore';
 import { Coupon } from '../types';
 import { auth, db } from '../firebase';
 import { onAuthStateChanged } from 'firebase/auth';
+import {
+  getCachedDocument,
+  getCachedUserProfile,
+  subscribeSharedCourses,
+} from '../services/sharedFirestoreStore';
 import { DEFAULT_CFA_LOGO, getValidLogoUrl, isMasterEmail, DEFAULT_SUPPORT_WHATSAPP } from '../utils/constants';
 import { sortCoursesByLevel } from '../utils/courseSorting';
 import HeroSection from '../components/HeroSection';
@@ -182,10 +187,9 @@ export default function SalesPage() {
           if (isMasterEmail(email)) {
             setIsAdmin(true);
           }
-          const userDoc = await getDoc(doc(db, 'users', user.uid)).catch(() => null);
-          if (userDoc && userDoc.exists()) {
-            const data = userDoc.data();
-            if (data.role === 'admin' || data.role === 'producer') {
+          const userData = await getCachedUserProfile(user.uid).catch(() => null);
+          if (userData) {
+            if (userData.role === 'admin' || userData.role === 'producer') {
               setIsAdmin(true);
             }
           }
@@ -209,25 +213,23 @@ export default function SalesPage() {
     };
   }, []);
 
-  // Fetch logo settings
+  // Fetch logo settings (com cache em memória)
   useEffect(() => {
     const fetchLogo = async () => {
       try {
-        const generalDoc = await getDoc(doc(db, 'settings', 'general')).catch(() => null);
-        if (generalDoc && generalDoc.exists()) {
-          const gData = generalDoc.data();
+        const gData = await getCachedDocument<Record<string, any>>('settings', 'general').catch(() => null);
+        if (gData) {
           if (gData.logoUrl) setLogoUrl(getValidLogoUrl(gData.logoUrl));
           if (gData.supportWhatsApp) setSupportWhatsApp(gData.supportWhatsApp);
         }
-        const platformDoc = await getDoc(doc(db, 'settings', 'platform')).catch(() => null);
-        if (platformDoc && platformDoc.exists()) {
-          const pData = platformDoc.data();
+        const pData = await getCachedDocument<Record<string, any>>('settings', 'platform').catch(() => null);
+        if (pData) {
           if (pData.logoUrl) setLogoUrl(getValidLogoUrl(pData.logoUrl));
           if (pData.supportWhatsApp) setSupportWhatsApp(pData.supportWhatsApp);
         }
-        const usdtDoc = await getDoc(doc(db, 'settings', 'usdt_exchange')).catch(() => null);
-        if (usdtDoc && usdtDoc.exists() && usdtDoc.data().whatsappNumber) {
-          setUsdtWhatsApp(usdtDoc.data().whatsappNumber);
+        const usdtData = await getCachedDocument<Record<string, any>>('settings', 'usdt_exchange').catch(() => null);
+        if (usdtData?.whatsappNumber) {
+          setUsdtWhatsApp(usdtData.whatsappNumber);
         }
       } catch (err) {
         console.warn("Could not load logo in Sales page:", err);
@@ -236,18 +238,17 @@ export default function SalesPage() {
     fetchLogo();
   }, []);
 
-  // Fetch published courses and active coupons from database
+  // Fetch published courses and active coupons from database (via canal compartilhado + cache)
   useEffect(() => {
     let unsubscribeCourses = () => {};
 
     const fetchCoursesAndCoupons = async () => {
       try {
-        // Fetch active coupons first
         try {
-          const couponsSnap = await getDoc(doc(db, 'settings', 'coupons')).catch(() => null);
+          const couponsData = await getCachedDocument<{ list?: Coupon[] }>('settings', 'coupons').catch(() => null);
           let loadedCoupons: Coupon[] = [];
-          if (couponsSnap?.exists() && Array.isArray(couponsSnap.data().list)) {
-            loadedCoupons = couponsSnap.data().list;
+          if (Array.isArray(couponsData?.list)) {
+            loadedCoupons = couponsData.list;
           } else {
             const directCouponsSnap = await getDocs(collection(db, 'coupons')).catch(() => null);
             if (directCouponsSnap && !directCouponsSnap.empty) {
@@ -262,14 +263,9 @@ export default function SalesPage() {
           console.error("Erro ao carregar cupões na Landing Page:", couponErr);
         }
 
-        // Fetch courses in real time
-        const q = query(collection(db, 'courses'), where("isPublished", "==", true));
-        unsubscribeCourses = onSnapshot(q, (querySnapshot) => {
-          const coursesList = querySnapshot.docs.map(doc => ({
-            id: doc.id,
-            ...doc.data()
-          })) as Course[];
-          setCourses(sortCoursesByLevel(coursesList));
+        unsubscribeCourses = subscribeSharedCourses((allCourses) => {
+          const publishedCourses = allCourses.filter((c) => c.isPublished === true) as Course[];
+          setCourses(sortCoursesByLevel(publishedCourses));
           setIsLoadingCourses(false);
         }, (err) => {
           console.error("Erro ao carregar cursos na Landing Page:", err);

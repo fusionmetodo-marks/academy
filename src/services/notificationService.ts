@@ -14,6 +14,7 @@ import {
   getDocs,
   where,
 } from 'firebase/firestore';
+import { onAuthStateChanged } from 'firebase/auth';
 import { db, auth } from '../firebase';
 import { slugify } from '../utils/slugify';
 import {
@@ -22,6 +23,12 @@ import {
   executeWithSafetyCompensation,
   fetchWithRateCompensation,
 } from '../utils/messageSendSafety';
+import {
+  isQuotaExhaustedError,
+  markFirestoreQuotaExhausted,
+  recordMeteredFirestoreReads,
+  recordMeteredFirestoreWrites,
+} from './firestoreQuotaService';
 
 export type NotificationType =
   | 'new_student'
@@ -471,6 +478,7 @@ export const sendSystemNotification = async (payload: {
           }
         }
         await setDoc(notifRef, notificationData);
+        recordMeteredFirestoreWrites(1);
         notifPersisted = true;
       },
       {
@@ -520,15 +528,30 @@ export const sendSystemNotification = async (payload: {
           }
         }
 
-        let usersSnap;
+        let userDocs: Array<{ data: () => any }> = [];
         if (cleanTargetUserId && cleanTargetUserId !== 'admin_default') {
-          usersSnap = await getDocs(query(collection(db, 'users'), where('__name__', '==', cleanTargetUserId)));
+          const singleSnap = await getDoc(doc(db, 'users', cleanTargetUserId));
+          if (singleSnap.exists()) {
+            userDocs = [singleSnap];
+          }
         } else if (cleanTargetEmail) {
-          usersSnap = await getDocs(query(collection(db, 'users'), where('email', '==', cleanTargetEmail)));
+          const snap = await getDocs(
+            query(collection(db, 'users'), where('email', '==', cleanTargetEmail))
+          );
+          userDocs = snap.docs;
+        } else if (resolvedTargetRole === 'admin') {
+          const snap = await getDocs(
+            query(collection(db, 'users'), where('role', 'in', ['admin', 'producer']))
+          );
+          userDocs = snap.docs;
         } else if (resolvedTargetRole === 'all' || resolvedTargetRole === 'student') {
-          usersSnap = await getDocs(query(collection(db, 'users')));
+          const snap = await getDocs(query(collection(db, 'users')));
+          userDocs = snap.docs;
         } else {
-          usersSnap = await getDocs(query(collection(db, 'users'), where('role', '==', resolvedTargetRole)));
+          const snap = await getDocs(
+            query(collection(db, 'users'), where('role', '==', resolvedTargetRole))
+          );
+          userDocs = snap.docs;
         }
 
         const courseFilterId =
@@ -537,7 +560,7 @@ export const sendSystemNotification = async (payload: {
             : null;
 
         let allSubscriptions: any[] = [];
-        usersSnap.forEach((docSnap) => {
+        userDocs.forEach((docSnap) => {
           const data = docSnap.data();
           if (!Array.isArray(data.pushSubscriptions) || data.pushSubscriptions.length === 0) return;
 
@@ -935,8 +958,42 @@ export const inferNotificationScope = (data: any): NotificationScope => {
   return 'collective';
 };
 
+const NOTIF_KEEP_ALIVE_MS = 2 * 60 * 1000;
+
+interface NotifChannelState {
+  latest: SystemNotification[] | null;
+  subscribers: Set<(notifications: SystemNotification[]) => void>;
+  stopFirestore: () => void;
+  teardownTimer: ReturnType<typeof setTimeout> | null;
+  updateStudentOptions?: (opts?: { userEmail?: string | null; enrolledCourseIds?: string[] }) => void;
+}
+
+const notifChannels = new Map<string, NotifChannelState>();
+
+const clearAllNotifChannels = () => {
+  notifChannels.forEach((channel) => {
+    if (channel.teardownTimer) {
+      clearTimeout(channel.teardownTimer);
+      channel.teardownTimer = null;
+    }
+    channel.stopFirestore();
+  });
+  notifChannels.clear();
+};
+
+if (typeof window !== 'undefined') {
+  let prevNotifUid: string | null = null;
+  onAuthStateChanged(auth, (u) => {
+    const nextUid = u?.uid || null;
+    if (prevNotifUid && !nextUid) {
+      clearAllNotifChannels();
+    }
+    prevNotifUid = nextUid;
+  });
+}
+
 /**
- * Inscreve-se nas notificações em tempo real com separação coletiva/individual e estado privado por aluno
+ * Inscreve-se nas notificações em tempo real (multiplexado para evitar leituras duplicadas entre componentes)
  */
 export const subscribeToNotifications = (
   onUpdate: (notifications: SystemNotification[]) => void,
@@ -948,14 +1005,57 @@ export const subscribeToNotifications = (
   }
 ) => {
   const isStudent = targetRole === 'student';
+  const resolvedUid = userId || auth.currentUser?.uid || '';
 
-  if (isStudent) {
-    const resolvedUid = userId || auth.currentUser?.uid || '';
-    if (!resolvedUid) {
-      onUpdate([]);
-      return () => {};
+  if (isStudent && !resolvedUid) {
+    onUpdate([]);
+    return () => {};
+  }
+
+  const channelKey = isStudent ? `student:${resolvedUid}` : `${targetRole}:${resolvedUid || 'anon'}`;
+  let channel = notifChannels.get(channelKey);
+
+  if (channel) {
+    if (channel.teardownTimer) {
+      clearTimeout(channel.teardownTimer);
+      channel.teardownTimer = null;
+    }
+    channel.subscribers.add(onUpdate);
+    channel.updateStudentOptions?.(options);
+    if (channel.latest !== null) {
+      onUpdate(channel.latest);
     }
 
+    return () => {
+      const currentChannel = notifChannels.get(channelKey);
+      if (!currentChannel) return;
+      currentChannel.subscribers.delete(onUpdate);
+      if (currentChannel.subscribers.size === 0 && !currentChannel.teardownTimer) {
+        currentChannel.teardownTimer = setTimeout(() => {
+          const ch = notifChannels.get(channelKey);
+          if (ch && ch.subscribers.size === 0) {
+            ch.stopFirestore();
+            notifChannels.delete(channelKey);
+          }
+        }, NOTIF_KEEP_ALIVE_MS);
+      }
+    };
+  }
+
+  const subscribers = new Set<(notifications: SystemNotification[]) => void>([onUpdate]);
+
+  const broadcast = (ch: NotifChannelState, notifs: SystemNotification[]) => {
+    ch.latest = notifs;
+    ch.subscribers.forEach((cb) => {
+      try {
+        cb(notifs);
+      } catch {
+        // ignore callback error
+      }
+    });
+  };
+
+  if (isStudent) {
     let initialBurstDone = false;
     const seenIds = new Set<string>();
     let liveEmail = (options?.userEmail || auth.currentUser?.email || '').trim().toLowerCase();
@@ -976,7 +1076,6 @@ export const subscribeToNotifications = (
       const targetUid = data.targetUserId || null;
       const targetEmail = (data.targetEmail || data.metadata?.targetEmail || '').trim().toLowerCase();
 
-      // Notificações endereçadas à administração/produção nunca pertencem ao estudante
       if (docRole === 'admin' || docRole === 'producer' || docScope === 'admin') {
         return { keep: false, scope: 'individual' };
       }
@@ -985,25 +1084,21 @@ export const subscribeToNotifications = (
       const isForMeByEmail = Boolean(targetEmail && liveEmail && targetEmail === liveEmail);
       const isIndividualForMe = isForMeByUid || isForMeByEmail;
 
-      // Se possui destinatário específico que NÃO é este estudante, nunca exibir
       if ((targetUid || targetEmail) && !isIndividualForMe) {
         return { keep: false, scope: 'individual' };
       }
 
-      // Nunca vazar avisos internos de admin/produtor para aluno
       if (!isIndividualForMe && ADMIN_ONLY_TYPES.has(notifType)) {
         return { keep: false, scope: 'collective' };
       }
 
       if (isIndividualForMe) {
-        // Notificação de pagamento submetido pertence ao painel de admin/produtor, não ao estudante
         if (notifType === 'payment_submitted' || notifType === 'new_student' || notifType === 'new_producer' || notifType === 'doubt') {
           return { keep: false, scope: 'individual' };
         }
         return { keep: true, scope: 'individual' };
       }
 
-      // Coletivas para alunos
       if (notifType === 'new_lesson' || notifType === 'new_module') {
         const courseId = data.metadata?.courseId;
         if (!courseId || !liveEnrolledCourses.includes(courseId)) {
@@ -1063,7 +1158,7 @@ export const subscribeToNotifications = (
       });
 
       result.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
-      const sliced = result.slice(0, 80);
+      const sliced = result.slice(0, 60);
 
       if (initialBurstDone && newlyAddedDocs.length > 0) {
         newlyAddedDocs.forEach(({ id, data }) => {
@@ -1102,7 +1197,9 @@ export const subscribeToNotifications = (
         });
       }
 
-      onUpdate(sliced);
+      if (channel) {
+        broadcast(channel, sliced);
+      }
     };
 
     const timer = setTimeout(() => {
@@ -1110,6 +1207,8 @@ export const subscribeToNotifications = (
     }, 1200);
 
     const handleSnapIntoMap = (targetMap: Map<string, any>) => (snapshot: any) => {
+      const readDelta = typeof snapshot?.docChanges === 'function' ? snapshot.docChanges().length : 0;
+      if (readDelta > 0) recordMeteredFirestoreReads(readDelta);
       targetMap.clear();
       const added: Array<{ id: string; data: any }> = [];
       snapshot.forEach((docSnap: any) => {
@@ -1125,7 +1224,6 @@ export const subscribeToNotifications = (
       emitMerged(added);
     };
 
-    // Escuta perfil do aluno para manter cursos matriculados e e-mail sempre sincronizados
     const unsubUserDoc = onSnapshot(
       doc(db, 'users', resolvedUid),
       (snap) => {
@@ -1141,10 +1239,11 @@ export const subscribeToNotifications = (
       () => {}
     );
 
-    // Escuta estado individual de leitura / ocultação do aluno
     const unsubStates = onSnapshot(
-      collection(db, 'users', resolvedUid, 'notificationStates'),
+      query(collection(db, 'users', resolvedUid, 'notificationStates'), limit(100)),
       (snap) => {
+        const readDelta = snap.docChanges().length;
+        if (readDelta > 0) recordMeteredFirestoreReads(readDelta);
         stateMap.clear();
         snap.forEach((docSnap) => {
           const sData = docSnap.data();
@@ -1157,48 +1256,87 @@ export const subscribeToNotifications = (
       },
       (err) => {
         console.warn('Erro ao ler estado de notificações do estudante:', err);
+        if (isQuotaExhaustedError(err)) markFirestoreQuotaExhausted();
       }
     );
 
     const unsubCollective = onSnapshot(
-      query(collection(db, 'notifications'), where('scope', '==', 'collective')),
+      query(collection(db, 'notifications'), where('scope', '==', 'collective'), limit(40)),
       handleSnapIntoMap(collectiveScopeDocs),
-      (err) => console.warn('Erro no listener de notificações coletivas:', err)
+      (err) => {
+        console.warn('Erro no listener de notificações coletivas:', err);
+        if (isQuotaExhaustedError(err)) markFirestoreQuotaExhausted();
+      }
     );
 
     const unsubLegacyAll = onSnapshot(
-      query(collection(db, 'notifications'), where('targetRole', '==', 'all')),
+      query(collection(db, 'notifications'), where('targetRole', '==', 'all'), limit(30)),
       handleSnapIntoMap(legacyAllDocs),
-      (err) => console.warn('Erro no listener de notificações globais:', err)
+      (err) => {
+        console.warn('Erro no listener de notificações globais:', err);
+        if (isQuotaExhaustedError(err)) markFirestoreQuotaExhausted();
+      }
     );
 
     const unsubUserTargeted = onSnapshot(
-      query(collection(db, 'notifications'), where('targetUserId', '==', resolvedUid)),
+      query(collection(db, 'notifications'), where('targetUserId', '==', resolvedUid), limit(50)),
       handleSnapIntoMap(userTargetedDocs),
-      (err) => console.warn('Erro no listener de notificações individuais:', err)
+      (err) => {
+        console.warn('Erro no listener de notificações individuais:', err);
+        if (isQuotaExhaustedError(err)) markFirestoreQuotaExhausted();
+      }
     );
 
     let unsubEmailTargeted = () => {};
     if (liveEmail) {
       unsubEmailTargeted = onSnapshot(
-        query(collection(db, 'notifications'), where('targetEmail', '==', liveEmail)),
+        query(collection(db, 'notifications'), where('targetEmail', '==', liveEmail), limit(50)),
         handleSnapIntoMap(emailTargetedDocs),
         () => {}
       );
     }
 
+    channel = {
+      latest: null,
+      subscribers,
+      teardownTimer: null,
+      updateStudentOptions: (opts) => {
+        if (opts?.userEmail && !liveEmail) {
+          liveEmail = String(opts.userEmail).trim().toLowerCase();
+        }
+        if (Array.isArray(opts?.enrolledCourseIds) && opts.enrolledCourseIds.length > liveEnrolledCourses.length) {
+          liveEnrolledCourses = normalizeEnrolledCourses(opts.enrolledCourseIds);
+        }
+      },
+      stopFirestore: () => {
+        clearTimeout(timer);
+        unsubUserDoc();
+        unsubStates();
+        unsubCollective();
+        unsubLegacyAll();
+        unsubUserTargeted();
+        unsubEmailTargeted();
+      },
+    };
+    notifChannels.set(channelKey, channel);
+
     return () => {
-      clearTimeout(timer);
-      unsubUserDoc();
-      unsubStates();
-      unsubCollective();
-      unsubLegacyAll();
-      unsubUserTargeted();
-      unsubEmailTargeted();
+      const currentChannel = notifChannels.get(channelKey);
+      if (!currentChannel) return;
+      currentChannel.subscribers.delete(onUpdate);
+      if (currentChannel.subscribers.size === 0 && !currentChannel.teardownTimer) {
+        currentChannel.teardownTimer = setTimeout(() => {
+          const ch = notifChannels.get(channelKey);
+          if (ch && ch.subscribers.size === 0) {
+            ch.stopFirestore();
+            notifChannels.delete(channelKey);
+          }
+        }, NOTIF_KEEP_ALIVE_MS);
+      }
     };
   }
 
-  // Fluxo de Admin e Produtor
+  // Fluxo de Admin e Produtor (multiplexado + limite reduzido de 60 -> 40)
   let initialLoad = true;
   let initialBurstDone = false;
   const seenAdminIds = new Set<string>();
@@ -1206,7 +1344,7 @@ export const subscribeToNotifications = (
     initialBurstDone = true;
   }, 1200);
 
-  const q = query(collection(db, 'notifications'), orderBy('createdAt', 'desc'), limit(60));
+  const q = query(collection(db, 'notifications'), orderBy('createdAt', 'desc'), limit(40));
 
   const shouldIncludeDocForAdminOrProducer = (data: any): boolean => {
     const docRole = data.targetRole || 'all';
@@ -1217,7 +1355,6 @@ export const subscribeToNotifications = (
     const targetEmail = data.targetEmail || data.metadata?.targetEmail;
 
     if (isAdmin) {
-      // O administrador não deve receber notificações enviadas PARA alunos (respostas de chat, liberações individuais, etc.)
       const isOutgoingStudentIndividual =
         docRole === 'student' &&
         (data.scope === 'individual' ||
@@ -1249,6 +1386,12 @@ export const subscribeToNotifications = (
   const unsubSnapshot = onSnapshot(
     q,
     (snapshot) => {
+      if (initialLoad) {
+        recordMeteredFirestoreReads(Math.max(1, snapshot.size));
+      } else {
+        const delta = snapshot.docChanges().length;
+        if (delta > 0) recordMeteredFirestoreReads(delta);
+      }
       const notifs: SystemNotification[] = [];
 
       snapshot.forEach((docSnap) => {
@@ -1309,16 +1452,40 @@ export const subscribeToNotifications = (
       }
 
       initialLoad = false;
-      onUpdate(notifs);
+      if (channel) {
+        broadcast(channel, notifs);
+      }
     },
     (error) => {
       console.error('Erro no listener de notificações:', error);
+      if (isQuotaExhaustedError(error)) markFirestoreQuotaExhausted();
     }
   );
 
+  channel = {
+    latest: null,
+    subscribers,
+    teardownTimer: null,
+    stopFirestore: () => {
+      clearTimeout(burstTimer);
+      unsubSnapshot();
+    },
+  };
+  notifChannels.set(channelKey, channel);
+
   return () => {
-    clearTimeout(burstTimer);
-    unsubSnapshot();
+    const currentChannel = notifChannels.get(channelKey);
+    if (!currentChannel) return;
+    currentChannel.subscribers.delete(onUpdate);
+    if (currentChannel.subscribers.size === 0 && !currentChannel.teardownTimer) {
+      currentChannel.teardownTimer = setTimeout(() => {
+        const ch = notifChannels.get(channelKey);
+        if (ch && ch.subscribers.size === 0) {
+          ch.stopFirestore();
+          notifChannels.delete(channelKey);
+        }
+      }, NOTIF_KEEP_ALIVE_MS);
+    }
   };
 };
 
@@ -1529,165 +1696,186 @@ export const generateDailyAdminSummaryNotification = async (scheduledTime: strin
   }
 };
 
+let studentRemindersInFlight: Promise<void> | null = null;
+
 export const triggerAutomaticStudentReminders = async () => {
-  try {
-    const todayStr = new Date().toISOString().split('T')[0];
-    const lastReminderKey = `lastStudentRemindersRun_${todayStr}`;
-    if (typeof localStorage !== 'undefined' && localStorage.getItem(lastReminderKey)) return;
+  const todayStr = new Date().toISOString().split('T')[0];
+  const lastReminderKey = `lastStudentRemindersRun_${todayStr}`;
+  if (typeof localStorage !== 'undefined' && localStorage.getItem(lastReminderKey)) return;
+  if (studentRemindersInFlight) return studentRemindersInFlight;
 
-    const usersSnap = await getDocs(
-      query(collection(db, 'users'), where('subscriptionStatus', '==', 'pending_approval'))
-    );
-    let pendingCount = 0;
+  studentRemindersInFlight = (async () => {
+    try {
+      const usersSnap = await getDocs(
+        query(collection(db, 'users'), where('subscriptionStatus', '==', 'pending_approval'))
+      );
+      let pendingCount = 0;
 
-    usersSnap.forEach(() => {
-      pendingCount++;
-    });
+      usersSnap.forEach(() => {
+        pendingCount++;
+      });
 
-    if (pendingCount > 0) {
       if (typeof localStorage !== 'undefined') {
         localStorage.setItem(lastReminderKey, 'done');
       }
-      await sendSystemNotification({
-        type: 'general',
-        scope: 'admin',
-        title: '⏳ Lembrete Automático: Regularização Pendente',
-        message: `Aviso do Sistema: Existem ${pendingCount} cadastro(s) aguardando validação de comprovativo ou regularização do plano.`,
-        link: '/directory',
-        targetRole: 'admin',
-        metadata: { isAutomaticReminder: true, pendingCount },
-      });
+
+      if (pendingCount > 0) {
+        await sendSystemNotification({
+          type: 'general',
+          scope: 'admin',
+          title: '⏳ Lembrete Automático: Regularização Pendente',
+          message: `Aviso do Sistema: Existem ${pendingCount} cadastro(s) aguardando validação de comprovativo ou regularização do plano.`,
+          link: '/directory',
+          targetRole: 'admin',
+          metadata: { isAutomaticReminder: true, pendingCount },
+        });
+      }
+    } catch (err) {
+      console.warn('Erro ao verificar lembretes automáticos:', err);
+    } finally {
+      studentRemindersInFlight = null;
     }
-  } catch (err) {
-    console.warn('Erro ao verificar lembretes automáticos:', err);
-  }
+  })();
+
+  return studentRemindersInFlight;
 };
 
+let producerBillingInFlight: Promise<void> | null = null;
+
 export const triggerAutomatedProducerBillingReminders = async () => {
-  try {
-    const todayStr = new Date().toISOString().split('T')[0];
-    const runKey = `lastProducerBillingRun_${todayStr}`;
+  const todayStr = new Date().toISOString().split('T')[0];
+  const runKey = `lastProducerBillingRun_${todayStr}`;
 
-    if (typeof localStorage !== 'undefined' && localStorage.getItem(runKey)) {
-      return;
-    }
-
-    const usersSnap = await getDocs(query(collection(db, 'users')));
-
-    for (const userDoc of usersSnap.docs) {
-      const u = userDoc.data();
-      const isProducer = u.role === 'producer' || u.roleType === 'producer';
-      if (!isProducer) continue;
-
-      const plan = u.producerPlan || 'monthly';
-
-      let expiresAtMs: number | null = null;
-      if (u.producerPlanExpiresAt) {
-        expiresAtMs = u.producerPlanExpiresAt.toMillis
-          ? u.producerPlanExpiresAt.toMillis()
-          : new Date(u.producerPlanExpiresAt).getTime();
-      } else if (u.producerPlanSelectedAt || u.updatedAt || u.createdAt) {
-        const startDate = new Date(u.producerPlanSelectedAt || u.updatedAt || u.createdAt).getTime();
-        const cycleDays = plan === 'quarterly' || plan === 'semiannual' ? 90 : 30;
-        expiresAtMs = startDate + cycleDays * 24 * 60 * 60 * 1000;
-      }
-
-      if (!expiresAtMs || isNaN(expiresAtMs)) continue;
-
-      const nowMs = Date.now();
-      const diffMs = expiresAtMs - nowMs;
-      const daysRemaining = Math.ceil(diffMs / (24 * 60 * 60 * 1000));
-
-      let reminderTitle = '';
-      let reminderMessage = '';
-      let stageKey = '';
-
-      if (plan === 'monthly') {
-        if (daysRemaining === 10) {
-          stageKey = 'monthly_10d';
-          reminderTitle = '⏳ Lembrete de Cobrança: Plano Mensal (10 Dias)';
-          reminderMessage =
-            'Aviso Money Building: Daqui a 10 dias será cobrada a taxa mensal do seu plano de produtor (3.500 Kz). Mantenha a sua conta regularizada.';
-        } else if (daysRemaining === 5) {
-          stageKey = 'monthly_5d';
-          reminderTitle = '⚠️ Lembrete de Cobrança: 5 Dias Restantes (Plano Mensal)';
-          reminderMessage =
-            'Aviso Money Building: Daqui a 5 dias vence a taxa mensal do seu plano de produtor (3.500 Kz). Prepare o comprovativo para envio.';
-        } else if (daysRemaining === 3 || daysRemaining === 2) {
-          stageKey = `monthly_${daysRemaining}d`;
-          reminderTitle = `🚨 Aviso de Vencimento Próximo: Faltam ${daysRemaining} Dias`;
-          reminderMessage = `Atenção: Faltam apenas ${daysRemaining} dias para o vencimento da taxa do seu plano mensal de produtor. Regularize o pagamento para evitar interrupções.`;
-        } else if (daysRemaining === 0) {
-          stageKey = 'monthly_due';
-          reminderTitle = '🛑 Prazo Encerrado: Cobrança do Plano Mensal de Produtor';
-          reminderMessage =
-            'Aviso Importante: Hoje terminou o prazo do seu plano mensal de produtor Money Building (3.500 Kz). Se ainda não efetuou o pagamento, por favor regularize o pagamento e envie o comprovativo.';
-        }
-      } else {
-        if (daysRemaining === 30) {
-          stageKey = 'quarterly_30d';
-          reminderTitle = '📅 Notificação: Início do Último Mês (Plano Trimestral)';
-          reminderMessage =
-            'Aviso Money Building: Entrou no último mês da sua assinatura trimestral de produtor. No final deste mês será cobrada a taxa de renovação (7.000 Kz).';
-        } else if (daysRemaining === 15) {
-          stageKey = 'quarterly_15d';
-          reminderTitle = '⏳ Lembrete de Cobrança: 15 Dias Restantes (Plano Trimestral)';
-          reminderMessage =
-            'Aviso Money Building: Faltam 15 dias para o vencimento do seu plano trimestral de produtor (7.000 Kz).';
-        } else if (daysRemaining === 10) {
-          stageKey = 'quarterly_10d';
-          reminderTitle = '⏳ Lembrete de Cobrança: 10 Dias Restantes (Plano Trimestral)';
-          reminderMessage =
-            'Aviso Money Building: Faltam 10 dias para a cobrança da taxa do seu plano trimestral de produtor (7.000 Kz).';
-        } else if (daysRemaining === 5) {
-          stageKey = 'quarterly_5d';
-          reminderTitle = '⚠️ Lembrete Urgente: 5 Dias Restantes (Plano Trimestral)';
-          reminderMessage =
-            'Aviso Money Building: Faltam apenas 5 dias para o vencimento da taxa do seu plano trimestral de produtor (7.000 Kz).';
-        } else if (daysRemaining === 0) {
-          stageKey = 'quarterly_due';
-          reminderTitle = '🛑 Prazo Encerrado: Cobrança do Plano Trimestral de Produtor';
-          reminderMessage =
-            'Aviso Importante: Hoje é o último dia do seu plano trimestral de produtor Money Building (7.000 Kz). Caso ainda não tenha efetuado o pagamento, por favor regularize o pagamento imediatamente.';
-        }
-      }
-
-      if (stageKey && reminderTitle) {
-        const notifCheckQuery = query(
-          collection(db, 'notifications'),
-          where('targetUserId', '==', userDoc.id),
-          where('metadata.stageKey', '==', stageKey),
-          where('metadata.dateStr', '==', todayStr)
-        );
-        const existingSnap = await getDocs(notifCheckQuery);
-
-        if (existingSnap.empty) {
-          await sendSystemNotification({
-            type: 'general',
-            scope: 'individual',
-            title: reminderTitle,
-            message: reminderMessage,
-            link: '/settings',
-            targetRole: 'producer',
-            targetUserId: userDoc.id,
-            targetEmail: u.email || null,
-            metadata: {
-              isAutomatedProducerBilling: true,
-              producerUid: userDoc.id,
-              producerPlan: plan,
-              daysRemaining,
-              stageKey,
-              dateStr: todayStr,
-            },
-          });
-        }
-      }
-    }
-
-    if (typeof localStorage !== 'undefined') {
-      localStorage.setItem(runKey, 'done');
-    }
-  } catch (err) {
-    console.warn('Erro na verificação de cobrança automática de produtores:', err);
+  if (typeof localStorage !== 'undefined' && localStorage.getItem(runKey)) {
+    return;
   }
+  if (producerBillingInFlight) return producerBillingInFlight;
+
+  producerBillingInFlight = (async () => {
+    try {
+      const usersSnap = await getDocs(
+        query(collection(db, 'users'), where('role', 'in', ['producer', 'admin']))
+      );
+
+      if (typeof localStorage !== 'undefined') {
+        localStorage.setItem(runKey, 'done');
+      }
+
+      for (const userDoc of usersSnap.docs) {
+        const u = userDoc.data();
+        const isProducer = u.role === 'producer' || u.roleType === 'producer';
+        if (!isProducer) continue;
+
+        const plan = u.producerPlan || 'monthly';
+
+        let expiresAtMs: number | null = null;
+        if (u.producerPlanExpiresAt) {
+          expiresAtMs = u.producerPlanExpiresAt.toMillis
+            ? u.producerPlanExpiresAt.toMillis()
+            : new Date(u.producerPlanExpiresAt).getTime();
+        } else if (u.producerPlanSelectedAt || u.updatedAt || u.createdAt) {
+          const startDate = new Date(u.producerPlanSelectedAt || u.updatedAt || u.createdAt).getTime();
+          const cycleDays = plan === 'quarterly' || plan === 'semiannual' ? 90 : 30;
+          expiresAtMs = startDate + cycleDays * 24 * 60 * 60 * 1000;
+        }
+
+        if (!expiresAtMs || isNaN(expiresAtMs)) continue;
+
+        const nowMs = Date.now();
+        const diffMs = expiresAtMs - nowMs;
+        const daysRemaining = Math.ceil(diffMs / (24 * 60 * 60 * 1000));
+
+        let reminderTitle = '';
+        let reminderMessage = '';
+        let stageKey = '';
+
+        if (plan === 'monthly') {
+          if (daysRemaining === 10) {
+            stageKey = 'monthly_10d';
+            reminderTitle = '⏳ Lembrete de Cobrança: Plano Mensal (10 Dias)';
+            reminderMessage =
+              'Aviso Money Building: Daqui a 10 dias será cobrada a taxa mensal do seu plano de produtor (3.500 Kz). Mantenha a sua conta regularizada.';
+          } else if (daysRemaining === 5) {
+            stageKey = 'monthly_5d';
+            reminderTitle = '⚠️ Lembrete de Cobrança: 5 Dias Restantes (Plano Mensal)';
+            reminderMessage =
+              'Aviso Money Building: Daqui a 5 dias vence a taxa mensal do seu plano de produtor (3.500 Kz). Prepare o comprovativo para envio.';
+          } else if (daysRemaining === 3 || daysRemaining === 2) {
+            stageKey = `monthly_${daysRemaining}d`;
+            reminderTitle = `🚨 Aviso de Vencimento Próximo: Faltam ${daysRemaining} Dias`;
+            reminderMessage = `Atenção: Faltam apenas ${daysRemaining} dias para o vencimento da taxa do seu plano mensal de produtor. Regularize o pagamento para evitar interrupções.`;
+          } else if (daysRemaining === 0) {
+            stageKey = 'monthly_due';
+            reminderTitle = '🛑 Prazo Encerrado: Cobrança do Plano Mensal de Produtor';
+            reminderMessage =
+              'Aviso Importante: Hoje terminou o prazo do seu plano mensal de produtor Money Building (3.500 Kz). Se ainda não efetuou o pagamento, por favor regularize o pagamento e envie o comprovativo.';
+          }
+        } else {
+          if (daysRemaining === 30) {
+            stageKey = 'quarterly_30d';
+            reminderTitle = '📅 Notificação: Início do Último Mês (Plano Trimestral)';
+            reminderMessage =
+              'Aviso Money Building: Entrou no último mês da sua assinatura trimestral de produtor. No final deste mês será cobrada a taxa de renovação (7.000 Kz).';
+          } else if (daysRemaining === 15) {
+            stageKey = 'quarterly_15d';
+            reminderTitle = '⏳ Lembrete de Cobrança: 15 Dias Restantes (Plano Trimestral)';
+            reminderMessage =
+              'Aviso Money Building: Faltam 15 dias para o vencimento do seu plano trimestral de produtor (7.000 Kz).';
+          } else if (daysRemaining === 10) {
+            stageKey = 'quarterly_10d';
+            reminderTitle = '⏳ Lembrete de Cobrança: 10 Dias Restantes (Plano Trimestral)';
+            reminderMessage =
+              'Aviso Money Building: Faltam 10 dias para a cobrança da taxa do seu plano trimestral de produtor (7.000 Kz).';
+          } else if (daysRemaining === 5) {
+            stageKey = 'quarterly_5d';
+            reminderTitle = '⚠️ Lembrete Urgente: 5 Dias Restantes (Plano Trimestral)';
+            reminderMessage =
+              'Aviso Money Building: Faltam apenas 5 dias para o vencimento da taxa do seu plano trimestral de produtor (7.000 Kz).';
+          } else if (daysRemaining === 0) {
+            stageKey = 'quarterly_due';
+            reminderTitle = '🛑 Prazo Encerrado: Cobrança do Plano Trimestral de Produtor';
+            reminderMessage =
+              'Aviso Importante: Hoje é o último dia do seu plano trimestral de produtor Money Building (7.000 Kz). Caso ainda não tenha efetuado o pagamento, por favor regularize o pagamento imediatamente.';
+          }
+        }
+
+        if (stageKey && reminderTitle) {
+          const notifCheckQuery = query(
+            collection(db, 'notifications'),
+            where('targetUserId', '==', userDoc.id),
+            where('metadata.stageKey', '==', stageKey),
+            where('metadata.dateStr', '==', todayStr)
+          );
+          const existingSnap = await getDocs(notifCheckQuery);
+
+          if (existingSnap.empty) {
+            await sendSystemNotification({
+              type: 'general',
+              scope: 'individual',
+              title: reminderTitle,
+              message: reminderMessage,
+              link: '/settings',
+              targetRole: 'producer',
+              targetUserId: userDoc.id,
+              targetEmail: u.email || null,
+              metadata: {
+                isAutomatedProducerBilling: true,
+                producerUid: userDoc.id,
+                producerPlan: plan,
+                daysRemaining,
+                stageKey,
+                dateStr: todayStr,
+              },
+            });
+          }
+        }
+      }
+    } catch (err) {
+      console.warn('Erro na verificação de cobrança automática de produtores:', err);
+    } finally {
+      producerBillingInFlight = null;
+    }
+  })();
+
+  return producerBillingInFlight;
 };

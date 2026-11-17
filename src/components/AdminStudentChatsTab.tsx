@@ -16,8 +16,12 @@ import {
   Inbox,
   Megaphone,
 } from 'lucide-react';
-import { collection, onSnapshot } from 'firebase/firestore';
-import { auth, db } from '../firebase';
+import { auth } from '../firebase';
+import {
+  subscribeSharedCourses,
+  subscribeSharedTransactions,
+  subscribeSharedUsers,
+} from '../services/sharedFirestoreStore';
 import GroupMessageModal, { GroupCourseOption } from './GroupMessageModal';
 import { isMasterEmail } from '../utils/constants';
 import { maskEmail, maskPhone } from '../utils/maskUtils';
@@ -27,6 +31,7 @@ import {
   getChatDayKey,
 } from '../utils/chatHelpers';
 import { useSafeSubmitGuard } from '../utils/messageSendSafety';
+import { LinkifiedText } from './LinkifiedText';
 import {
   ChatMessage,
   ChatThread,
@@ -186,25 +191,23 @@ export default function AdminStudentChatsTab({
       setLoadingThreads(false);
     });
 
-    const unsubUsers = onSnapshot(
-      collection(db, 'users'),
-      (snap) => {
+    const unsubUsers = subscribeSharedUsers(
+      (rawUsers) => {
         const list: ContactOption[] = [];
-        snap.forEach((docSnap) => {
-          const u = docSnap.data();
+        rawUsers.forEach((u) => {
           const email = String(u.email || '').trim().toLowerCase();
           const isMaster = isMasterEmail(email);
           const isAdminRole = u.role === 'admin' || u.roleType === 'admin';
           if (isMaster || isAdminRole) return;
 
-          const phone = extractStudentPhoneString({ id: docSnap.id, ...u });
+          const phone = extractStudentPhoneString({ id: u.id, ...u });
           const enrolledCourses = Array.isArray(u.enrolledCourses)
             ? u.enrolledCourses.map((c: any) => String(c))
             : [];
           const enrolledCount = enrolledCourses.length;
 
           list.push({
-            id: docSnap.id,
+            id: u.id,
             name: getStudentDisplayName(u),
             email,
             phone,
@@ -221,15 +224,13 @@ export default function AdminStudentChatsTab({
       }
     );
 
-    const unsubCourses = onSnapshot(
-      collection(db, 'courses'),
-      (snap) => {
+    const unsubCourses = subscribeSharedCourses(
+      (rawCourses) => {
         const list: GroupCourseOption[] = [];
-        snap.forEach((docSnap) => {
-          const c = docSnap.data();
+        rawCourses.forEach((c) => {
           if (c?.title) {
             list.push({
-              id: docSnap.id,
+              id: c.id,
               title: String(c.title),
               category: c.category ? String(c.category) : undefined,
             });
@@ -243,12 +244,10 @@ export default function AdminStudentChatsTab({
       }
     );
 
-    const unsubTransactions = onSnapshot(
-      collection(db, 'transactions'),
-      (snap) => {
+    const unsubTransactions = subscribeSharedTransactions(
+      (rawTransactions) => {
         const map = new Map<string, ContactOption>();
-        snap.forEach((docSnap) => {
-          const tx = docSnap.data();
+        rawTransactions.forEach((tx) => {
           const rawPhone = String(tx.userPhone || '').trim();
           const cleanEmail = normalizeContactEmail(tx.userEmail);
           const rawUserId = String(tx.userId || '').trim();
@@ -258,7 +257,7 @@ export default function AdminStudentChatsTab({
           const preId = buildPreRegisteredChatId({
             email: cleanEmail,
             phone: rawPhone,
-            fallbackKey: rawUserId || docSnap.id,
+            fallbackKey: rawUserId || tx.id,
           });
 
           if (!map.has(preId)) {
@@ -1050,9 +1049,15 @@ export default function AdminStudentChatsTab({
                               </div>
                             )}
 
-                            <p className="text-xs sm:text-sm leading-relaxed whitespace-pre-wrap break-words">
-                              {msg.text}
-                            </p>
+                            <LinkifiedText
+                              text={msg.text}
+                              className="text-xs sm:text-sm"
+                              linkClassName={
+                                isAdminMsg
+                                  ? 'text-black font-bold underline decoration-black/80 hover:opacity-75'
+                                  : 'text-[#e9c349] font-semibold underline decoration-[#e9c349]/80 hover:text-[#f5d76e]'
+                              }
+                            />
                           </div>
                         </div>
                       </React.Fragment>

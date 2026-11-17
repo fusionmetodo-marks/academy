@@ -1,12 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import { Plus, Edit, Trash2, MoreVertical, Copy, BookOpen, Layers, X, Check, Globe, Lock, AlertTriangle, ExternalLink, Image as ImageIcon, DollarSign, ClipboardPaste, Tag, Briefcase, TrendingUp, GraduationCap, ShieldCheck, FileText, ArrowRight } from 'lucide-react';
-import { collection, onSnapshot, doc, deleteDoc, setDoc, updateDoc, getDoc, serverTimestamp } from 'firebase/firestore';
+import { doc, deleteDoc, setDoc, updateDoc, getDoc, serverTimestamp } from 'firebase/firestore';
 import { db, auth } from '../firebase';
 import { isMasterEmail } from '../utils/constants';
 import { notifyNewCourse } from '../services/notificationService';
 import { Coupon } from '../types';
 import { subscribeCoupons, getCourseDiscountInfo } from '../utils/discountUtils';
 import { getCourseLevelOrder, sortCoursesByLevel } from '../utils/courseSorting';
+import { getCachedUserProfile, subscribeSharedCourses } from '../services/sharedFirestoreStore';
 
 interface CourseItem {
   id: string;
@@ -198,7 +199,7 @@ export default function CoursesList({ onSelectCourse }: CoursesListProps) {
   };
 
   useEffect(() => {
-    const unsubCourses = onSnapshot(collection(db, 'courses'), async (querySnapshot) => {
+    const unsubCourses = subscribeSharedCourses(async (rawCourses) => {
       const currentUser = auth.currentUser;
       const cleanEmail = currentUser?.email?.trim().toLowerCase() || '';
       const isMaster = isMasterEmail(cleanEmail);
@@ -207,9 +208,8 @@ export default function CoursesList({ onSelectCourse }: CoursesListProps) {
       let userProducerName = '';
       if (currentUser) {
         try {
-          const uSnap = await getDoc(doc(db, 'users', currentUser.uid));
-          if (uSnap.exists()) {
-            const uData = uSnap.data();
+          const uData = await getCachedUserProfile(currentUser.uid);
+          if (uData) {
             userRole = uData.role || uData.roleType || 'student';
             userProducerName = (uData.producerName || `${uData.firstName || ''} ${uData.lastName || ''}`).trim();
           }
@@ -219,25 +219,22 @@ export default function CoursesList({ onSelectCourse }: CoursesListProps) {
       }
 
       const list: CourseItem[] = [];
-      querySnapshot.forEach((docSnap) => {
-        const data = docSnap.data();
-        
-        // Se for produtor (e não Master Admin), deve ver APENAS os seus próprios cursos
+      rawCourses.forEach((data) => {
         if (!isMaster && (userRole === 'producer' || userRole === 'admin')) {
           const isMyCourse = 
             (data.authorId && (data.authorId === currentUser?.uid || data.authorId === currentUser?.email)) ||
             (data.producerName && userProducerName && data.producerName.toLowerCase() === userProducerName.toLowerCase());
           
-          if (!isMyCourse) return; // ignora cursos de outros produtores ou do admin master
+          if (!isMyCourse) return;
         }
 
         const detectedOrder = getCourseLevelOrder(data);
         if (isMaster && data.order !== detectedOrder) {
-          updateDoc(doc(db, 'courses', docSnap.id), { order: detectedOrder }).catch(() => null);
+          updateDoc(doc(db, 'courses', data.id), { order: detectedOrder }).catch(() => null);
         }
 
         list.push({
-          id: docSnap.id,
+          id: data.id,
           title: data.title || 'Curso Sem Título',
           price: Number(data.price) || 0,
           status: (data.isPublished ?? data.status === 'published') ? 'published' : 'draft',

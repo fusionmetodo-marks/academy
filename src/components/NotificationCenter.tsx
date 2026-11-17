@@ -32,10 +32,17 @@ import {
   triggerAutomatedProducerBillingReminders,
   inferNotificationScope,
 } from '../services/notificationService';
-import { doc, getDoc } from 'firebase/firestore';
-import { db, auth } from '../firebase';
+import { auth } from '../firebase';
+import { getCachedDocument } from '../services/sharedFirestoreStore';
+import {
+  getQuotaState,
+  isQuotaExhaustedError,
+  markFirestoreQuotaExhausted,
+} from '../services/firestoreQuotaService';
 import { useNavigate } from 'react-router-dom';
 import { slugify } from '../utils/slugify';
+
+let activeAdminSchedulerToken: symbol | null = null;
 
 interface NotificationCenterProps {
   userRole?: 'admin' | 'student' | 'producer' | 'all';
@@ -81,16 +88,31 @@ export const NotificationCenter: React.FC<NotificationCenterProps> = ({
     return () => unsub();
   }, [userRole, resolvedUserId]);
 
-  // Scheduler exclusivo para administradores
+  // Scheduler exclusivo para administradores (singleton global para evitar execução duplicada no header mobile + desktop)
   useEffect(() => {
     if (userRole !== 'admin') return;
 
+    const myToken = Symbol('adminScheduler');
+    if (activeAdminSchedulerToken !== null) {
+      return;
+    }
+    activeAdminSchedulerToken = myToken;
+
     const checkScheduledTriggers = async () => {
       try {
+        const qState = getQuotaState();
+        if (
+          qState.pauseBackgroundSchedulers ||
+          qState.economyMode === 'emergency' ||
+          qState.quotaExhaustedDetected
+        ) {
+          return;
+        }
+
         let reportTime = '20:00';
-        const reportDoc = await getDoc(doc(db, 'settings', 'dailyReport'));
-        if (reportDoc.exists() && reportDoc.data().time) {
-          reportTime = reportDoc.data().time;
+        const reportData = await getCachedDocument<{ time?: string }>('settings', 'dailyReport', 15 * 60 * 1000);
+        if (reportData?.time) {
+          reportTime = reportData.time;
         }
 
         const now = new Date();
@@ -98,7 +120,7 @@ export const NotificationCenter: React.FC<NotificationCenterProps> = ({
         const currentM = now.getMinutes();
         const [targetH, targetM] = reportTime.split(':').map(Number);
 
-        if (currentH === targetH && currentM === targetM) {
+        if (currentH > targetH || (currentH === targetH && currentM >= targetM)) {
           const lastRunKey = `lastDailyReportDate_${reportTime}`;
           const lastRun = localStorage.getItem(lastRunKey);
           const todayStr = now.toISOString().split('T')[0];
@@ -113,13 +135,21 @@ export const NotificationCenter: React.FC<NotificationCenterProps> = ({
         await triggerAutomatedProducerBillingReminders();
       } catch (err) {
         console.warn('Erro no scheduler de notificações:', err);
+        if (isQuotaExhaustedError(err)) {
+          markFirestoreQuotaExhausted();
+        }
       }
     };
 
-    const scheduleInterval = setInterval(checkScheduledTriggers, 30000);
+    const scheduleInterval = setInterval(checkScheduledTriggers, 300_000);
     checkScheduledTriggers();
 
-    return () => clearInterval(scheduleInterval);
+    return () => {
+      clearInterval(scheduleInterval);
+      if (activeAdminSchedulerToken === myToken) {
+        activeAdminSchedulerToken = null;
+      }
+    };
   }, [userRole]);
 
   useEffect(() => {

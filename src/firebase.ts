@@ -13,7 +13,8 @@ import {
 } from 'firebase/auth';
 import { 
   initializeFirestore,
-  getFirestore,
+  persistentLocalCache,
+  persistentMultipleTabManager,
   setLogLevel,
   doc, 
   setDoc, 
@@ -40,19 +41,30 @@ setPersistence(auth, browserLocalPersistence).catch(() => {
   setPersistence(auth, inMemoryPersistence).catch(() => {});
 });
 
-// Firestore initialization with forced long polling to prevent gRPC stream timeouts in iframe preview
+// Firestore com cache local persistente em IndexedDB + long polling para máxima economia de leituras
 export const db = initializeFirestore(app, {
   experimentalForceLongPolling: true,
+  localCache: persistentLocalCache({
+    tabManager: persistentMultipleTabManager(),
+  }),
 }, firebaseConfig.firestoreDatabaseId);
 
 export const googleProvider = new GoogleAuthProvider();
 
-// Validate connection to Firestore on boot silently
+// Validate connection to Firestore on boot (at most once per browser session)
 async function testConnection() {
   try {
-    await getDoc(doc(db, 'settings', 'general')).catch(() => {});
+    if (typeof sessionStorage !== 'undefined' && sessionStorage.getItem('fs_conn_checked_v1')) {
+      return;
+    }
+    await getDocFromServer(doc(db, 'test', 'connection'));
+    if (typeof sessionStorage !== 'undefined') {
+      sessionStorage.setItem('fs_conn_checked_v1', '1');
+    }
   } catch (error) {
-    // Silent
+    if (error instanceof Error && error.message.includes('the client is offline')) {
+      console.error('Please check your Firebase configuration.');
+    }
   }
 }
 testConnection();

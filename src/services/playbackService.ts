@@ -205,7 +205,7 @@ export async function recordLessonPlayback(
 export function subscribeToLessonPlaybacks(
   onUpdate: (logs: LessonPlaybackLog[]) => void,
   onError?: (err: unknown) => void,
-  maxItems = 500
+  maxItems = 200
 ): () => void {
   const path = 'lessonPlaybacks';
   const playbacksQuery = query(
