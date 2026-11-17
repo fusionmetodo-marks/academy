@@ -890,7 +890,7 @@ export default function StudentPortal() {
         )}
 
         {currentView === 'chat' && (
-          <div className={`w-full ${isRealAdmin ? 'max-w-6xl' : 'max-w-4xl'} mx-auto px-3.5 sm:px-6 lg:px-8 pt-4 sm:pt-6`}>
+          <div className="w-full flex-1 flex flex-col p-0">
             {isRealAdmin ? (
               <AdminStudentChatsTab mode="full" initialChannel={initialChatChannel} />
             ) : (

@@ -482,6 +482,16 @@ export default function AdminStudentChatsTab({
     filterMode,
   ]);
 
+  const displayedThreads = useMemo(() => {
+    if (searchQuery.trim()) return filteredThreads;
+    return filteredThreads.slice(0, 10);
+  }, [filteredThreads, searchQuery]);
+
+  const displayedNewCandidates = useMemo(() => {
+    if (searchQuery.trim()) return newChatCandidates;
+    return newChatCandidates.slice(0, 10);
+  }, [newChatCandidates, searchQuery]);
+
   const modalFilteredStudents = useMemo(() => {
     const q = modalSearchQuery.trim().toLowerCase();
     return students.filter((s) => {
@@ -659,8 +669,8 @@ export default function AdminStudentChatsTab({
       <div
         className={
           isDrawer
-            ? 'h-[540px] max-h-[76vh] bg-[#141414] border border-[#e9c349]/30 rounded-3xl shadow-2xl flex flex-col overflow-hidden'
-            : 'bg-[#181818] border border-[#353534] rounded-3xl overflow-hidden shadow-xl grid grid-cols-1 lg:grid-cols-12 h-[660px]'
+            ? 'h-[540px] max-h-[76vh] bg-[#141414] border border-[#e9c349]/30 rounded-3xl shadow-2xl flex flex-col overflow-hidden w-full'
+            : 'bg-[#181818] border-0 sm:border border-[#353534] rounded-none overflow-hidden shadow-xl grid grid-cols-1 lg:grid-cols-12 h-[calc(100vh-64px)] sm:h-[calc(100vh-72px)] w-full flex-1'
         }
       >
         {/* Coluna Esquerda: Lista de Conversas e Alunos */}
@@ -834,7 +844,7 @@ export default function AdminStudentChatsTab({
               </div>
             ) : (
               <>
-                {filteredThreads.map((t) => {
+                {displayedThreads.map((t) => {
                   const isSelected = selectedStudentId === t.studentId;
                   const hasUnread = t.unreadByAdmin > 0;
                   const initial = (t.studentName?.[0] || 'E').toUpperCase();
@@ -909,6 +919,12 @@ export default function AdminStudentChatsTab({
                   );
                 })}
 
+                {!searchQuery.trim() && filteredThreads.length > 10 && (
+                  <div className="px-4 py-2.5 text-center text-[10px] text-stone-400 bg-[#0d0d0d] border-t border-[#353534]/50">
+                    Mostrando 10 de {filteredThreads.length} conversas. Use a pesquisa acima para encontrar as demais.
+                  </div>
+                )}
+
                 {filteredThreads.length === 0 && newChatCandidates.length === 0 && (
                   <div className="p-8 text-center text-xs text-stone-500">
                     Nenhuma conversa encontrada para os filtros atuais.
@@ -923,7 +939,7 @@ export default function AdminStudentChatsTab({
                       <span className="font-mono text-stone-400">{newChatCandidates.length}</span>
                     </div>
                     <div className="divide-y divide-[#353534]/40">
-                      {newChatCandidates.map((student) => {
+                      {displayedNewCandidates.map((student) => {
                         const isSelected = selectedStudentId === student.id;
                         const initial = (student.name?.[0] || 'E').toUpperCase();
                         const isEnrolled = student.enrolledCount >= 1;
@@ -971,6 +987,11 @@ export default function AdminStudentChatsTab({
                         );
                       })}
                     </div>
+                    {!searchQuery.trim() && newChatCandidates.length > 10 && (
+                      <div className="px-4 py-2 text-center text-[10px] text-stone-400 bg-[#0d0d0d] border-t border-[#353534]/50">
+                        Mostrando 10 de {newChatCandidates.length} contatos. Use a pesquisa acima para encontrar outros.
+                      </div>
+                    )}
                   </div>
                 )}
               </>
@@ -1121,7 +1142,7 @@ export default function AdminStudentChatsTab({
               )}
 
               {/* Lista de Mensagens */}
-              <div className="flex-1 overflow-y-auto px-4 sm:px-6 py-4 space-y-3 bg-[#0a0a0a]">
+              <div className="flex-1 overflow-y-auto px-4 sm:px-6 py-4 space-y-3 bg-[#0a0a0a] flex flex-col justify-end">
                 {loadingMessages ? (
                   <div className="h-full flex items-center justify-center text-xs text-stone-500">
                     Carregando histórico de mensagens...

@@ -7,6 +7,7 @@ import {
   Clock,
   Gift,
   Link2,
+  Lock,
   MessageSquare,
   Radio,
   ShieldCheck,
@@ -15,9 +16,13 @@ import {
   Users,
 } from 'lucide-react';
 import { useSearchParams } from 'react-router-dom';
-import { auth } from '../firebase';
+import { doc, getDoc, collection, getDocs } from 'firebase/firestore';
+import { auth, db } from '../firebase';
+import { isMasterEmail } from '../utils/constants';
+import { getCourseLevelOrder } from '../utils/courseSorting';
 import christmasBonusCoverImg from '../assets/images/christmas_bonus_cover_1794907721101.jpg';
 import ChristmasBonusAuthModal from './ChristmasBonusAuthModal';
+import { subscribeUserEnrollments } from '../services/enrollmentService';
 import {
   ChristmasBonusConfig,
   DEFAULT_CHRISTMAS_BONUS_CONFIG,
@@ -64,6 +69,44 @@ export default function StudentChristmasBonus({
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
   const autoJoinedOnceRef = useRef(false);
 
+  const [levelTwoCourseIds, setLevelTwoCourseIds] = useState<string[]>([]);
+  const [enrolledCourseIds, setEnrolledCourseIds] = useState<string[]>([]);
+  const [userRole, setUserRole] = useState<string>('student');
+
+  useEffect(() => {
+    getDocs(collection(db, 'courses')).then((snap) => {
+      const l2Ids: string[] = [];
+      snap.forEach((d) => {
+        const data = d.data();
+        const order = getCourseLevelOrder({ title: data.title, order: data.order });
+        if (order === 2 || (data.title && data.title.toLowerCase().includes('fusion'))) {
+          l2Ids.push(d.id);
+        }
+      });
+      setLevelTwoCourseIds(l2Ids);
+    }).catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    const user = auth.currentUser;
+    if (!user) {
+      setEnrolledCourseIds([]);
+      return;
+    }
+    const unsub = subscribeUserEnrollments(user, (enrollData) => {
+      setEnrolledCourseIds(enrollData.enrolledCourses || []);
+      if (enrollData.userProfile?.role) {
+        setUserRole(enrollData.userProfile.role);
+      }
+    });
+    return () => unsub();
+  }, [currentUserId]);
+
+  const isMaster = isMasterEmail(auth.currentUser?.email || studentEmail);
+  const isAdminOrProducer = isMaster || userRole === 'admin' || userRole === 'producer';
+  const hasLevelTwoCourse = enrolledCourseIds.some((id) => levelTwoCourseIds.includes(id));
+  const isLevelTwoUser = isAdminOrProducer || hasLevelTwoCourse;
+
   useEffect(() => {
     const unsubAuth = auth.onAuthStateChanged((u) => {
       setCurrentUserId(u?.uid || null);
@@ -91,6 +134,7 @@ export default function StudentChristmasBonus({
       setIsAuthModalOpen(true);
       return;
     }
+    if (!isLevelTwoUser) return;
     if (isJoiningRoom || isRoomMember) return;
 
     setIsJoiningRoom(true);
@@ -108,7 +152,7 @@ export default function StudentChristmasBonus({
     } finally {
       setIsJoiningRoom(false);
     }
-  }, [currentUserId, isJoiningRoom, isRoomMember, studentName, studentEmail]);
+  }, [currentUserId, isJoiningRoom, isRoomMember, studentName, studentEmail, isLevelTwoUser]);
 
   useEffect(() => {
     const shouldAutoJoin = searchParams.get('autoJoinRoom') === '1';
@@ -543,43 +587,63 @@ export default function StudentChristmasBonus({
                   </span>
                 </div>
 
-                {isRoomMember ? (
-                  <>
-                    <div className="flex items-start gap-2 text-emerald-300 text-xs leading-relaxed">
-                      <CheckCircle2 className="w-4 h-4 shrink-0 mt-0.5" />
-                      <span>
-                        Você aderiu à sala. Acompanhe o contador e a liberação oficial diretamente na sua aba <strong>Mensagens</strong>.
-                      </span>
-                    </div>
+                {isLevelTwoUser ? (
+                  isRoomMember ? (
+                    <>
+                      <div className="flex items-start gap-2 text-emerald-300 text-xs leading-relaxed">
+                        <CheckCircle2 className="w-4 h-4 shrink-0 mt-0.5" />
+                        <span>
+                          Você aderiu à sala. Acompanhe o contador e a liberação oficial diretamente na sua aba <strong>Mensagens</strong>.
+                        </span>
+                      </div>
 
-                    {onOpenLiveRoomMessages && (
+                      {onOpenLiveRoomMessages && (
+                        <button
+                          type="button"
+                          id="btn-go-live-room-messages"
+                          onClick={onOpenLiveRoomMessages}
+                          className="w-full py-3.5 px-5 rounded-xl bg-[#e9c349] hover:bg-[#d4b03f] text-black font-black text-xs sm:text-sm transition-all shadow-lg shadow-[#e9c349]/20 flex items-center justify-center gap-2 cursor-pointer whitespace-nowrap"
+                        >
+                          <MessageSquare className="w-4 h-4" />
+                          <span>Ir para Mensagens (Acompanhar Sala)</span>
+                        </button>
+                      )}
+                    </>
+                  ) : (
+                    <>
+                      <p className="text-stone-300 text-xs leading-relaxed">
+                        Garanta a sua vaga na sala de espera oficial. Quando o administrador liberar a sala, receberá os links e orientações diretamente em Mensagens.
+                      </p>
                       <button
                         type="button"
-                        id="btn-go-live-room-messages"
-                        onClick={onOpenLiveRoomMessages}
-                        className="w-full py-3.5 px-5 rounded-xl bg-[#e9c349] hover:bg-[#d4b03f] text-black font-black text-xs sm:text-sm transition-all shadow-lg shadow-[#e9c349]/20 flex items-center justify-center gap-2 cursor-pointer whitespace-nowrap"
+                        id="btn-join-christmas-live-room"
+                        onClick={handleJoinLiveRoom}
+                        disabled={isJoiningRoom}
+                        className="w-full py-3.5 px-5 rounded-xl bg-[#e9c349] hover:bg-[#d4b03f] text-black font-black text-xs sm:text-sm transition-all shadow-lg shadow-[#e9c349]/20 flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50 whitespace-nowrap"
                       >
-                        <MessageSquare className="w-4 h-4" />
-                        <span>Ir para Mensagens (Acompanhar Sala)</span>
+                        <Radio className="w-4 h-4" />
+                        <span>{isJoiningRoom ? 'Confirmando adesão...' : 'Aderir à Sala Ao Vivo'}</span>
                       </button>
-                    )}
-                  </>
+                    </>
+                  )
                 ) : (
-                  <>
+                  <div className="p-3.5 rounded-2xl bg-amber-500/10 border border-amber-500/30 space-y-2.5">
+                    <div className="flex items-center gap-2 text-amber-300 font-bold text-xs">
+                      <Lock className="w-4 h-4 shrink-0 text-amber-400" />
+                      <span>Exclusivo para Alunos do Nível 2</span>
+                    </div>
                     <p className="text-stone-300 text-xs leading-relaxed">
-                      Garanta a sua vaga na sala de espera oficial. Quando o administrador liberar a sala, receberá os links e orientações diretamente em Mensagens.
+                      A adesão à Sala de Operação ao Vivo é permitida apenas a estudantes matriculados no <strong>Nível 2 (Método Fusion)</strong>. Você pode explorar todo o conteúdo da página e calendário livremente.
                     </p>
                     <button
                       type="button"
-                      id="btn-join-christmas-live-room"
-                      onClick={handleJoinLiveRoom}
-                      disabled={isJoiningRoom}
-                      className="w-full py-3.5 px-5 rounded-xl bg-[#e9c349] hover:bg-[#d4b03f] text-black font-black text-xs sm:text-sm transition-all shadow-lg shadow-[#e9c349]/20 flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50 whitespace-nowrap"
+                      disabled
+                      className="w-full py-3 px-4 rounded-xl bg-stone-800 text-stone-400 font-bold text-xs border border-white/10 flex items-center justify-center gap-2 cursor-not-allowed opacity-75"
                     >
-                      <Radio className="w-4 h-4" />
-                      <span>{isJoiningRoom ? 'Confirmando adesão...' : 'Aderir à Sala Ao Vivo'}</span>
+                      <Lock className="w-3.5 h-3.5" />
+                      <span>Bloqueado (Requer Nível 2)</span>
                     </button>
-                  </>
+                  </div>
                 )}
 
                 {joinError && (
