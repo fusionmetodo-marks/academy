@@ -13,6 +13,11 @@ export interface ChristmasBonusDay {
   customRoomUrl: string;
 }
 
+export interface ChristmasBonusOperator {
+  name: string;
+  role: string;
+}
+
 export interface ChristmasBonusConfig {
   title: string;
   festiveTag: string;
@@ -26,6 +31,8 @@ export interface ChristmasBonusConfig {
   accessNotes: string;
   coverImageUrl: string;
   isCardVisible: boolean;
+  operatorsTitle: string;
+  operators: ChristmasBonusOperator[];
   days: ChristmasBonusDay[];
   updatedAt: string;
   updatedBy?: string;
@@ -43,6 +50,15 @@ export const DEFAULT_CHRISTMAS_BONUS_DAYS: ChristmasBonusDay[] = Array.from(
   })
 );
 
+export const DEFAULT_CHRISTMAS_BONUS_OPERATORS_TITLE = 'Operações com comunidade de monstro';
+
+export const DEFAULT_CHRISTMAS_BONUS_OPERATORS: ChristmasBonusOperator[] = [
+  { name: 'Lúrio O Trader Monstro', role: 'Operador ao Vivo' },
+  { name: 'Rich Mem o Monstro', role: 'Operador ao Vivo' },
+  { name: 'Markes O Monstro', role: 'Operador ao Vivo' },
+  { name: 'Entre outros Monstro', role: 'Operadores da Comunidade' },
+];
+
 export const DEFAULT_CHRISTMAS_BONUS_CONFIG: ChristmasBonusConfig = {
   title: 'Bônus de Natal',
   festiveTag: 'Bônus de Boas Festas',
@@ -58,6 +74,8 @@ export const DEFAULT_CHRISTMAS_BONUS_CONFIG: ChristmasBonusConfig = {
     'Este evento especial é aberto a todos os estudantes da plataforma. Utilize gestão de risco responsável (1% a 2% por operação), entre na sala com 10 minutos de antecedência e utilize apenas o link oficial publicado nesta página.',
   coverImageUrl: '',
   isCardVisible: true,
+  operatorsTitle: DEFAULT_CHRISTMAS_BONUS_OPERATORS_TITLE,
+  operators: DEFAULT_CHRISTMAS_BONUS_OPERATORS,
   days: DEFAULT_CHRISTMAS_BONUS_DAYS,
   updatedAt: new Date().toISOString(),
   updatedBy: 'Administração Money Building',
@@ -92,10 +110,30 @@ function mergeConfig(raw?: Partial<ChristmasBonusConfig> | null): ChristmasBonus
         }))
       : DEFAULT_CHRISTMAS_BONUS_DAYS.map((d) => ({ ...d }));
 
+  const operators =
+    Array.isArray(raw?.operators) && raw!.operators.length > 0
+      ? raw!.operators
+          .map((op: any) => ({
+            name: typeof op?.name === 'string' ? op.name.trim() : '',
+            role: typeof op?.role === 'string' && op.role.trim() ? op.role.trim() : 'Operador ao Vivo',
+          }))
+          .filter((op) => op.name.length > 0)
+      : DEFAULT_CHRISTMAS_BONUS_OPERATORS.map((o) => ({ ...o }));
+
+  const resolvedOperators =
+    operators.length > 0 ? operators : DEFAULT_CHRISTMAS_BONUS_OPERATORS.map((o) => ({ ...o }));
+
+  const operatorsTitle =
+    typeof raw?.operatorsTitle === 'string' && raw.operatorsTitle.trim()
+      ? raw.operatorsTitle.trim()
+      : DEFAULT_CHRISTMAS_BONUS_OPERATORS_TITLE;
+
   return {
     ...DEFAULT_CHRISTMAS_BONUS_CONFIG,
     ...(raw || {}),
     isCardVisible: typeof raw?.isCardVisible === 'boolean' ? raw.isCardVisible : true,
+    operatorsTitle,
+    operators: resolvedOperators,
     days,
   };
 }

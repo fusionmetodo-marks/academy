@@ -21,6 +21,8 @@ import ChristmasBonusAuthModal from './ChristmasBonusAuthModal';
 import {
   ChristmasBonusConfig,
   DEFAULT_CHRISTMAS_BONUS_CONFIG,
+  DEFAULT_CHRISTMAS_BONUS_OPERATORS,
+  DEFAULT_CHRISTMAS_BONUS_OPERATORS_TITLE,
   getChristmasBonusDayStateMeta,
   getChristmasBonusStatusMeta,
   subscribeChristmasBonusConfig,
@@ -150,6 +152,13 @@ export default function StudentChristmasBonus({
     activeDay.sessionState !== 'postponed' &&
     (config.status === 'live' || config.status === 'scheduled' || activeDay.sessionState === 'live');
 
+  const operatorsList =
+    config.operators && config.operators.length > 0
+      ? config.operators
+      : DEFAULT_CHRISTMAS_BONUS_OPERATORS;
+  const operatorsSectionTitle =
+    config.operatorsTitle?.trim() || DEFAULT_CHRISTMAS_BONUS_OPERATORS_TITLE;
+
   return (
     <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-10 animate-in fade-in duration-300">
 
@@ -229,9 +238,91 @@ export default function StudentChristmasBonus({
                   <Sparkles className="w-3.5 h-3.5 text-rose-400" />
                   <span>7 Dias Consecutivos</span>
                 </span>
+                <span className="text-stone-600" aria-hidden="true">·</span>
+                <span className="text-[#e9c349] font-sans font-bold">
+                  {operatorsSectionTitle}
+                </span>
               </div>
             </div>
           </div>
+        </div>
+      </section>
+
+      {/* MESA DE OPERADORES EM DESTAQUE — OPERAÇÕES COM COMUNIDADE DE MONSTRO */}
+      <section
+        id="christmas-bonus-operators-section"
+        aria-labelledby="christmas-operators-heading"
+        className="mt-8 rounded-3xl bg-[#131313] border border-[#e9c349]/25 p-5 sm:p-7 lg:p-8 shadow-xl"
+      >
+        <div className="flex flex-col md:flex-row md:items-end justify-between gap-3 pb-5 border-b border-white/10">
+          <div>
+            <p className="text-[11px] font-mono uppercase tracking-[0.2em] text-[#e9c349] font-bold mb-1.5">
+              Direção Oficial das Operações ao Vivo
+            </p>
+            <h2
+              id="christmas-operators-heading"
+              className="font-headline font-black text-white tracking-tight text-xl sm:text-2xl lg:text-3xl"
+              style={{ textWrap: 'balance' }}
+            >
+              {operatorsSectionTitle}
+            </h2>
+          </div>
+          <p className="text-xs sm:text-sm text-stone-400 max-w-md leading-relaxed">
+            Operadores em destaque na condução das operações ao vivo durante os 7 dias do Bônus de Natal.
+          </p>
+        </div>
+
+        <div className="mt-6 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          {operatorsList.map((op, index) => {
+            const isCommunityCatchAll = op.name.toLowerCase().includes('entre outros');
+            const initials = isCommunityCatchAll
+              ? '+'
+              : op.name
+                  .split(/\s+/)
+                  .filter(Boolean)
+                  .slice(0, 2)
+                  .map((part) => part[0]?.toUpperCase() || '')
+                  .join('');
+
+            return (
+              <div
+                key={`${op.name}-${index}`}
+                className={`rounded-2xl p-4 sm:p-5 border transition-colors flex flex-col justify-between gap-4 ${
+                  isCommunityCatchAll
+                    ? 'bg-[#101412] border-emerald-500/25 hover:border-emerald-400/50'
+                    : 'bg-[#0b0b0b] border-white/10 hover:border-[#e9c349]/45'
+                }`}
+              >
+                <div className="flex items-center justify-between gap-3">
+                  <div
+                    className={`w-10 h-10 rounded-xl flex items-center justify-center font-headline font-black text-sm border shrink-0 ${
+                      isCommunityCatchAll
+                        ? 'bg-emerald-500/15 border-emerald-500/35 text-emerald-300'
+                        : 'bg-[#e9c349]/15 border-[#e9c349]/35 text-[#e9c349]'
+                    }`}
+                  >
+                    {initials}
+                  </div>
+                  <span className="text-[11px] font-mono tabular-nums text-stone-500 font-semibold">
+                    {isCommunityCatchAll ? 'Comunidade' : `0${index + 1}`}
+                  </span>
+                </div>
+
+                <div>
+                  <h3 className="text-sm sm:text-base font-extrabold text-white leading-snug">
+                    {op.name}
+                  </h3>
+                  <p className="text-xs text-stone-400 mt-1">
+                    <span>{op.role}</span>
+                    <span className="text-stone-600 mx-1.5" aria-hidden="true">·</span>
+                    <span className={isCommunityCatchAll ? 'text-emerald-400' : 'text-[#e9c349]'}>
+                      Ao Vivo
+                    </span>
+                  </p>
+                </div>
+              </div>
+            );
+          })}
         </div>
       </section>
 
@@ -421,6 +512,12 @@ export default function StudentChristmasBonus({
                     <span className={liveRoom.status === 'open' ? 'text-emerald-400' : 'text-stone-300'}>
                       {liveRoom.status === 'open' ? 'Liberada' : 'Em espera'}
                     </span>
+                  </span>
+                </div>
+                <div className="flex items-center justify-between gap-2 pt-2 border-t border-white/5">
+                  <span className="text-stone-400">Direção ao Vivo:</span>
+                  <span className="font-bold text-stone-200 truncate max-w-[220px] text-right">
+                    {operatorsSectionTitle}
                   </span>
                 </div>
                 <div className="flex items-center justify-between gap-2 pt-2 border-t border-white/5">

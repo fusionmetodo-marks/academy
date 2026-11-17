@@ -103,7 +103,9 @@ export default function ChristmasBonusCourseCard({
         <div className="space-y-2">
           {/* Clean unboxed metadata row */}
           <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-stone-300 font-medium">
-            <span className="text-[#e9c349] font-bold">Marks, o Monstro</span>
+            <span className="text-[#e9c349] font-bold">
+              {config.operatorsTitle || 'Operações com comunidade de monstro'}
+            </span>
             <span className="text-stone-600" aria-hidden="true">·</span>
             <span>{config.festiveTag || 'Bônus de Boas Festas'}</span>
           </div>

@@ -8,9 +8,12 @@ import {
   Gift,
   Image as ImageIcon,
   Link2,
+  Plus,
   RotateCcw,
+  Trash2,
   TreePine,
   Upload,
+  Users,
   X,
 } from 'lucide-react';
 import christmasBonusCoverImg from '../assets/images/christmas_bonus_cover_1794907721101.jpg';
@@ -21,6 +24,8 @@ import {
   ChristmasBonusStatus,
   DEFAULT_CHRISTMAS_BONUS_CONFIG,
   DEFAULT_CHRISTMAS_BONUS_DAYS,
+  DEFAULT_CHRISTMAS_BONUS_OPERATORS,
+  DEFAULT_CHRISTMAS_BONUS_OPERATORS_TITLE,
   isChristmasBonusCardActive,
   saveChristmasBonusConfig,
 } from '../services/christmasBonusService';
@@ -54,6 +59,11 @@ export default function ChristmasBonusEditorModal({
     if (isOpen) {
       setDraftForm({
         ...config,
+        operatorsTitle: config.operatorsTitle || DEFAULT_CHRISTMAS_BONUS_OPERATORS_TITLE,
+        operators:
+          config.operators && config.operators.length > 0
+            ? config.operators.map((op) => ({ ...op }))
+            : DEFAULT_CHRISTMAS_BONUS_OPERATORS.map((op) => ({ ...op })),
         days: config.days.map((d) => ({ ...d })),
       });
       setFeedback(null);
@@ -129,12 +139,43 @@ export default function ChristmasBonusEditorModal({
       liveRoomUrl: prev.liveRoomUrl,
       coverImageUrl: prev.coverImageUrl,
       isCardVisible: prev.isCardVisible,
+      operatorsTitle: prev.operatorsTitle,
+      operators: prev.operators,
       days: DEFAULT_CHRISTMAS_BONUS_DAYS.map((d) => ({ ...d })),
     }));
     setFeedback({
       type: 'info',
-      text: 'Textos e dias restaurados para o padrão (capa e link preservados). Clique em "Salvar Alterações".',
+      text: 'Textos e dias restaurados para o padrão (capa, link e operadores preservados). Clique em "Salvar Alterações".',
     });
+  };
+
+  const handleOperatorChange = (index: number, field: 'name' | 'role', value: string) => {
+    setDraftForm((prev) => ({
+      ...prev,
+      operators: prev.operators.map((op, i) => (i === index ? { ...op, [field]: value } : op)),
+    }));
+  };
+
+  const handleAddOperator = () => {
+    setDraftForm((prev) => ({
+      ...prev,
+      operators: [...prev.operators, { name: '', role: 'Operador ao Vivo' }],
+    }));
+  };
+
+  const handleRemoveOperator = (index: number) => {
+    setDraftForm((prev) => ({
+      ...prev,
+      operators: prev.operators.filter((_, i) => i !== index),
+    }));
+  };
+
+  const handleResetOperators = () => {
+    setDraftForm((prev) => ({
+      ...prev,
+      operatorsTitle: DEFAULT_CHRISTMAS_BONUS_OPERATORS_TITLE,
+      operators: DEFAULT_CHRISTMAS_BONUS_OPERATORS.map((op) => ({ ...op })),
+    }));
   };
 
   const handleToggleVisible = () => {
@@ -191,6 +232,14 @@ export default function ChristmasBonusEditorModal({
           accessNotes: draftForm.accessNotes.trim(),
           coverImageUrl: draftForm.coverImageUrl.trim(),
           isCardVisible: draftForm.isCardVisible !== false,
+          operatorsTitle:
+            draftForm.operatorsTitle.trim() || DEFAULT_CHRISTMAS_BONUS_OPERATORS_TITLE,
+          operators: draftForm.operators
+            .map((op) => ({
+              name: op.name.trim(),
+              role: op.role.trim() || 'Operador ao Vivo',
+            }))
+            .filter((op) => op.name.length > 0),
           days: draftForm.days.map((d, idx) => ({
             dayNumber: idx + 1,
             dateLabel: d.dateLabel.trim() || 'Data a definir',
@@ -527,6 +576,88 @@ export default function ChristmasBonusEditorModal({
                 onChange={(e) => setDraftForm({ ...draftForm, accessNotes: e.target.value })}
                 className="w-full bg-[#0e0e0e] border border-white/15 focus:border-[#e9c349] rounded-xl p-3 text-white text-xs outline-none resize-y"
               />
+            </div>
+          </div>
+
+          {/* 4.5. Featured Live Operators Lineup */}
+          <div className="p-5 rounded-2xl bg-[#0e0e0e] border border-[#e9c349]/25 space-y-4">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <h4 className="text-xs font-extrabold text-white uppercase tracking-wider flex items-center gap-2">
+                  <Users className="w-4 h-4 text-[#e9c349]" />
+                  <span>Operadores em Destaque na Página do Bônus</span>
+                </h4>
+                <p className="text-[11px] text-stone-400 mt-0.5">
+                  Defina o título da mesa e os operadores que dirigem as operações ao vivo.
+                </p>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={handleResetOperators}
+                  className="px-3 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 border border-white/10 text-stone-300 text-[11px] font-semibold flex items-center gap-1.5 cursor-pointer"
+                >
+                  <RotateCcw className="w-3 h-3" />
+                  <span>Restaurar Lista</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={handleAddOperator}
+                  className="px-3 py-1.5 rounded-lg bg-[#e9c349]/15 hover:bg-[#e9c349]/25 border border-[#e9c349]/40 text-[#e9c349] text-[11px] font-bold flex items-center gap-1 cursor-pointer"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>Adicionar Operador</span>
+                </button>
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-[11px] font-bold text-stone-300 uppercase tracking-wider mb-1">
+                Título da Seção dos Operadores
+              </label>
+              <input
+                type="text"
+                value={draftForm.operatorsTitle}
+                onChange={(e) => setDraftForm({ ...draftForm, operatorsTitle: e.target.value })}
+                placeholder="Operações com comunidade de monstro"
+                className="w-full bg-[#161616] border border-white/15 focus:border-[#e9c349] rounded-xl py-2.5 px-3.5 text-white text-xs sm:text-sm outline-none"
+              />
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              {draftForm.operators.map((op, index) => (
+                <div
+                  key={`editor-op-${index}`}
+                  className="p-3 rounded-xl bg-[#141414] border border-white/10 flex items-start gap-2.5"
+                >
+                  <div className="flex-1 space-y-2">
+                    <input
+                      type="text"
+                      value={op.name}
+                      onChange={(e) => handleOperatorChange(index, 'name', e.target.value)}
+                      placeholder="Nome do operador (ex: Lúrio O Trader Monstro)"
+                      className="w-full bg-[#0e0e0e] border border-white/15 focus:border-[#e9c349] rounded-lg px-2.5 py-1.5 text-xs font-bold text-white outline-none"
+                    />
+                    <input
+                      type="text"
+                      value={op.role}
+                      onChange={(e) => handleOperatorChange(index, 'role', e.target.value)}
+                      placeholder="Função (ex: Operador ao Vivo)"
+                      className="w-full bg-[#0e0e0e] border border-white/10 focus:border-[#e9c349] rounded-lg px-2.5 py-1.5 text-[11px] text-stone-300 outline-none"
+                    />
+                  </div>
+                  {draftForm.operators.length > 1 && (
+                    <button
+                      type="button"
+                      onClick={() => handleRemoveOperator(index)}
+                      className="p-1.5 rounded-lg text-stone-400 hover:text-rose-400 hover:bg-rose-500/10 transition-colors cursor-pointer shrink-0"
+                      title="Remover operador"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  )}
+                </div>
+              ))}
             </div>
           </div>
 

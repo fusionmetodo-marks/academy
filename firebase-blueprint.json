@@ -208,6 +208,9 @@
         "liveRoomUrl": { "type": "string" },
         "accessNotes": { "type": "string" },
         "coverImageUrl": { "type": "string" },
+        "isCardVisible": { "type": "boolean" },
+        "operatorsTitle": { "type": "string" },
+        "operators": { "type": "array" },
         "days": { "type": "array" },
         "updatedAt": { "type": "string", "format": "date-time" },
         "updatedBy": { "type": "string" }
