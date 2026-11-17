@@ -1,4 +1,5 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import Sidebar from '../components/Sidebar';
 import { ProducerContractModal } from '../components/ProducerContractModal';
 import { doc, getDoc, setDoc, collection, getDocs, updateDoc, serverTimestamp, query, where } from 'firebase/firestore';
@@ -12,11 +13,14 @@ import { FirestoreQuotaModal } from '../components/FirestoreQuotaModal';
 import {
   FIRESTORE_SPARK_LIMITS,
   FirestoreQuotaSnapshot,
+  getMonthlyQuotaRollup,
   getNextFirestoreResetInfo,
   getQuotaState,
   subscribeQuotaState,
+  subscribeTeamBillingSync,
 } from '../services/firestoreQuotaService';
 import { 
+  ArrowLeft,
   Award,
   Eye,
   Building2, 
@@ -58,24 +62,69 @@ interface CustomRole {
   isSystem?: boolean;
 }
 
+type SettingsSectionId =
+  | 'identity'
+  | 'payment'
+  | 'permissions'
+  | 'certificate'
+  | 'producer-fees'
+  | 'usdt'
+  | 'quotas'
+  | 'producer-bank'
+  | 'producer-plan';
+
+const VALID_SETTINGS_SECTIONS: SettingsSectionId[] = [
+  'identity',
+  'payment',
+  'permissions',
+  'certificate',
+  'producer-fees',
+  'usdt',
+  'quotas',
+  'producer-bank',
+  'producer-plan',
+];
+
+const SETTINGS_SECTION_TITLES: Record<SettingsSectionId, string> = {
+  identity: 'Identidade Global da Plataforma',
+  payment: 'Pagamentos & Cupões de Desconto',
+  permissions: 'Gestão de Permissões & Cargos',
+  certificate: 'Molde Oficial de Certificados',
+  'producer-fees': 'Taxas e Planos dos Produtores',
+  usdt: 'Câmbio & Venda de USDT',
+  quotas: 'Cotas, Consumo & Plano Firestore',
+  'producer-bank': 'Meus Dados Bancários',
+  'producer-plan': 'Plano de Assinatura CFA',
+};
+
 export default function Settings() {
+  const [searchParams, setSearchParams] = useSearchParams();
   const [showToast, setShowToast] = useState(false);
   const [toastMessage, setToastMessage] = useState('');
   const [toastType, setToastType] = useState<'success' | 'info' | 'error'>('success');
   const [isSaving, setIsSaving] = useState(false);
 
-  // Modal Visibility States for the 3 individual popups
-  const [isIdentityModalOpen, setIsIdentityModalOpen] = useState(false);
-  const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
+  // Full-Page Section Routing State
+  const initialSectionParam = searchParams.get('section') as SettingsSectionId | null;
+  const [activeSection, setActiveSection] = useState<SettingsSectionId | null>(
+    initialSectionParam && VALID_SETTINGS_SECTIONS.includes(initialSectionParam)
+      ? initialSectionParam
+      : null
+  );
   const [paymentModalTab, setPaymentModalTab] = useState<'channels' | 'coupons'>('channels');
-  const [isPermissionsModalOpen, setIsPermissionsModalOpen] = useState(false);
-  const [isCertificateModalOpen, setIsCertificateModalOpen] = useState(false);
   const [isTestCertOpen, setIsTestCertOpen] = useState(false);
-  const [isProducerFeesModalOpen, setIsProducerFeesModalOpen] = useState(false);
-  const [isUsdtModalOpen, setIsUsdtModalOpen] = useState(false);
-  const [isQuotaModalOpen, setIsQuotaModalOpen] = useState(false);
   const [quotaState, setQuotaState] = useState<FirestoreQuotaSnapshot>(() => getQuotaState());
   const [quotaResetInfo, setQuotaResetInfo] = useState(() => getNextFirestoreResetInfo());
+  const monthlyRollup = useMemo(() => getMonthlyQuotaRollup(), [quotaState]);
+
+  useEffect(() => {
+    const param = searchParams.get('section') as SettingsSectionId | null;
+    if (param && VALID_SETTINGS_SECTIONS.includes(param)) {
+      setActiveSection(param);
+    } else {
+      setActiveSection(null);
+    }
+  }, [searchParams]);
 
   useEffect(() => {
     const unsub = subscribeQuotaState((next) => setQuotaState(next));
@@ -207,8 +256,49 @@ export default function Settings() {
   const [currentUserRole, setCurrentUserRole] = useState<'admin' | 'producer' | 'student'>('admin');
   const [currentUserFullProfile, setCurrentUserFullProfile] = useState<any | null>(null);
   const [isContractModalOpen, setIsContractModalOpen] = useState(false);
-  const [isProducerBankModalOpen, setIsProducerBankModalOpen] = useState(false);
-  const [isProducerPlanModalOpen, setIsProducerPlanModalOpen] = useState(false);
+
+  // Sincronização em tempo real do plano Blaze/Spark entre toda a equipe admin
+  useEffect(() => {
+    if (currentUserRole !== 'admin') return;
+    const unsubTeam = subscribeTeamBillingSync();
+    return () => unsubTeam();
+  }, [currentUserRole]);
+
+  const openSection = (section: SettingsSectionId, tab?: 'channels' | 'coupons') => {
+    if (section === 'payment' && tab) {
+      setPaymentModalTab(tab);
+    }
+    if (section === 'producer-fees') {
+      setTempProducerMonthlyFee(producerMonthlyFee);
+      setTempProducerQuarterlyFee(producerQuarterlyFee);
+      setTempProducerSemiannualFee(producerSemiannualFee);
+      setTempProducerAnnualFee(producerAnnualFee);
+    }
+    if (section === 'quotas') {
+      setQuotaResetInfo(getNextFirestoreResetInfo());
+    }
+    setActiveSection(section);
+    setSearchParams({ section }, { replace: false });
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  const closeSection = () => {
+    setActiveSection(null);
+    setSearchParams({}, { replace: false });
+  };
+
+  useEffect(() => {
+    if (!activeSection) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      if (roleModal.isOpen || logoModalOpen || couponForm.isOpen || isTestCertOpen || isContractModalOpen) {
+        return;
+      }
+      closeSection();
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  });
   const [producerData, setProducerData] = useState({
     producerName: '',
     producerWhatsApp: '',
@@ -418,7 +508,7 @@ export default function Settings() {
       }, { merge: true });
 
       setUsdtUpdatedAt(nowIso);
-      setIsUsdtModalOpen(false);
+      closeSection();
       showNotification('✅ Cotação de USDT e SMS da página atualizados com sucesso com data e hora oficiais!', 'success');
     } catch (err) {
       console.error('Erro ao salvar câmbio de USDT:', err);
@@ -464,7 +554,7 @@ export default function Settings() {
 
       setSupportWhatsApp(cleanWhatsApp);
       showNotification('Identidade da plataforma salva com sucesso!', 'success');
-      setIsIdentityModalOpen(false);
+      closeSection();
     } catch (err) {
       console.error("Error saving identity to Firebase:", err);
       showNotification('Erro ao salvar identidade.', 'error');
@@ -479,7 +569,7 @@ export default function Settings() {
     try {
       await setDoc(doc(db, 'settings', 'payment'), paymentSettings, { merge: true });
       showNotification('Canais de pagamento salvos com sucesso!', 'success');
-      setIsPaymentModalOpen(false);
+      closeSection();
     } catch (err) {
       console.error("Error saving payments to Firebase:", err);
       showNotification('Erro ao salvar pagamentos.', 'error');
@@ -609,7 +699,7 @@ export default function Settings() {
       setProducerQuarterlyFee(quarterly);
       setProducerSemiannualFee(semiannual);
       setProducerAnnualFee(annual);
-      setIsProducerFeesModalOpen(false);
+      closeSection();
       showNotification('✅ Taxas dos produtores atualizadas com sucesso! Os 4 planos já se refletem no sistema.', 'success');
     } catch (err) {
       console.error('Erro ao guardar taxas dos produtores:', err);
@@ -936,6 +1026,9 @@ export default function Settings() {
           className="hidden" 
         />
 
+        {/* Top Workspace Wrapper: Grid Principal vs Módulo em Tela Cheia */}
+        {activeSection === null ? (
+          <>
         {/* Header */}
         <header className="mb-10 flex flex-col md:flex-row justify-between items-start md:items-end gap-4 pb-6 border-b border-outline-variant/10">
           <div>
@@ -948,7 +1041,7 @@ export default function Settings() {
             <p className="text-xs text-stone-400 mt-1">
               {currentUserRole === 'producer' 
                 ? 'Configure seus dados bancários para recebimento direto e gerencie seu plano de produtor CFA.' 
-                : 'Clique em qualquer bloco abaixo para abrir o pop-up e configurar seus dados.'}
+                : 'Selecione um módulo abaixo para abrir e configurar em tela cheia.'}
             </p>
           </div>
           <div className="flex gap-3">
@@ -958,7 +1051,7 @@ export default function Settings() {
                 fetchSettings();
                 showNotification('Dados sincronizados com o servidor.', 'info');
               }}
-              className="px-5 py-2.5 bg-surface-container-highest text-stone-300 hover:text-white font-semibold text-xs rounded-xl hover:bg-surface-bright transition-colors flex items-center gap-2 cursor-pointer"
+              className="px-5 py-2.5 bg-surface-container-highest text-stone-300 hover:text-white font-semibold text-xs rounded-xl hover:bg-surface-bright transition-colors flex items-center gap-2 cursor-pointer whitespace-nowrap shrink-0"
             >
               <RotateCcw className="w-3.5 h-3.5" />
               Recarregar
@@ -966,13 +1059,13 @@ export default function Settings() {
           </div>
         </header>
 
-        {/* 3 Main Interactive Buttons / Cards */}
+        {/* Main Interactive Modules Grid */}
         {currentUserRole === 'producer' ? (
           /* PAINEL DE CONFIGURAÇÕES DO PRODUTOR (Grid) */
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-10">
             {/* BUTTON 1: Dados Bancários */}
             <section 
-              onClick={() => setIsProducerBankModalOpen(true)}
+              onClick={() => openSection('producer-bank')}
               className="group relative bg-surface-container-low hover:bg-surface-container rounded-2xl p-6 sm:p-7 border border-outline-variant/10 hover:border-[#e9c349]/50 shadow-lg hover:shadow-[0_8px_30px_rgba(233,195,73,0.15)] transition-all cursor-pointer flex flex-col justify-between"
             >
               <div>
@@ -1004,7 +1097,7 @@ export default function Settings() {
 
             {/* BUTTON 2: Plano de Assinatura */}
             <section 
-              onClick={() => setIsProducerPlanModalOpen(true)}
+              onClick={() => openSection('producer-plan')}
               className="group relative bg-surface-container-low hover:bg-surface-container rounded-2xl p-6 sm:p-7 border border-outline-variant/10 hover:border-[#e9c349]/50 shadow-lg hover:shadow-[0_8px_30px_rgba(233,195,73,0.15)] transition-all cursor-pointer flex flex-col justify-between"
             >
               <div>
@@ -1068,10 +1161,7 @@ export default function Settings() {
 
             {/* BUTTON 4: Gestão de Cupões */}
             <section 
-              onClick={() => {
-                setPaymentModalTab('coupons');
-                setIsPaymentModalOpen(true);
-              }}
+              onClick={() => openSection('payment', 'coupons')}
               className="group relative bg-surface-container-low hover:bg-surface-container rounded-2xl p-6 sm:p-7 border border-outline-variant/10 hover:border-[#e9c349]/50 shadow-lg hover:shadow-[0_8px_30px_rgba(233,195,73,0.15)] transition-all cursor-pointer flex flex-col justify-between"
             >
               <div>
@@ -1107,7 +1197,7 @@ export default function Settings() {
           {/* BUTTON 1: Identidade Global da Plataforma */}
           <section 
             id="card-btn-identity"
-            onClick={() => setIsIdentityModalOpen(true)}
+            onClick={() => openSection('identity')}
             className="group relative bg-surface-container-low hover:bg-surface-container rounded-2xl p-6 sm:p-7 border border-outline-variant/10 hover:border-[#e9c349]/50 shadow-lg hover:shadow-[0_8px_30px_rgba(233,195,73,0.15)] transition-all cursor-pointer flex flex-col justify-between"
           >
             <div>
@@ -1157,10 +1247,7 @@ export default function Settings() {
           {/* BUTTON 2: Canais de Pagamento (Angola) / Cupões */}
           <section 
             id="card-btn-payments"
-            onClick={() => {
-              setPaymentModalTab(currentUserRole === 'admin' ? 'channels' : 'coupons');
-              setIsPaymentModalOpen(true);
-            }}
+            onClick={() => openSection('payment', currentUserRole === 'admin' ? 'channels' : 'coupons')}
             className="group relative bg-surface-container-low hover:bg-surface-container rounded-2xl p-6 sm:p-7 border border-outline-variant/10 hover:border-[#e9c349]/50 shadow-lg hover:shadow-[0_8px_30px_rgba(233,195,73,0.15)] transition-all cursor-pointer flex flex-col justify-between"
           >
             <div>
@@ -1220,7 +1307,7 @@ export default function Settings() {
           {/* BUTTON 3: Gestão de Permissões */}
           <section 
             id="card-btn-permissions"
-            onClick={() => setIsPermissionsModalOpen(true)}
+            onClick={() => openSection('permissions')}
             className="group relative bg-surface-container-low hover:bg-surface-container rounded-2xl p-6 sm:p-7 border border-outline-variant/10 hover:border-[#e9c349]/50 shadow-lg hover:shadow-[0_8px_30px_rgba(233,195,73,0.15)] transition-all cursor-pointer flex flex-col justify-between"
           >
             <div>
@@ -1270,7 +1357,7 @@ export default function Settings() {
           {/* BUTTON 4: Molde de Certificado Oficial (Aparece exatamente embaixo do Módulo 1) */}
           <section 
             id="card-btn-certificates"
-            onClick={() => setIsCertificateModalOpen(true)}
+            onClick={() => openSection('certificate')}
             className="group relative bg-surface-container-low hover:bg-surface-container rounded-2xl p-6 sm:p-7 border border-outline-variant/10 hover:border-[#e9c349]/50 shadow-lg hover:shadow-[0_8px_30px_rgba(233,195,73,0.15)] transition-all cursor-pointer flex flex-col justify-between"
           >
             <div>
@@ -1350,13 +1437,7 @@ export default function Settings() {
           {/* BUTTON 5: Taxas e Planos dos Produtores */}
           <section 
             id="card-btn-producer-fees"
-            onClick={() => {
-              setTempProducerMonthlyFee(producerMonthlyFee);
-              setTempProducerQuarterlyFee(producerQuarterlyFee);
-              setTempProducerSemiannualFee(producerSemiannualFee);
-              setTempProducerAnnualFee(producerAnnualFee);
-              setIsProducerFeesModalOpen(true);
-            }}
+            onClick={() => openSection('producer-fees')}
             className="group relative bg-surface-container-low hover:bg-surface-container rounded-2xl p-6 sm:p-7 border border-outline-variant/10 hover:border-[#e9c349]/50 shadow-lg hover:shadow-[0_8px_30px_rgba(233,195,73,0.15)] transition-all cursor-pointer flex flex-col justify-between"
           >
             <div>
@@ -1418,7 +1499,7 @@ export default function Settings() {
           {/* BUTTON 6: Câmbio & Venda de USDT */}
           <section 
             id="card-btn-usdt-exchange"
-            onClick={() => setIsUsdtModalOpen(true)}
+            onClick={() => openSection('usdt')}
             className="group relative bg-surface-container-low hover:bg-surface-container rounded-2xl p-6 sm:p-7 border border-outline-variant/10 hover:border-emerald-500/50 shadow-lg hover:shadow-[0_8px_30px_rgba(16,185,129,0.15)] transition-all cursor-pointer flex flex-col justify-between"
           >
             <div>
@@ -1473,29 +1554,32 @@ export default function Settings() {
             </div>
           </section>
 
-          {/* BUTTON 7: Cotas Gratuitas & Limites do Firestore */}
+          {/* BUTTON 7: Cotas, Consumo & Plano Firestore */}
           {(() => {
+            const isBlaze = quotaState.planTier === 'blaze';
             const effectiveReadsUsed =
               quotaState.quotaExhaustedDetected && quotaState.consoleReadsOffset === null
                 ? FIRESTORE_SPARK_LIMITS.readUnitsDaily
                 : quotaState.consoleReadsOffset !== null
-                ? Math.min(FIRESTORE_SPARK_LIMITS.readUnitsDaily, Math.max(0, quotaState.consoleReadsOffset))
-                : Math.min(FIRESTORE_SPARK_LIMITS.readUnitsDaily, quotaState.sessionReads);
+                ? Math.max(0, quotaState.consoleReadsOffset)
+                : quotaState.sessionReads;
             const readsRemaining = Math.max(0, FIRESTORE_SPARK_LIMITS.readUnitsDaily - effectiveReadsUsed);
             const readsPct = Math.min(
               100,
               Math.round((effectiveReadsUsed / FIRESTORE_SPARK_LIMITS.readUnitsDaily) * 1000) / 10
             );
-            const isExhausted = quotaState.quotaExhaustedDetected;
-            const isHigh = !isExhausted && readsPct >= quotaState.warningThresholdPct;
+            const isExhausted = !isBlaze && quotaState.quotaExhaustedDetected;
+            const isHigh = !isBlaze && !isExhausted && readsPct >= quotaState.warningThresholdPct;
+            const blazeBudgetPct =
+              quotaState.monthlyBudgetUsd > 0
+                ? (monthlyRollup.estimatedMonthlyCostUsd / quotaState.monthlyBudgetUsd) * 100
+                : 0;
+            const isBudgetAlert = isBlaze && blazeBudgetPct >= quotaState.budgetAlertThresholdPct;
 
             return (
               <section
                 id="card-btn-firestore-quotas"
-                onClick={() => {
-                  setQuotaResetInfo(getNextFirestoreResetInfo());
-                  setIsQuotaModalOpen(true);
-                }}
+                onClick={() => openSection('quotas')}
                 className="group relative bg-surface-container-low hover:bg-surface-container rounded-2xl p-6 sm:p-7 border border-outline-variant/10 hover:border-[#e9c349]/50 shadow-lg hover:shadow-[0_8px_30px_rgba(233,195,73,0.15)] transition-all cursor-pointer flex flex-col justify-between"
               >
                 <div>
@@ -1510,44 +1594,59 @@ export default function Settings() {
 
                   <div className="mb-4">
                     <span className="text-[10px] uppercase font-bold tracking-widest text-[#e9c349] block mb-1">
-                      Módulo 7
+                      Módulo 7 • {isBlaze ? 'Plano Blaze' : 'Plano Spark'}
                     </span>
                     <h3 className="font-headline text-xl font-bold text-white group-hover:text-[#e9c349] transition-colors">
-                      Cotas Gratuitas Firestore
+                      Cotas &amp; Plano Firestore
                     </h3>
                     <p className="text-xs text-stone-400 mt-1.5 line-clamp-5 leading-relaxed">
-                      Acompanhe o uso diário do plano gratuito, quanto falta consumir, modo de economia e hora de reinício em Angola.
+                      Controle diário e mensal de leituras, teto Blaze em USD, economia de cache e sincronização da equipe.
                     </p>
                   </div>
 
                   <div className="space-y-2 pt-2 border-t border-outline-variant/10 text-xs">
                     <div className="flex justify-between items-center text-stone-400">
-                      <span>Estado da Cota:</span>
+                      <span>Estado do Plano:</span>
                       <span
                         className={`font-bold text-[11px] ${
-                          isExhausted
+                          isExhausted || isBudgetAlert
                             ? 'text-red-400'
                             : isHigh
                             ? 'text-amber-400'
+                            : isBlaze
+                            ? 'text-emerald-400'
                             : 'text-emerald-400'
                         }`}
                       >
-                        {isExhausted
-                          ? 'Esgotada (429)'
+                        {isBlaze
+                          ? isBudgetAlert
+                            ? `Blaze • Alerta ${blazeBudgetPct.toFixed(0)}%`
+                            : 'Blaze (Pago) Sincronizado'
+                          : isExhausted
+                          ? 'Spark Esgotado (429)'
                           : isHigh
-                          ? `Alerta (${readsPct.toFixed(0)}%)`
-                          : 'Dentro da Cota'}
+                          ? `Spark Alerta (${readsPct.toFixed(0)}%)`
+                          : 'Spark Dentro da Cota'}
                       </span>
                     </div>
-                    <div className="flex justify-between items-center text-stone-400">
-                      <span>Usado / Falta (Dia):</span>
-                      <span className="font-mono text-white font-bold text-[11px]">
-                        {effectiveReadsUsed.toLocaleString('pt-AO')} / {readsRemaining.toLocaleString('pt-AO')}
-                      </span>
-                    </div>
+                    {isBlaze ? (
+                      <div className="flex justify-between items-center text-stone-400">
+                        <span>Estimativa / Teto (Mês):</span>
+                        <span className="font-mono text-white font-bold text-[11px] tabular-nums">
+                          ${monthlyRollup.estimatedMonthlyCostUsd.toFixed(2)} / ${quotaState.monthlyBudgetUsd.toFixed(2)}
+                        </span>
+                      </div>
+                    ) : (
+                      <div className="flex justify-between items-center text-stone-400">
+                        <span>Usado / Falta (Dia):</span>
+                        <span className="font-mono text-white font-bold text-[11px] tabular-nums">
+                          {effectiveReadsUsed.toLocaleString('pt-AO')} / {readsRemaining.toLocaleString('pt-AO')}
+                        </span>
+                      </div>
+                    )}
                     <div className="flex justify-between items-center text-stone-400">
                       <span>Reinício (Angola):</span>
-                      <span className="font-mono text-[#e9c349] font-bold text-[11px]">
+                      <span className="font-mono text-[#e9c349] font-bold text-[11px] tabular-nums">
                         {quotaResetInfo.angolaTime} WAT ({quotaResetInfo.remainingFormatted.slice(0, 7)})
                       </span>
                     </div>
@@ -1556,7 +1655,7 @@ export default function Settings() {
 
                 <div className="mt-6 pt-4 border-t border-outline-variant/10">
                   <div className="w-full py-2.5 px-4 bg-surface-container-highest group-hover:bg-[#e9c349] text-stone-300 group-hover:text-black font-bold text-xs rounded-xl transition-all flex items-center justify-center gap-2">
-                    <span>Abrir Painel de Cotas</span>
+                    <span>Abrir Painel Completo</span>
                     <ChevronRight className="w-4 h-4" />
                   </div>
                 </div>
@@ -1570,7 +1669,7 @@ export default function Settings() {
         <footer className="mt-12 flex flex-col sm:flex-row items-center justify-between px-6 py-4 bg-surface-container-lowest rounded-2xl border border-outline-variant/5 gap-3">
           <div className="flex items-center gap-6">
             <div className="flex items-center gap-2">
-              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+              <span className="w-2 h-2 rounded-full bg-emerald-400"></span>
               <span className="text-[10px] uppercase font-bold tracking-widest text-stone-400">Banco de Dados Firestore: Online</span>
             </div>
             <div className="flex items-center gap-2">
@@ -1582,14 +1681,59 @@ export default function Settings() {
             Marks ACADEMY v2.8 • Sovereign Production
           </div>
         </footer>
-      </main>
+          </>
+        ) : activeSection === 'quotas' ? (
+          <FirestoreQuotaModal
+            isOpen={true}
+            mode="page"
+            onClose={closeSection}
+            onNotify={showNotification}
+          />
+        ) : (
+          <div className="w-full max-w-6xl mx-auto">
+            {/* Barra Superior de Navegação (Voltar às Configurações) */}
+            <div className="mb-6 flex flex-wrap items-center justify-between gap-3 pb-4 border-b border-outline-variant/10">
+              <div className="flex items-center gap-3 min-w-0">
+                <button
+                  type="button"
+                  onClick={closeSection}
+                  className="px-4 py-2 rounded-xl bg-surface-container-highest hover:bg-[#e9c349] text-stone-200 hover:text-black font-bold text-xs transition-all flex items-center gap-2 cursor-pointer whitespace-nowrap shrink-0"
+                >
+                  <ArrowLeft className="w-4 h-4" />
+                  <span>Voltar às Configurações</span>
+                </button>
+                <div className="hidden sm:flex items-center gap-2 text-xs text-stone-400 truncate">
+                  <button
+                    type="button"
+                    onClick={closeSection}
+                    className="hover:text-[#e9c349] transition-colors cursor-pointer"
+                  >
+                    Configurações
+                  </button>
+                  <span>·</span>
+                  <span className="text-white font-semibold truncate">
+                    {SETTINGS_SECTION_TITLES[activeSection]}
+                  </span>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  fetchSettings();
+                  showNotification('Dados sincronizados com o servidor.', 'info');
+                }}
+                className="px-3.5 py-2 bg-surface-container-highest text-stone-300 hover:text-white font-semibold text-xs rounded-xl hover:bg-surface-bright transition-colors flex items-center gap-2 cursor-pointer whitespace-nowrap shrink-0"
+              >
+                <RotateCcw className="w-3.5 h-3.5" />
+                <span>Recarregar</span>
+              </button>
+            </div>
 
       {/* ========================================================================= */}
-      {/* POPUP 1: IDENTIDADE GLOBAL DA PLATAFORMA */}
+      {/* MÓDULO 1: IDENTIDADE GLOBAL DA PLATAFORMA (TELA CHEIA) */}
       {/* ========================================================================= */}
-      {isIdentityModalOpen && (
-        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-4 overflow-y-auto">
-          <div className="bg-[#181818] border border-outline-variant/20 rounded-2xl max-w-2xl w-full p-6 sm:p-8 shadow-2xl animate-in fade-in zoom-in-95 duration-200 my-8">
+      {activeSection === 'identity' && (
+          <div className="bg-[#181818] border border-outline-variant/15 rounded-2xl w-full p-6 sm:p-8 shadow-xl animate-in fade-in duration-200">
             <div className="flex items-center justify-between pb-4 mb-6 border-b border-outline-variant/10">
               <div className="flex items-center gap-3">
                 <div className="w-10 h-10 rounded-xl bg-[#e9c349]/10 text-[#e9c349] flex items-center justify-center border border-[#e9c349]/20">
@@ -1600,12 +1744,6 @@ export default function Settings() {
                   <p className="text-xs text-stone-400">Preencha e salve os dados principais da instituição.</p>
                 </div>
               </div>
-              <button 
-                onClick={() => setIsIdentityModalOpen(false)}
-                className="p-2 rounded-xl text-stone-400 hover:text-white hover:bg-stone-800 transition-colors cursor-pointer"
-              >
-                <X className="w-5 h-5" />
-              </button>
             </div>
 
             <div className="space-y-5">
@@ -1792,31 +1930,29 @@ export default function Settings() {
             <div className="flex items-center justify-end gap-3 pt-6 mt-6 border-t border-outline-variant/10">
               <button 
                 type="button"
-                onClick={() => setIsIdentityModalOpen(false)}
-                className="px-4 py-2.5 rounded-xl text-xs font-semibold text-stone-400 hover:text-white hover:bg-stone-800 transition-colors cursor-pointer"
+                onClick={closeSection}
+                className="px-4 py-2.5 rounded-xl text-xs font-semibold text-stone-400 hover:text-white hover:bg-stone-800 transition-colors cursor-pointer whitespace-nowrap"
               >
-                Cancelar
+                Voltar
               </button>
               <button 
                 type="button"
                 disabled={isSaving}
                 onClick={handleSaveIdentity}
-                className="bg-[#e9c349] hover:bg-[#d4b03f] text-black px-6 py-2.5 rounded-xl font-bold text-xs flex items-center gap-2 transition-all shadow-md cursor-pointer"
+                className="bg-[#e9c349] hover:bg-[#d4b03f] text-black px-6 py-2.5 rounded-xl font-bold text-xs flex items-center gap-2 transition-all shadow-md cursor-pointer whitespace-nowrap"
               >
                 <Save className="w-4 h-4" />
                 {isSaving ? 'Salvando...' : 'Salvar Identidade'}
               </button>
             </div>
           </div>
-        </div>
       )}
 
       {/* ========================================================================= */}
-      {/* POPUP 2: CANAIS DE PAGAMENTO & GESTÃO DE CUPÕES (ANGOLA) */}
+      {/* MÓDULO 2: CANAIS DE PAGAMENTO & GESTÃO DE CUPÕES (TELA CHEIA) */}
       {/* ========================================================================= */}
-      {isPaymentModalOpen && (
-        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-4 overflow-y-auto">
-          <div className="bg-[#181818] border border-outline-variant/20 rounded-2xl max-w-4xl w-full p-6 sm:p-8 shadow-2xl animate-in fade-in zoom-in-95 duration-200 my-8">
+      {activeSection === 'payment' && (
+          <div className="bg-[#181818] border border-outline-variant/15 rounded-2xl w-full p-6 sm:p-8 shadow-xl animate-in fade-in duration-200">
             {/* Header */}
             <div className="flex items-center justify-between pb-4 mb-4 border-b border-outline-variant/10">
               <div className="flex items-center gap-3">
@@ -1824,16 +1960,10 @@ export default function Settings() {
                   <CreditCard className="w-5 h-5" />
                 </div>
                 <div>
-                  <h3 className="text-xl font-bold text-white font-headline">Dados & Configuração de Pagamentos</h3>
+                  <h3 className="text-xl font-bold text-white font-headline">Dados &amp; Configuração de Pagamentos</h3>
                   <p className="text-xs text-stone-400">Gerencie os canais de recebimento e crie cupões de desconto para o checkout.</p>
                 </div>
               </div>
-              <button 
-                onClick={() => setIsPaymentModalOpen(false)}
-                className="p-2 rounded-xl text-stone-400 hover:text-white hover:bg-stone-800 transition-colors cursor-pointer"
-              >
-                <X className="w-5 h-5" />
-              </button>
             </div>
 
             {/* Modal Tabs Navigation */}
@@ -1874,7 +2004,7 @@ export default function Settings() {
             {/* TAB 1: CANAIS DE PAGAMENTO */}
             {currentUserRole === 'admin' && paymentModalTab === 'channels' && (
               <>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6 max-h-[55vh] overflow-y-auto pr-1">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   
                   {/* Canal 1: Transferência Bancária */}
                   <div className="bg-surface-container-lowest p-5 rounded-2xl border border-outline-variant/10 space-y-3.5">
@@ -2098,16 +2228,16 @@ export default function Settings() {
                 <div className="flex items-center justify-end gap-3 pt-6 mt-6 border-t border-outline-variant/10">
                   <button 
                     type="button"
-                    onClick={() => setIsPaymentModalOpen(false)}
-                    className="px-4 py-2.5 rounded-xl text-xs font-semibold text-stone-400 hover:text-white hover:bg-stone-800 transition-colors cursor-pointer"
+                    onClick={closeSection}
+                    className="px-4 py-2.5 rounded-xl text-xs font-semibold text-stone-400 hover:text-white hover:bg-stone-800 transition-colors cursor-pointer whitespace-nowrap"
                   >
-                    Cancelar
+                    Voltar
                   </button>
                   <button 
                     type="button"
                     disabled={isSaving}
                     onClick={handleSavePayments}
-                    className="bg-[#e9c349] hover:bg-[#d4b03f] text-black px-6 py-2.5 rounded-xl font-bold text-xs flex items-center gap-2 transition-all shadow-md cursor-pointer"
+                    className="bg-[#e9c349] hover:bg-[#d4b03f] text-black px-6 py-2.5 rounded-xl font-bold text-xs flex items-center gap-2 transition-all shadow-md cursor-pointer whitespace-nowrap"
                   >
                     <Save className="w-4 h-4" />
                     {isSaving ? 'Salvando...' : 'Salvar Pagamentos'}
@@ -2334,7 +2464,7 @@ export default function Settings() {
                 )}
 
                 {/* COUPONS LIST TABLE */}
-                <div className="max-h-[42vh] overflow-y-auto pr-1 space-y-3">
+                <div className="space-y-3">
                   {(currentUserRole === 'admin' ? coupons : coupons.filter(c => c.authorId === currentUserFullProfile?.uid)).length === 0 ? (
                     <div className="text-center py-12 border border-dashed border-outline-variant/20 rounded-2xl bg-black/20">
                       <Ticket className="w-10 h-10 mx-auto text-stone-600 mb-2" />
@@ -2433,8 +2563,8 @@ export default function Settings() {
                   <span>Os cupões ativos ficam disponíveis imediatamente no formulário de checkout dos alunos.</span>
                   <button
                     type="button"
-                    onClick={() => setIsPaymentModalOpen(false)}
-                    className="px-4 py-2 bg-[#e9c349] hover:bg-[#d4b03f] text-black font-bold text-xs rounded-xl transition-all"
+                    onClick={closeSection}
+                    className="px-4 py-2 bg-[#e9c349] hover:bg-[#d4b03f] text-black font-bold text-xs rounded-xl transition-all cursor-pointer whitespace-nowrap shrink-0"
                   >
                     Concluído
                   </button>
@@ -2443,22 +2573,20 @@ export default function Settings() {
             )}
 
           </div>
-        </div>
       )}
 
       {/* ========================================================================= */}
-      {/* POPUP 3: GESTÃO DE PERMISSÕES */}
+      {/* MÓDULO 3: GESTÃO DE PERMISSÕES (TELA CHEIA) */}
       {/* ========================================================================= */}
-      {isPermissionsModalOpen && (
-        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-4 overflow-y-auto">
-          <div className="bg-[#181818] border border-outline-variant/20 rounded-2xl max-w-3xl w-full p-6 sm:p-8 shadow-2xl animate-in fade-in zoom-in-95 duration-200 my-8">
-            <div className="flex items-center justify-between pb-4 mb-6 border-b border-outline-variant/10">
+      {activeSection === 'permissions' && (
+          <div className="bg-[#181818] border border-outline-variant/15 rounded-2xl w-full p-6 sm:p-8 shadow-xl animate-in fade-in duration-200">
+            <div className="flex items-center justify-between pb-4 mb-6 border-b border-outline-variant/10 gap-3 flex-wrap">
               <div className="flex items-center gap-3">
                 <div className="w-10 h-10 rounded-xl bg-[#e9c349]/10 text-[#e9c349] flex items-center justify-center border border-[#e9c349]/20">
                   <ShieldCheck className="w-5 h-5" />
                 </div>
                 <div>
-                  <h3 className="text-xl font-bold text-white font-headline">Gestão de Permissões & Cargos</h3>
+                  <h3 className="text-xl font-bold text-white font-headline">Gestão de Permissões &amp; Cargos</h3>
                   <p className="text-xs text-stone-400">Gerencie níveis de acesso e permissões a recursos.</p>
                 </div>
               </div>
@@ -2473,21 +2601,15 @@ export default function Settings() {
                     description: '',
                     modulesCount: '6/12'
                   })}
-                  className="bg-[#e9c349] hover:bg-[#d4b03f] text-black px-3.5 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all shadow cursor-pointer active:scale-95"
+                  className="bg-[#e9c349] hover:bg-[#d4b03f] text-black px-3.5 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all shadow cursor-pointer active:scale-95 whitespace-nowrap"
                 >
                   <Plus className="w-3.5 h-3.5" />
                   Novo Nível
                 </button>
-                <button 
-                  onClick={() => setIsPermissionsModalOpen(false)}
-                  className="p-2 rounded-xl text-stone-400 hover:text-white hover:bg-stone-800 transition-colors cursor-pointer"
-                >
-                  <X className="w-5 h-5" />
-                </button>
               </div>
             </div>
 
-            <div className="overflow-x-auto max-h-[55vh]">
+            <div className="overflow-x-auto">
               <table className="w-full text-left">
                 <thead>
                   <tr className="border-b border-outline-variant/10 text-stone-400">
@@ -2556,179 +2678,18 @@ export default function Settings() {
             <div className="flex items-center justify-end pt-6 mt-6 border-t border-outline-variant/10">
               <button 
                 type="button"
-                onClick={() => setIsPermissionsModalOpen(false)}
+                onClick={closeSection}
                 className="bg-[#e9c349] hover:bg-[#d4b03f] text-black px-6 py-2.5 rounded-xl font-bold text-xs transition-all shadow-md cursor-pointer"
               >
-                Concluir
+                Concluído
               </button>
             </div>
           </div>
-        </div>
       )}
 
-      {/* ========================================================================= */}
-      {/* SUB-MODAL: CRIAR / EDITAR CARGO INDIVIDUAL */}
-      {/* ========================================================================= */}
-      {roleModal.isOpen && (
-        <div className="fixed inset-0 z-[60] bg-black/85 backdrop-blur-md flex items-center justify-center p-4">
-          <div className="bg-[#1a1a1a] border border-[#e9c349]/30 rounded-2xl max-w-md w-full p-6 shadow-2xl animate-in fade-in zoom-in-95 duration-200">
-            <h3 className="text-lg font-bold text-white mb-1 font-headline">
-              {roleModal.mode === 'create' ? 'Novo Nível de Permissão' : 'Editar Nível de Permissão'}
-            </h3>
-            <p className="text-xs text-stone-400 mb-4">
-              Defina o título do cargo e a quantidade de módulos com permissão de acesso.
-            </p>
-
-            <form onSubmit={handleSaveRole} className="space-y-4">
-              <div>
-                <label className="block text-xs font-bold text-stone-300 uppercase tracking-wider mb-1.5">
-                  Nome do Cargo / Nível *
-                </label>
-                <input 
-                  type="text" 
-                  required 
-                  autoFocus
-                  value={roleModal.name} 
-                  onChange={(e) => setRoleModal({ ...roleModal, name: e.target.value })}
-                  placeholder="Ex: Tutor Assistente, Coordenador Pedagógico"
-                  className="w-full bg-black border border-gray-700 rounded-xl p-3 text-white text-sm focus:border-[#e9c349] outline-none"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold text-stone-300 uppercase tracking-wider mb-1.5">
-                  Descrição das Atividades
-                </label>
-                <input 
-                  type="text" 
-                  value={roleModal.description} 
-                  onChange={(e) => setRoleModal({ ...roleModal, description: e.target.value })}
-                  placeholder="Ex: Auxilia nas dúvidas e validação de trabalhos"
-                  className="w-full bg-black border border-gray-700 rounded-xl p-3 text-white text-sm focus:border-[#e9c349] outline-none"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold text-stone-300 uppercase tracking-wider mb-1.5">
-                  Acesso aos Módulos
-                </label>
-                <select
-                  value={roleModal.modulesCount}
-                  onChange={(e) => setRoleModal({ ...roleModal, modulesCount: e.target.value })}
-                  className="w-full bg-black border border-gray-700 rounded-xl p-3 text-white text-sm focus:border-[#e9c349] outline-none"
-                >
-                  <option value="4/12">4/12 Módulos (Básico)</option>
-                  <option value="6/12">6/12 Módulos (Intermediário)</option>
-                  <option value="8/12">8/12 Módulos (Avançado)</option>
-                  <option value="12/12">12/12 Módulos (Geral)</option>
-                  <option value="∞">∞ (Acesso Total)</option>
-                </select>
-              </div>
-
-              <div className="flex gap-2 justify-end pt-3">
-                <button 
-                  type="button" 
-                  onClick={() => setRoleModal({ ...roleModal, isOpen: false })}
-                  className="px-4 py-2 rounded-xl text-xs font-semibold text-stone-400 hover:text-white hover:bg-stone-800 transition-colors"
-                >
-                  Cancelar
-                </button>
-                <button 
-                  type="submit" 
-                  className="bg-[#e9c349] hover:bg-[#d4b03f] text-black px-5 py-2 rounded-xl font-bold text-xs transition-colors shadow-md"
-                >
-                  {roleModal.mode === 'create' ? 'Criar Cargo' : 'Salvar Permissão'}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {/* CUSTOM LOGO LINK MODAL */}
-      {logoModalOpen && (
-        <div className="fixed inset-0 z-[100] bg-black/80 backdrop-blur-md flex items-center justify-center p-4">
-          <div className="bg-[#181818] border border-outline-variant/10 rounded-2xl max-w-md w-full p-6 shadow-2xl animate-in fade-in zoom-in-95 duration-150">
-            <div className="w-12 h-12 rounded-xl bg-[#e9c349]/10 text-[#e9c349] flex items-center justify-center border border-[#e9c349]/20 mb-4">
-              <span className="material-symbols-outlined text-2xl">link</span>
-            </div>
-            <h4 className="text-base font-bold text-white mb-2 font-headline">Colar URL do Logotipo</h4>
-            <p className="text-xs text-stone-400 mb-4 leading-relaxed">
-              Insira o link direto para a imagem do seu novo logotipo. Ela deve estar hospedada na web e ser acessível publicamente.
-            </p>
-
-            <div className="space-y-4 mb-6">
-              <div className="relative">
-                <input
-                  type="url"
-                  placeholder="https://exemplo.com/logo.png"
-                  value={tempLogoUrl}
-                  onChange={(e) => setTempLogoUrl(e.target.value)}
-                  className="w-full bg-[#111] border border-stone-800 rounded-xl p-3 text-white text-xs placeholder-stone-600 focus:border-[#e9c349] outline-none"
-                  autoFocus
-                />
-              </div>
-
-              {tempLogoUrl.trim() && (
-                <div className="p-3 bg-black/40 border border-stone-800 rounded-xl flex flex-col items-center justify-center min-h-[100px]">
-                  <span className="text-[10px] text-stone-500 mb-2 uppercase font-bold tracking-widest">Pré-visualização</span>
-                  <img 
-                    src={tempLogoUrl.trim()} 
-                    alt="Logo Preview" 
-                    className="max-h-16 max-w-full object-contain"
-                    onError={(e) => {
-                      (e.target as HTMLImageElement).src = 'https://placehold.co/150x50/111/fff?text=Link+Invalido';
-                    }}
-                  />
-                </div>
-              )}
-            </div>
-
-            <div className="flex justify-end gap-3">
-              <button
-                type="button"
-                onClick={() => setLogoModalOpen(false)}
-                className="px-4 py-2.5 bg-stone-800 hover:bg-stone-700 text-stone-300 text-xs font-bold rounded-xl transition-colors cursor-pointer"
-              >
-                Cancelar
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  if (tempLogoUrl.trim()) {
-                    setLogoUrl(tempLogoUrl.trim());
-                    setLogoModalOpen(false);
-                    showNotification('Logotipo atualizado no painel! Clique em "Salvar Alterações" abaixo para persistir.', 'info');
-                  }
-                }}
-                className="px-4 py-2.5 bg-[#e9c349] hover:bg-[#d4b03f] text-black text-xs font-extrabold rounded-xl transition-colors cursor-pointer"
-              >
-                Salvar Logotipo
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Modal de Visualização do Contrato Digital do Produtor Logado */}
-      {isContractModalOpen && currentUserFullProfile && (
-        <ProducerContractModal
-          isOpen={isContractModalOpen}
-          producer={{
-            ...currentUserFullProfile,
-            contractBillingFrequency: producerData.producerPlan
-          }}
-          isReadOnly={true}
-          onClose={() => setIsContractModalOpen(false)}
-        />
-      )}
-
-
-
-      {/* Producer Bank Modal */}
-      {isProducerBankModalOpen && (
-        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
-          <div className="bg-surface-container-low border border-outline-variant/20 rounded-3xl w-full max-w-3xl overflow-hidden shadow-2xl animate-fade-in-up">
+      {/* Producer Bank Section (Full-Page) */}
+      {activeSection === 'producer-bank' && (
+          <div className="bg-surface-container-low border border-outline-variant/15 rounded-2xl w-full overflow-hidden shadow-xl animate-in fade-in duration-200">
             <div className="p-6 md:p-8 flex items-center justify-between border-b border-outline-variant/10 bg-surface-container-lowest">
               <div className="flex items-center gap-3">
                 <div className="w-10 h-10 rounded-xl bg-[#e9c349]/10 text-[#e9c349] flex items-center justify-center font-bold border border-[#e9c349]/20">
@@ -2739,14 +2700,8 @@ export default function Settings() {
                   <p className="text-xs text-stone-400">Quando um aluno comprar seu curso, o dinheiro vai direto para a sua conta.</p>
                 </div>
               </div>
-              <button 
-                onClick={() => setIsProducerBankModalOpen(false)}
-                className="w-10 h-10 rounded-full hover:bg-white/5 flex items-center justify-center text-stone-400 hover:text-white transition-colors"
-              >
-                <X className="w-5 h-5" />
-              </button>
             </div>
-            <div className="p-6 md:p-8 max-h-[75vh] overflow-y-auto">
+            <div className="p-6 md:p-8">
               <form onSubmit={handleSaveProducerData} className="space-y-6">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
                   <div className="md:col-span-2">
@@ -2865,13 +2820,11 @@ export default function Settings() {
               </form>
             </div>
           </div>
-        </div>
       )}
 
-      {/* Producer Plan Modal */}
-      {isProducerPlanModalOpen && (
-        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
-          <div className="bg-surface-container-low border border-outline-variant/20 rounded-3xl w-full max-w-3xl overflow-hidden shadow-2xl animate-fade-in-up">
+      {/* Producer Plan Section (Full-Page) */}
+      {activeSection === 'producer-plan' && (
+          <div className="bg-surface-container-low border border-outline-variant/15 rounded-2xl w-full overflow-hidden shadow-xl animate-in fade-in duration-200">
             <div className="p-6 md:p-8 flex items-center justify-between border-b border-outline-variant/10 bg-surface-container-lowest">
               <div className="flex items-center gap-3">
                 <div className="w-10 h-10 rounded-xl bg-[#e9c349]/10 text-[#e9c349] flex items-center justify-center font-bold border border-[#e9c349]/20">
@@ -2882,14 +2835,8 @@ export default function Settings() {
                   <p className="text-xs text-stone-400">Escolha o seu plano para publicar cursos e gerir seus alunos.</p>
                 </div>
               </div>
-              <button 
-                onClick={() => setIsProducerPlanModalOpen(false)}
-                className="w-10 h-10 rounded-full hover:bg-white/5 flex items-center justify-center text-stone-400 hover:text-white transition-colors"
-              >
-                <X className="w-5 h-5" />
-              </button>
             </div>
-            <div className="p-6 md:p-8 max-h-[75vh] overflow-y-auto">
+            <div className="p-6 md:p-8">
               <div className="space-y-6">
                 <div className="p-4 bg-emerald-500/10 border border-emerald-500/30 rounded-2xl flex items-start gap-3">
                   <div className="p-2 bg-emerald-500/20 text-emerald-400 rounded-xl shrink-0 mt-0.5">
@@ -3033,14 +2980,12 @@ export default function Settings() {
               </div>
             </div>
           </div>
-        </div>
       )}
       {/* ========================================================================= */}
-      {/* POPUP 4: MOLDE OFICIAL DE CERTIFICADOS */}
+      {/* MÓDULO 4: MOLDE OFICIAL DE CERTIFICADOS (TELA CHEIA) */}
       {/* ========================================================================= */}
-      {isCertificateModalOpen && (
-        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-4 overflow-y-auto">
-          <div className="bg-[#181818] border border-outline-variant/20 rounded-2xl max-w-3xl w-full p-6 sm:p-8 shadow-2xl animate-in fade-in zoom-in-95 duration-200 my-8">
+      {activeSection === 'certificate' && (
+          <div className="bg-[#181818] border border-outline-variant/15 rounded-2xl w-full p-6 sm:p-8 shadow-xl animate-in fade-in duration-200">
             <div className="flex items-center justify-between pb-4 mb-6 border-b border-outline-variant/10">
               <div className="flex items-center gap-3">
                 <div className="w-10 h-10 rounded-xl bg-[#e9c349]/10 text-[#e9c349] flex items-center justify-center border border-[#e9c349]/20">
@@ -3051,12 +2996,6 @@ export default function Settings() {
                   <p className="text-xs text-stone-400">Defina a imagem de fundo que servirá como diploma oficial emitido aos alunos.</p>
                 </div>
               </div>
-              <button 
-                onClick={() => setIsCertificateModalOpen(false)}
-                className="p-2 rounded-xl text-stone-400 hover:text-white hover:bg-stone-800 transition-colors cursor-pointer"
-              >
-                <X className="w-5 h-5" />
-              </button>
             </div>
 
             <div className="space-y-6">
@@ -3155,10 +3094,10 @@ export default function Settings() {
                 <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
                   <button
                     type="button"
-                    onClick={() => setIsCertificateModalOpen(false)}
+                    onClick={closeSection}
                     className="w-full sm:w-auto px-5 py-2.5 rounded-xl text-stone-300 hover:text-white hover:bg-stone-800 text-xs font-bold transition-colors cursor-pointer"
                   >
-                    Fechar
+                    Voltar
                   </button>
                   <button
                     type="button"
@@ -3182,7 +3121,7 @@ export default function Settings() {
                           updatedAt: new Date().toISOString()
                         }, { merge: true });
                         showNotification('Molde de certificado gravado com sucesso!', 'success');
-                        setIsCertificateModalOpen(false);
+                        closeSection();
                       } catch (e: any) {
                         console.error(e);
                         showNotification(`Erro ao gravar molde: ${e?.message || 'Erro no servidor'}`, 'error');
@@ -3208,15 +3147,13 @@ export default function Settings() {
               </div>
             </div>
           </div>
-        </div>
       )}
 
       {/* ========================================================================= */}
-      {/* POPUP 5: REAJUSTE DE TAXAS DOS PRODUTORES (ADMIN) */}
+      {/* MÓDULO 5: REAJUSTE DE TAXAS DOS PRODUTORES (TELA CHEIA) */}
       {/* ========================================================================= */}
-      {isProducerFeesModalOpen && (
-        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-4 overflow-y-auto">
-          <div className="bg-[#181818] border border-outline-variant/20 rounded-2xl max-w-lg w-full p-6 sm:p-8 shadow-2xl animate-in fade-in zoom-in-95 duration-200 my-8">
+      {activeSection === 'producer-fees' && (
+          <div className="bg-[#181818] border border-outline-variant/15 rounded-2xl w-full p-6 sm:p-8 shadow-xl animate-in fade-in duration-200">
             <div className="flex items-center justify-between pb-4 mb-6 border-b border-outline-variant/10">
               <div className="flex items-center gap-3">
                 <div className="w-10 h-10 rounded-xl bg-[#e9c349]/10 text-[#e9c349] flex items-center justify-center border border-[#e9c349]/20">
@@ -3231,13 +3168,6 @@ export default function Settings() {
                   </p>
                 </div>
               </div>
-              <button 
-                type="button"
-                onClick={() => setIsProducerFeesModalOpen(false)}
-                className="p-2 text-stone-400 hover:text-white rounded-lg hover:bg-surface-container-highest transition-colors cursor-pointer"
-              >
-                <X className="w-5 h-5" />
-              </button>
             </div>
 
             <form onSubmit={handleSaveProducerFees} className="space-y-6">
@@ -3372,14 +3302,14 @@ export default function Settings() {
                 </div>
               </div>
 
-              {/* Modal Actions */}
+              {/* Section Actions */}
               <div className="pt-4 border-t border-outline-variant/10 flex items-center justify-end gap-3">
                 <button
                   type="button"
-                  onClick={() => setIsProducerFeesModalOpen(false)}
+                  onClick={closeSection}
                   className="px-5 py-2.5 rounded-xl text-stone-300 hover:text-white hover:bg-stone-800 text-xs font-bold transition-colors cursor-pointer"
                 >
-                  Cancelar
+                  Voltar
                 </button>
                 <button
                   type="submit"
@@ -3401,15 +3331,13 @@ export default function Settings() {
               </div>
             </form>
           </div>
-        </div>
       )}
 
-      {/* MODAL: Gestão de Câmbio de USDT & SMS da Página */}
-      {isUsdtModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-200">
-          <div className="relative w-full max-w-2xl bg-surface-container-low border border-outline-variant/20 rounded-3xl p-6 sm:p-8 shadow-2xl max-h-[92vh] overflow-y-auto">
+      {/* MÓDULO 6: Gestão de Câmbio de USDT & SMS da Página (TELA CHEIA) */}
+      {activeSection === 'usdt' && (
+          <div className="relative w-full bg-surface-container-low border border-outline-variant/15 rounded-2xl p-6 sm:p-8 shadow-xl animate-in fade-in duration-200">
             
-            {/* Modal Header */}
+            {/* Section Header */}
             <div className="flex items-center justify-between pb-5 border-b border-outline-variant/10 mb-6">
               <div className="flex items-center gap-3">
                 <div className="w-11 h-11 rounded-2xl bg-emerald-500/15 text-emerald-400 flex items-center justify-center border border-emerald-500/20">
@@ -3424,13 +3352,6 @@ export default function Settings() {
                   </p>
                 </div>
               </div>
-              <button
-                type="button"
-                onClick={() => setIsUsdtModalOpen(false)}
-                className="w-8 h-8 rounded-full bg-white/5 hover:bg-white/10 text-stone-400 hover:text-white flex items-center justify-center transition-colors cursor-pointer"
-              >
-                <X className="w-4 h-4" />
-              </button>
             </div>
 
             <form onSubmit={handleSaveUsdtConfig} className="space-y-6">
@@ -3570,14 +3491,14 @@ export default function Settings() {
                 </p>
               </div>
 
-              {/* Modal Actions */}
+              {/* Section Actions */}
               <div className="pt-4 border-t border-outline-variant/10 flex items-center justify-end gap-3">
                 <button
                   type="button"
-                  onClick={() => setIsUsdtModalOpen(false)}
+                  onClick={closeSection}
                   className="px-5 py-2.5 rounded-xl text-stone-300 hover:text-white hover:bg-stone-800 text-xs font-bold transition-colors cursor-pointer"
                 >
-                  Cancelar
+                  Voltar
                 </button>
                 <button
                   type="submit"
@@ -3599,7 +3520,166 @@ export default function Settings() {
               </div>
             </form>
           </div>
+      )}
+          </div>
+        )}
+      </main>
+
+      {/* ========================================================================= */}
+      {/* SUB-MODAL: CRIAR / EDITAR CARGO INDIVIDUAL */}
+      {/* ========================================================================= */}
+      {roleModal.isOpen && (
+        <div className="fixed inset-0 z-[60] bg-black/85 backdrop-blur-md flex items-center justify-center p-4">
+          <div className="bg-[#1a1a1a] border border-[#e9c349]/30 rounded-2xl max-w-md w-full p-6 shadow-2xl animate-in fade-in zoom-in-95 duration-200">
+            <h3 className="text-lg font-bold text-white mb-1 font-headline">
+              {roleModal.mode === 'create' ? 'Novo Nível de Permissão' : 'Editar Nível de Permissão'}
+            </h3>
+            <p className="text-xs text-stone-400 mb-4">
+              Defina o título do cargo e a quantidade de módulos com permissão de acesso.
+            </p>
+
+            <form onSubmit={handleSaveRole} className="space-y-4">
+              <div>
+                <label className="block text-xs font-bold text-stone-300 uppercase tracking-wider mb-1.5">
+                  Nome do Cargo / Nível *
+                </label>
+                <input 
+                  type="text" 
+                  required 
+                  autoFocus
+                  value={roleModal.name} 
+                  onChange={(e) => setRoleModal({ ...roleModal, name: e.target.value })}
+                  placeholder="Ex: Tutor Assistente, Coordenador Pedagógico"
+                  className="w-full bg-black border border-gray-700 rounded-xl p-3 text-white text-sm focus:border-[#e9c349] outline-none"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-stone-300 uppercase tracking-wider mb-1.5">
+                  Descrição das Atividades
+                </label>
+                <input 
+                  type="text" 
+                  value={roleModal.description} 
+                  onChange={(e) => setRoleModal({ ...roleModal, description: e.target.value })}
+                  placeholder="Ex: Auxilia nas dúvidas e validação de trabalhos"
+                  className="w-full bg-black border border-gray-700 rounded-xl p-3 text-white text-sm focus:border-[#e9c349] outline-none"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-stone-300 uppercase tracking-wider mb-1.5">
+                  Acesso aos Módulos
+                </label>
+                <select
+                  value={roleModal.modulesCount}
+                  onChange={(e) => setRoleModal({ ...roleModal, modulesCount: e.target.value })}
+                  className="w-full bg-black border border-gray-700 rounded-xl p-3 text-white text-sm focus:border-[#e9c349] outline-none"
+                >
+                  <option value="4/12">4/12 Módulos (Básico)</option>
+                  <option value="6/12">6/12 Módulos (Intermediário)</option>
+                  <option value="8/12">8/12 Módulos (Avançado)</option>
+                  <option value="12/12">12/12 Módulos (Geral)</option>
+                  <option value="∞">∞ (Acesso Total)</option>
+                </select>
+              </div>
+
+              <div className="flex gap-2 justify-end pt-3">
+                <button 
+                  type="button" 
+                  onClick={() => setRoleModal({ ...roleModal, isOpen: false })}
+                  className="px-4 py-2 rounded-xl text-xs font-semibold text-stone-400 hover:text-white hover:bg-stone-800 transition-colors"
+                >
+                  Cancelar
+                </button>
+                <button 
+                  type="submit" 
+                  className="bg-[#e9c349] hover:bg-[#d4b03f] text-black px-5 py-2 rounded-xl font-bold text-xs transition-colors shadow-md"
+                >
+                  {roleModal.mode === 'create' ? 'Criar Cargo' : 'Salvar Permissão'}
+                </button>
+              </div>
+            </form>
+          </div>
         </div>
+      )}
+
+      {/* CUSTOM LOGO LINK MODAL */}
+      {logoModalOpen && (
+        <div className="fixed inset-0 z-[100] bg-black/80 backdrop-blur-md flex items-center justify-center p-4">
+          <div className="bg-[#181818] border border-outline-variant/10 rounded-2xl max-w-md w-full p-6 shadow-2xl animate-in fade-in zoom-in-95 duration-150">
+            <div className="w-12 h-12 rounded-xl bg-[#e9c349]/10 text-[#e9c349] flex items-center justify-center border border-[#e9c349]/20 mb-4">
+              <span className="material-symbols-outlined text-2xl">link</span>
+            </div>
+            <h4 className="text-base font-bold text-white mb-2 font-headline">Colar URL do Logotipo</h4>
+            <p className="text-xs text-stone-400 mb-4 leading-relaxed">
+              Insira o link direto para a imagem do seu novo logotipo. Ela deve estar hospedada na web e ser acessível publicamente.
+            </p>
+
+            <div className="space-y-4 mb-6">
+              <div className="relative">
+                <input
+                  type="url"
+                  placeholder="https://exemplo.com/logo.png"
+                  value={tempLogoUrl}
+                  onChange={(e) => setTempLogoUrl(e.target.value)}
+                  className="w-full bg-[#111] border border-stone-800 rounded-xl p-3 text-white text-xs placeholder-stone-600 focus:border-[#e9c349] outline-none"
+                  autoFocus
+                />
+              </div>
+
+              {tempLogoUrl.trim() && (
+                <div className="p-3 bg-black/40 border border-stone-800 rounded-xl flex flex-col items-center justify-center min-h-[100px]">
+                  <span className="text-[10px] text-stone-500 mb-2 uppercase font-bold tracking-widest">Pré-visualização</span>
+                  <img 
+                    src={tempLogoUrl.trim()} 
+                    alt="Logo Preview" 
+                    className="max-h-16 max-w-full object-contain"
+                    onError={(e) => {
+                      (e.target as HTMLImageElement).src = 'https://placehold.co/150x50/111/fff?text=Link+Invalido';
+                    }}
+                  />
+                </div>
+              )}
+            </div>
+
+            <div className="flex justify-end gap-3">
+              <button
+                type="button"
+                onClick={() => setLogoModalOpen(false)}
+                className="px-4 py-2.5 bg-stone-800 hover:bg-stone-700 text-stone-300 text-xs font-bold rounded-xl transition-colors cursor-pointer"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  if (tempLogoUrl.trim()) {
+                    setLogoUrl(tempLogoUrl.trim());
+                    setLogoModalOpen(false);
+                    showNotification('Logotipo atualizado no painel! Clique em "Salvar Identidade" abaixo para persistir.', 'info');
+                  }
+                }}
+                className="px-4 py-2.5 bg-[#e9c349] hover:bg-[#d4b03f] text-black text-xs font-extrabold rounded-xl transition-colors cursor-pointer"
+              >
+                Salvar Logotipo
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal de Visualização do Contrato Digital do Produtor Logado */}
+      {isContractModalOpen && currentUserFullProfile && (
+        <ProducerContractModal
+          isOpen={isContractModalOpen}
+          producer={{
+            ...currentUserFullProfile,
+            contractBillingFrequency: producerData.producerPlan
+          }}
+          isReadOnly={true}
+          onClose={() => setIsContractModalOpen(false)}
+        />
       )}
 
       {/* Modal de Teste da Emissão com o Aluno Exemplo */}
@@ -3611,13 +3691,6 @@ export default function Settings() {
           initialStudentName="Pedro Cassaminha (Aluno Exemplo)"
         />
       )}
-
-      {/* Modal de Controle de Cotas Gratuitas do Firestore */}
-      <FirestoreQuotaModal
-        isOpen={isQuotaModalOpen}
-        onClose={() => setIsQuotaModalOpen(false)}
-        onNotify={showNotification}
-      />
     </div>
   );
 }

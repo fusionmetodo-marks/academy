@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { User, Mail, Shield, CheckCircle2, Key, Phone, BookOpen, Lock, AlertCircle, Hash, RefreshCw, Send, Edit2, Save, X, MessageCircle, MessageSquare } from 'lucide-react';
+import { User, Mail, Shield, CheckCircle2, Key, Phone, BookOpen, Lock, AlertCircle, Hash, RefreshCw, Send, Edit2, Save, X, MessageCircle, MessageSquare, Coins, ArrowUpRight } from 'lucide-react';
 import { auth, db } from '../firebase';
 import { doc, getDoc, updateDoc, setDoc } from 'firebase/firestore';
 import { sendPasswordResetEmail, updateProfile } from 'firebase/auth';
@@ -289,9 +289,24 @@ export default function StudentProfile() {
 
   return (
     <div className="max-w-4xl mx-auto px-4 sm:px-6 py-6 sm:py-10">
-      <div className="mb-6 sm:mb-8">
-        <h1 className="text-2xl sm:text-3xl font-extrabold text-white font-headline">Meu Perfil</h1>
-        <p className="text-gray-400 text-xs sm:text-sm mt-1">Visualize suas credenciais de acesso, nome, telefone, número de ID numérico e status da conta.</p>
+      <div className="mb-6 sm:mb-8 flex flex-col sm:flex-row sm:items-end sm:justify-between gap-4">
+        <div>
+          <h1 className="text-2xl sm:text-3xl font-extrabold text-white font-headline">Meu Perfil</h1>
+          <p className="text-gray-400 text-xs sm:text-sm mt-1">Visualize suas credenciais de acesso, nome, telefone, número de ID numérico e status da conta.</p>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            id="profile-quick-usdt-btn"
+            onClick={() => navigate('/library/comprar-usdt')}
+            className="px-3.5 py-2 rounded-xl bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-500/35 text-emerald-300 hover:text-emerald-200 text-xs font-bold transition-all flex items-center gap-2 cursor-pointer whitespace-nowrap shrink-0 shadow-sm active:scale-95"
+          >
+            <Coins className="w-4 h-4 text-emerald-400 shrink-0" />
+            <span>Comprar USDT</span>
+            <ArrowUpRight className="w-3.5 h-3.5 opacity-80 shrink-0" />
+          </button>
+        </div>
       </div>
 
       <div className="space-y-6">

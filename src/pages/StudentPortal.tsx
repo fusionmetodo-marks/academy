@@ -3,6 +3,7 @@ import StudentCatalog from '../components/StudentCatalog';
 import StudentMyCourses from '../components/StudentMyCourses';
 import StudentProfile from '../components/StudentProfile';
 import StudentUsdtExchange from '../components/StudentUsdtExchange';
+import StudentChristmasBonus from '../components/StudentChristmasBonus';
 import CoursePreview from '../components/CoursePreview';
 import CourseCheckout from '../components/CourseCheckout';
 import { AndroidInstallModal } from '../components/AndroidInstallModal';
@@ -11,7 +12,7 @@ import StudentNotifications from '../components/StudentNotifications';
 import StudentChatView, { ChatLessonContext } from '../components/StudentChatView';
 import { PushSubscriptionBanner } from '../components/PushSubscriptionBanner';
 import { shouldShowInstallPopup } from '../utils/deviceDetection';
-import { Bell, BookOpen, Home, User, LogOut, Compass, Smartphone, Coins, Lock, ShieldAlert, MessageSquare } from 'lucide-react';
+import { Bell, BookOpen, Home, User, LogOut, Compass, Smartphone, Gift, Lock, ShieldAlert, MessageSquare } from 'lucide-react';
 import { doc, getDoc, collection, getDocs, query, where, setDoc } from 'firebase/firestore';
 import { updateProfile } from 'firebase/auth';
 import { logout, auth, db } from '../firebase';
@@ -31,7 +32,7 @@ export default function StudentPortal() {
   const { slug } = useParams<{ slug?: string }>();
   const [searchParams, setSearchParams] = useSearchParams();
   
-  const [currentView, setCurrentView] = useState<'catalog' | 'my-courses' | 'profile' | 'notifications' | 'chat' | 'preview' | 'checkout' | 'usdt'>('catalog');
+  const [currentView, setCurrentView] = useState<'catalog' | 'my-courses' | 'profile' | 'notifications' | 'chat' | 'preview' | 'checkout' | 'usdt' | 'christmas-bonus'>('catalog');
   const [selectedCourse, setSelectedCourse] = useState<any>(null);
   const [preAppliedCoupon, setPreAppliedCoupon] = useState<any>(null);
   const [isAdmin, setIsAdmin] = useState(false);
@@ -42,9 +43,20 @@ export default function StudentPortal() {
   const [isAndroidModalOpen, setIsAndroidModalOpen] = useState(false);
   const [enrolledCourses, setEnrolledCourses] = useState<string[]>([]);
   const [isLoadingEnrollments, setIsLoadingEnrollments] = useState<boolean>(true);
+  const [isViewingAsStudent, setIsViewingAsStudent] = useState<boolean>(
+    () => localStorage.getItem('viewAsStudent') === 'true'
+  );
   const [unreadChatCount, setUnreadChatCount] = useState(0);
   const [isFloatingChatOpen, setIsFloatingChatOpen] = useState(false);
   const [chatLessonContext, setChatLessonContext] = useState<ChatLessonContext | null>(null);
+
+  useEffect(() => {
+    const syncViewMode = () => {
+      setIsViewingAsStudent(localStorage.getItem('viewAsStudent') === 'true');
+    };
+    window.addEventListener('student-view-changed', syncViewMode);
+    return () => window.removeEventListener('student-view-changed', syncViewMode);
+  }, []);
 
   // Estados do Modal Obrigatório de Perfil Incompleto
   const [portalFullName, setPortalFullName] = useState('');
@@ -215,6 +227,12 @@ export default function StudentPortal() {
         return;
       }
 
+      if (slug === 'bonus-natal' || slug === 'bonus-de-natal') {
+        setCurrentView('christmas-bonus');
+        setIsInitializing(false);
+        return;
+      }
+
       if (slug === 'meus-cursos') {
         const currentUser = auth.currentUser || user;
         if (!currentUser) {
@@ -349,6 +367,10 @@ export default function StudentPortal() {
       setCurrentView('usdt');
       navigate('/library/comprar-usdt');
     }
+    else if (view === 'christmas-bonus') {
+      setCurrentView('christmas-bonus');
+      navigate('/library/bonus-natal');
+    }
     else if (view === 'my-courses') {
       const activeUser = auth.currentUser || user;
       if (!activeUser) {
@@ -431,7 +453,7 @@ export default function StudentPortal() {
   const handleReturnToAdmin = () => {
     localStorage.setItem('viewAsStudent', 'false');
     window.dispatchEvent(new Event('student-view-changed'));
-    window.location.href = '/dashboard';
+    navigate('/dashboard', { replace: true });
   };
 
   const handleLogout = async () => {
@@ -510,16 +532,16 @@ export default function StudentPortal() {
           </button>
 
           <button
-            id="nav-usdt-btn"
-            onClick={() => handleSetView('usdt')}
-            className={`px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2 cursor-pointer ${
-              currentView === 'usdt'
+            id="nav-christmas-bonus-btn"
+            onClick={() => handleSetView('christmas-bonus')}
+            className={`px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2 cursor-pointer whitespace-nowrap shrink-0 ${
+              currentView === 'christmas-bonus'
                 ? 'bg-[#e9c349] text-black shadow-md'
                 : 'text-gray-300 hover:text-white hover:bg-white/10'
             }`}
           >
-            <Coins className="w-4 h-4 text-emerald-400" />
-            <span>Comprar USDT</span>
+            <Gift className={`w-4 h-4 ${currentView === 'christmas-bonus' ? 'text-black' : 'text-rose-400'}`} />
+            <span>Bônus de Natal</span>
           </button>
 
           <button
@@ -634,16 +656,16 @@ export default function StudentPortal() {
         </button>
 
         <button
-          id="mobile-nav-usdt-btn"
-          onClick={() => handleSetView('usdt')}
+          id="mobile-nav-christmas-bonus-btn"
+          onClick={() => handleSetView('christmas-bonus')}
           className={`flex-1 flex flex-col items-center justify-center py-1.5 rounded-xl transition-all cursor-pointer ${
-            currentView === 'usdt'
+            currentView === 'christmas-bonus'
               ? 'bg-[#e9c349]/20 text-[#e9c349] font-extrabold border border-[#e9c349]/30'
               : 'text-gray-400 font-medium'
           }`}
         >
-          <Coins className="w-4 h-4 text-emerald-400" />
-          <span className="text-[10px] mt-0.5 whitespace-nowrap">Comprar USDT</span>
+          <Gift className={`w-4 h-4 ${currentView === 'christmas-bonus' ? 'text-[#e9c349]' : 'text-rose-400'}`} />
+          <span className="text-[10px] mt-0.5 whitespace-nowrap">Bônus Natal</span>
         </button>
 
         <button
@@ -779,6 +801,90 @@ export default function StudentPortal() {
             }
 
             return <StudentUsdtExchange studentName={user?.displayName} studentEmail={user?.email} />;
+          })()
+        )}
+
+        {currentView === 'christmas-bonus' && (
+          (() => {
+            const isMaster = isMasterEmail(user?.email);
+            const hasEnrollment = enrolledCourses && enrolledCourses.length > 0;
+            const isAuthorized = isMaster || isAdmin || hasEnrollment;
+
+            if (isLoadingEnrollments) {
+              return (
+                <div className="py-24 text-center">
+                  <div className="w-10 h-10 border-4 border-[#e9c349] border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+                  <p className="text-stone-400 text-sm font-mono">Verificando matrículas ativas na sua conta...</p>
+                </div>
+              );
+            }
+
+            if (!isAuthorized) {
+              return (
+                <div className="max-w-3xl mx-auto px-4 py-12 sm:py-16 text-center animate-in fade-in zoom-in-95 duration-200">
+                  <div className="bg-[#161616] border border-[#e9c349]/30 rounded-3xl p-6 sm:p-10 md:p-12 shadow-2xl shadow-black relative overflow-hidden">
+                    <div className="w-20 h-20 rounded-3xl bg-rose-500/15 text-rose-400 flex items-center justify-center mx-auto border border-rose-500/30 shadow-xl mb-6">
+                      <Gift className="w-10 h-10" />
+                    </div>
+
+                    <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-amber-500/10 border border-amber-500/30 text-amber-400 text-xs font-bold uppercase tracking-widest mb-4 font-mono">
+                      <Lock className="w-3.5 h-3.5" />
+                      <span>Bônus Exclusivo de Boas Festas</span>
+                    </div>
+
+                    <h2 className="font-headline text-2xl sm:text-3xl md:text-4xl font-black text-white mb-4" style={{ textWrap: 'balance' }}>
+                      Bônus de Natal · 7 Dias Ao Vivo com Marks
+                    </h2>
+
+                    <p className="text-stone-300 text-sm sm:text-base leading-relaxed max-w-xl mx-auto mb-6">
+                      Os sete dias de operação ao vivo com <strong>Marks, o Monstro</strong> são um presente exclusivo para alunos com pelo menos <strong>uma matrícula ativa</strong> na <strong>Money Building</strong>.
+                    </p>
+
+                    <div className="p-4 sm:p-5 rounded-2xl bg-black/70 border border-white/10 max-w-lg mx-auto mb-8 text-left space-y-2">
+                      <div className="flex items-center justify-between text-xs font-mono">
+                        <span className="text-stone-400">Conta Conectada:</span>
+                        <strong className="text-stone-200 truncate max-w-[200px] sm:max-w-none">{user?.email || 'Visitante'}</strong>
+                      </div>
+                      <div className="flex items-center justify-between text-xs font-mono pt-2 border-t border-white/10">
+                        <span className="text-stone-400">Status da Matrícula:</span>
+                        <span className="text-rose-400 font-bold bg-rose-500/10 px-2 py-0.5 rounded border border-rose-500/20">
+                          Nenhum curso ativo encontrado
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="flex flex-col sm:flex-row gap-3 sm:gap-4 justify-center items-center">
+                      <button
+                        type="button"
+                        onClick={() => handleSetView('catalog')}
+                        className="w-full sm:w-auto px-8 py-4 bg-[#e9c349] hover:bg-[#d8b33c] text-stone-950 font-black rounded-xl text-xs sm:text-sm transition-all shadow-lg shadow-[#e9c349]/20 cursor-pointer flex items-center justify-center gap-2 whitespace-nowrap"
+                      >
+                        <BookOpen className="w-4.5 h-4.5" />
+                        <span>Explorar Cursos &amp; Liberar Bônus</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => navigate('/')}
+                        className="w-full sm:w-auto px-6 py-4 bg-stone-800 hover:bg-stone-700 text-stone-300 font-bold rounded-xl text-xs sm:text-sm transition-all border border-stone-700 cursor-pointer whitespace-nowrap"
+                      >
+                        Página Inicial
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              );
+            }
+
+            return (
+              <StudentChristmasBonus
+                studentName={userProfile?.fullName || user?.displayName}
+                studentEmail={user?.email}
+                isAdminSession={isAdmin && !isViewingAsStudent}
+                onBackCatalog={() => handleSetView('catalog')}
+                onOpenMyCourses={() => handleSetView('my-courses')}
+              />
+            );
           })()
         )}
 

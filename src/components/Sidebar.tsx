@@ -104,12 +104,17 @@ export default function Sidebar() {
   const toggleStudentView = () => {
     const current = localStorage.getItem('viewAsStudent') === 'true';
     const nextState = !current;
+    setIsOpenMobile(false);
     localStorage.setItem('viewAsStudent', String(nextState));
-    window.dispatchEvent(new Event('student-view-changed'));
+
     if (nextState) {
-      window.location.href = '/library';
+      navigate('/library', { replace: true });
+      setTimeout(() => {
+        window.dispatchEvent(new Event('student-view-changed'));
+      }, 0);
     } else {
-      window.location.href = '/dashboard';
+      window.dispatchEvent(new Event('student-view-changed'));
+      navigate('/dashboard', { replace: true });
     }
   };
 

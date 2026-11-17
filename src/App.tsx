@@ -208,31 +208,31 @@ export default function App() {
           
           <Route 
             path="/dashboard" 
-            element={user && (effectiveRole === 'admin' || effectiveRole === 'producer') ? <Dashboard /> : <Navigate to="/" replace />} 
+            element={user && (effectiveRole === 'admin' || effectiveRole === 'producer') ? <Dashboard /> : (user && isReallyAdmin && viewAsStudent ? <Navigate to="/library" replace /> : <Navigate to="/" replace />)} 
           />
           <Route 
             path="/directory" 
-            element={user && (effectiveRole === 'admin' || effectiveRole === 'producer') ? <StudentDirectory /> : <Navigate to="/" replace />} 
+            element={user && (effectiveRole === 'admin' || effectiveRole === 'producer') ? <StudentDirectory /> : (user && isReallyAdmin && viewAsStudent ? <Navigate to="/library" replace /> : <Navigate to="/" replace />)} 
           />
           <Route 
             path="/content" 
-            element={user && (effectiveRole === 'admin' || effectiveRole === 'producer') ? <ContentManager /> : <Navigate to="/" replace />} 
+            element={user && (effectiveRole === 'admin' || effectiveRole === 'producer') ? <ContentManager /> : (user && isReallyAdmin && viewAsStudent ? <Navigate to="/library" replace /> : <Navigate to="/" replace />)} 
           />
           <Route 
             path="/analytics" 
-            element={user && (effectiveRole === 'admin' || effectiveRole === 'producer') ? <Analytics /> : <Navigate to="/" replace />} 
+            element={user && (effectiveRole === 'admin' || effectiveRole === 'producer') ? <Analytics /> : (user && isReallyAdmin && viewAsStudent ? <Navigate to="/library" replace /> : <Navigate to="/" replace />)} 
           />
           <Route 
             path="/broadcast" 
-            element={user && isAdminEmail && effectiveRole !== 'student' ? <PushBroadcastManager /> : <Navigate to="/" replace />} 
+            element={user && isAdminEmail && effectiveRole !== 'student' ? <PushBroadcastManager /> : (user && isReallyAdmin && viewAsStudent ? <Navigate to="/library" replace /> : <Navigate to="/" replace />)} 
           />
           <Route 
             path="/messages" 
-            element={user && (effectiveRole === 'admin' || effectiveRole === 'producer') ? <ProducerMessages /> : <Navigate to="/" replace />} 
+            element={user && (effectiveRole === 'admin' || effectiveRole === 'producer') ? <ProducerMessages /> : (user && isReallyAdmin && viewAsStudent ? <Navigate to="/library" replace /> : <Navigate to="/" replace />)} 
           />
           <Route 
             path="/settings" 
-            element={user && (effectiveRole === 'admin' || effectiveRole === 'producer') ? <Settings /> : <Navigate to="/" replace />} 
+            element={user && (effectiveRole === 'admin' || effectiveRole === 'producer') ? <Settings /> : (user && isReallyAdmin && viewAsStudent ? <Navigate to="/library" replace /> : <Navigate to="/" replace />)} 
           />
           
           <Route 

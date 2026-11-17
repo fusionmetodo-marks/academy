@@ -172,6 +172,47 @@
         "updatedAt": { "type": "string", "format": "date-time" }
       }
     },
+    "FirebaseBillingSettings": {
+      "title": "FirebaseBillingSettings",
+      "description": "Team-synchronized Firebase Spark/Blaze billing tier, monthly budget thresholds, and console calibration offsets.",
+      "type": "object",
+      "properties": {
+        "planTier": { "type": "string", "enum": ["spark", "blaze"] },
+        "blazeUpgradedAtIso": { "type": "string", "format": "date-time" },
+        "planUpdatedByEmail": { "type": "string", "format": "email" },
+        "monthlyBudgetUsd": { "type": "number" },
+        "budgetAlertThresholdPct": { "type": "number" },
+        "monthlyReadUnitsOffset": { "type": "number" },
+        "monthlyWriteUnitsOffset": { "type": "number" },
+        "monthlyEgressGiB": { "type": "number" },
+        "storedDataGiB": { "type": "number" },
+        "dailyCycleKey": { "type": "string" },
+        "dailyConsoleReadsOffset": { "type": "number" },
+        "dailyConsoleWritesOffset": { "type": "number" },
+        "updatedAtIso": { "type": "string", "format": "date-time" }
+      }
+    },
+    "ChristmasBonusSettings": {
+      "title": "ChristmasBonusSettings",
+      "description": "Admin-editable configuration for the 7-day Christmas live trading bonus with Marks, including main room URL and per-day date, WAT time, session state, quick notice, and optional custom room URL.",
+      "type": "object",
+      "properties": {
+        "title": { "type": "string" },
+        "festiveTag": { "type": "string" },
+        "subtitle": { "type": "string" },
+        "description": { "type": "string" },
+        "status": { "type": "string", "enum": ["draft", "scheduled", "live", "ended"] },
+        "startDate": { "type": "string" },
+        "endDate": { "type": "string" },
+        "liveTimeWat": { "type": "string" },
+        "liveRoomUrl": { "type": "string" },
+        "accessNotes": { "type": "string" },
+        "coverImageUrl": { "type": "string" },
+        "days": { "type": "array" },
+        "updatedAt": { "type": "string", "format": "date-time" },
+        "updatedBy": { "type": "string" }
+      }
+    },
     "LessonPlayback": {
       "title": "LessonPlayback",
       "description": "Records an individual video playback event initiated when a student clicks Play on a lesson.",

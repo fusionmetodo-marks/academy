@@ -67,7 +67,7 @@ function isMasterEmail(email?: string): boolean {
 }
 
 // Carregar configuração oficial do Firebase para validação no backend
-const configPath = new URL('./firebase-applet-config.json', import.meta.url);
+const configPath = path.join(process.cwd(), 'firebase-applet-config.json');
 const firebaseConfig = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
 
 const firebaseApp = getApps().length === 0 ? initializeApp(firebaseConfig) : getApps()[0];
