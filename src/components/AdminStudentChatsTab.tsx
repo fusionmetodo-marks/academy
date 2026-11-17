@@ -680,7 +680,7 @@ export default function AdminStudentChatsTab({
         className={
           isDrawer
             ? 'h-[540px] max-h-[76vh] bg-[#141414] border border-[#e9c349]/30 rounded-3xl shadow-2xl flex flex-col overflow-hidden w-full'
-            : 'bg-[#181818] border-0 sm:border border-[#353534] rounded-none overflow-hidden shadow-xl grid grid-cols-1 lg:grid-cols-12 h-[calc(100vh-64px)] sm:h-[calc(100vh-72px)] w-full flex-1'
+            : 'bg-[#181818] border border-[#353534] rounded-2xl sm:rounded-3xl overflow-hidden shadow-2xl shadow-black/60 grid grid-cols-1 lg:grid-cols-12 h-[calc(100vh-210px)] min-h-[580px] max-h-[780px] w-full'
         }
       >
         {/* Coluna Esquerda: Lista de Conversas e Alunos */}
@@ -1165,7 +1165,7 @@ export default function AdminStudentChatsTab({
               )}
 
               {/* Lista de Mensagens */}
-              <div className="flex-1 overflow-y-auto px-4 sm:px-6 py-4 space-y-3 bg-[#0a0a0a] flex flex-col justify-end">
+              <div className="flex-1 overflow-y-auto px-4 sm:px-6 py-4 space-y-3 bg-[#0a0a0a]">
                 {loadingMessages ? (
                   <div className="h-full flex items-center justify-center text-xs text-stone-500">
                     Carregando histórico de mensagens...

@@ -240,10 +240,10 @@ export default function StudentChatView({
 
   return (
     <div
-      className={`flex flex-col bg-[#131313] overflow-hidden ${
+      className={`flex flex-col bg-[#131313] border border-white/10 overflow-hidden shadow-2xl shadow-black/60 ${
         isDrawer
-          ? 'h-[520px] max-h-[80vh] w-full rounded-2xl shadow-2xl border border-white/10'
-          : 'h-[calc(100vh-64px)] sm:h-[calc(100vh-72px)] w-full rounded-none border-0'
+          ? 'h-[520px] max-h-[80vh] w-full rounded-2xl'
+          : 'h-[calc(100vh-185px)] min-h-[540px] max-h-[760px] rounded-2xl sm:rounded-3xl w-full'
       }`}
     >
       {/* Cabeçalho do Chat */}
@@ -396,7 +396,7 @@ export default function StudentChatView({
       ) : (
         <>
       {/* Área de Mensagens */}
-      <div className="flex-1 overflow-y-auto px-4 sm:px-5 py-4 space-y-3 bg-[#0b0b0b] flex flex-col justify-end">
+      <div className="flex-1 overflow-y-auto px-4 sm:px-5 py-4 space-y-3 bg-[#0b0b0b]">
         {loading ? (
           <div className="h-full flex flex-col items-center justify-center text-stone-400 text-xs gap-2.5">
             <div className="w-6 h-6 border-2 border-[#e9c349] border-t-transparent rounded-full animate-spin" />
