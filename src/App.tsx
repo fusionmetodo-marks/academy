@@ -36,7 +36,9 @@ import { RegisteredDevice } from './types';
 function AuthStudentRedirect() {
   const location = useLocation();
   const redirect = new URLSearchParams(location.search).get('redirect');
-  const safeTarget = redirect && redirect.startsWith('/') && !redirect.startsWith('//') ? redirect : '/library';
+  const postRegSlug = sessionStorage.getItem('post_register_slug');
+  const fallback = postRegSlug ? `/library/${postRegSlug}` : '/library';
+  const safeTarget = redirect && redirect.startsWith('/') && !redirect.startsWith('//') ? redirect : fallback;
   return <Navigate to={safeTarget} replace />;
 }
 

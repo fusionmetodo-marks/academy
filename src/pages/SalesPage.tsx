@@ -45,6 +45,14 @@ import {
   formatKz, 
   formatPublicationDateTime 
 } from '../services/usdtExchangeService';
+import {
+  subscribeChristmasBonusConfig,
+  ChristmasBonusConfig,
+  DEFAULT_CHRISTMAS_BONUS_CONFIG,
+  isChristmasBonusCardActive,
+} from '../services/christmasBonusService';
+import ChristmasBonusCourseCard from '../components/ChristmasBonusCourseCard';
+import ChristmasBonusAuthModal from '../components/ChristmasBonusAuthModal';
 
 interface Course {
   id: string;
@@ -78,6 +86,10 @@ export default function SalesPage() {
   const [usdtWhatsApp, setUsdtWhatsApp] = useState(DEFAULT_SUPPORT_WHATSAPP);
   const [usdtConfig, setUsdtConfig] = useState<UsdtExchangeConfig>(DEFAULT_USDT_CONFIG);
   const [homeUsdtAmount, setHomeUsdtAmount] = useState<number | string>(50);
+  const [christmasBonusConfig, setChristmasBonusConfig] = useState<ChristmasBonusConfig>(
+    DEFAULT_CHRISTMAS_BONUS_CONFIG
+  );
+  const [showChristmasAuthModal, setShowChristmasAuthModal] = useState(false);
 
   // Real-time listener for USDT Exchange Config
   useEffect(() => {
@@ -87,7 +99,13 @@ export default function SalesPage() {
         setUsdtWhatsApp(cfg.whatsappNumber);
       }
     });
-    return () => unsubUsdt();
+    const unsubChristmas = subscribeChristmasBonusConfig((cfg) => {
+      setChristmasBonusConfig(cfg);
+    });
+    return () => {
+      unsubUsdt();
+      unsubChristmas();
+    };
   }, []);
 
   const getCourseDiscountInfo = (course: Course) => {
@@ -324,6 +342,16 @@ export default function SalesPage() {
     navigate(path);
   };
 
+  const showChristmasBonusCard = isChristmasBonusCardActive(christmasBonusConfig);
+
+  const handleChristmasBonusCardClick = () => {
+    if (currentUser) {
+      navigate('/library/bonus-natal');
+      return;
+    }
+    setShowChristmasAuthModal(true);
+  };
+
   return (
     <div className="antialiased selection:bg-primary/30 selection:text-primary bg-[#131313] text-[#e5e2e1] font-body min-h-screen relative overflow-x-hidden w-full max-w-full">
       {/* Delicate background grids & glows */}
@@ -425,7 +453,7 @@ export default function SalesPage() {
               <div className="w-10 h-10 border-4 border-[#e9c349] border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
               <p className="text-stone-400 text-sm font-mono">Conectando às aulas de trading...</p>
             </div>
-          ) : courses.length === 0 ? (
+          ) : courses.length === 0 && !showChristmasBonusCard ? (
             <div className="p-12 rounded-2xl bg-[#181818] border border-white/5 text-center max-w-xl mx-auto space-y-4">
               <BookOpen className="w-12 h-12 text-stone-500 mx-auto opacity-50" />
               <h3 className="font-bold text-lg text-white">Nenhum treinamento publicado ainda</h3>
@@ -436,6 +464,14 @@ export default function SalesPage() {
             </div>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+              {showChristmasBonusCard && (
+                <ChristmasBonusCourseCard
+                  config={christmasBonusConfig}
+                  isAuthenticated={Boolean(currentUser)}
+                  variant="home"
+                  onOpen={handleChristmasBonusCardClick}
+                />
+              )}
               {courses.map((course) => {
                 const isFree = !course.price || course.price === 0;
                 const isAlreadyEnrolled = enrolledCourseIds.includes(course.id);
@@ -1102,6 +1138,13 @@ export default function SalesPage() {
           </div>
         </div>
       )}
+
+      {/* Modal de Identificação para Bônus de Natal */}
+      <ChristmasBonusAuthModal
+        isOpen={showChristmasAuthModal}
+        onClose={() => setShowChristmasAuthModal(false)}
+        title={christmasBonusConfig.title || 'Bônus de Natal'}
+      />
 
       {/* Modal de Instalação e Testes Android */}
       <AndroidInstallModal

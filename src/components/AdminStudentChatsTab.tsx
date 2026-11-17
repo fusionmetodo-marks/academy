@@ -15,6 +15,7 @@ import {
   Bell,
   Inbox,
   Megaphone,
+  Maximize2,
 } from 'lucide-react';
 import { auth } from '../firebase';
 import {
@@ -66,6 +67,9 @@ interface AdminStudentChatsTabProps {
   initialLessonTitle?: string | null;
   initialCourseTitle?: string | null;
   groupComposerTrigger?: number;
+  mode?: 'full' | 'drawer';
+  onCloseDrawer?: () => void;
+  onExpandFull?: () => void;
 }
 
 const formatDisplayPhone = (rawPhone?: string | null, isMaster: boolean = false): string => {
@@ -113,7 +117,11 @@ export default function AdminStudentChatsTab({
   initialLessonTitle = null,
   initialCourseTitle = null,
   groupComposerTrigger = 0,
+  mode = 'full',
+  onCloseDrawer,
+  onExpandFull,
 }: AdminStudentChatsTabProps) {
+  const isDrawer = mode === 'drawer';
   const [threads, setThreads] = useState<ChatThread[]>([]);
   const [students, setStudents] = useState<ContactOption[]>([]);
   const [courses, setCourses] = useState<GroupCourseOption[]>([]);
@@ -577,63 +585,75 @@ export default function AdminStudentChatsTab({
 
   return (
     <>
-      {/* Quadros Visuais de Resumo (Mensagens Não Lidas, Conversas e Alunos) */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
-        <div className="bg-[#181818] border border-[#353534] rounded-2xl p-4 flex items-center justify-between shadow-lg">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-[#e9c349]/15 text-[#e9c349] flex items-center justify-center shrink-0 border border-[#e9c349]/30">
-              <Bell className="w-5 h-5" />
+      {/* Quadros Visuais de Resumo (Apenas em modo completo) */}
+      {!isDrawer && (
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
+          <div className="bg-[#181818] border border-[#353534] rounded-2xl p-4 flex items-center justify-between shadow-lg">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-[#e9c349]/15 text-[#e9c349] flex items-center justify-center shrink-0 border border-[#e9c349]/30">
+                <Bell className="w-5 h-5" />
+              </div>
+              <div>
+                <span className="text-[10px] uppercase font-bold text-stone-400 block">Mensagens Não Lidas</span>
+                <span className="text-xl font-extrabold text-[#e9c349] font-mono">{totalUnread}</span>
+              </div>
             </div>
-            <div>
-              <span className="text-[10px] uppercase font-bold text-stone-400 block">Mensagens Não Lidas</span>
-              <span className="text-xl font-extrabold text-[#e9c349] font-mono">{totalUnread}</span>
+            {totalUnread > 0 && (
+              <span className="px-2 py-0.5 rounded-full bg-[#e9c349] text-black text-[10px] font-extrabold font-mono">
+                Nova
+              </span>
+            )}
+          </div>
+
+          <div className="bg-[#181818] border border-[#353534] rounded-2xl p-4 flex items-center justify-between shadow-lg">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-blue-500/15 text-blue-400 flex items-center justify-center shrink-0 border border-blue-500/30">
+                <Inbox className="w-5 h-5" />
+              </div>
+              <div>
+                <span className="text-[10px] uppercase font-bold text-stone-400 block">Conversas Ativas</span>
+                <span className="text-xl font-extrabold text-white font-mono">{activeThreads.length}</span>
+              </div>
             </div>
           </div>
-          {totalUnread > 0 && (
-            <span className="px-2 py-0.5 rounded-full bg-[#e9c349] text-black text-[10px] font-extrabold font-mono">
-              Nova
-            </span>
-          )}
-        </div>
 
-        <div className="bg-[#181818] border border-[#353534] rounded-2xl p-4 flex items-center justify-between shadow-lg">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-blue-500/15 text-blue-400 flex items-center justify-center shrink-0 border border-blue-500/30">
-              <Inbox className="w-5 h-5" />
-            </div>
-            <div>
-              <span className="text-[10px] uppercase font-bold text-stone-400 block">Conversas Ativas</span>
-              <span className="text-xl font-extrabold text-white font-mono">{activeThreads.length}</span>
+          <div className="bg-[#181818] border border-[#353534] rounded-2xl p-4 flex items-center justify-between shadow-lg">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-emerald-500/15 text-emerald-400 flex items-center justify-center shrink-0 border border-emerald-500/30">
+                <Users className="w-5 h-5" />
+              </div>
+              <div>
+                <span className="text-[10px] uppercase font-bold text-stone-400 block">Alunos Cadastrados</span>
+                <span className="text-xl font-extrabold text-white font-mono">{students.length}</span>
+              </div>
             </div>
           </div>
         </div>
+      )}
 
-        <div className="bg-[#181818] border border-[#353534] rounded-2xl p-4 flex items-center justify-between shadow-lg">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-emerald-500/15 text-emerald-400 flex items-center justify-center shrink-0 border border-emerald-500/30">
-              <Users className="w-5 h-5" />
-            </div>
-            <div>
-              <span className="text-[10px] uppercase font-bold text-stone-400 block">Alunos Cadastrados</span>
-              <span className="text-xl font-extrabold text-white font-mono">{students.length}</span>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <div className="bg-[#181818] border border-[#353534] rounded-3xl overflow-hidden shadow-xl grid grid-cols-1 lg:grid-cols-12 h-[660px]">
+      <div
+        className={
+          isDrawer
+            ? 'h-[540px] max-h-[76vh] bg-[#141414] border border-[#e9c349]/30 rounded-3xl shadow-2xl flex flex-col overflow-hidden'
+            : 'bg-[#181818] border border-[#353534] rounded-3xl overflow-hidden shadow-xl grid grid-cols-1 lg:grid-cols-12 h-[660px]'
+        }
+      >
         {/* Coluna Esquerda: Lista de Conversas e Alunos */}
         <div
-          className={`lg:col-span-4 border-r border-[#353534] flex flex-col bg-[#121212] min-h-0 ${
-            selectedStudentId ? 'hidden lg:flex' : 'flex'
-          }`}
+          className={
+            isDrawer
+              ? `flex-1 flex flex-col bg-[#121212] min-h-0 ${selectedStudentId ? 'hidden' : 'flex'}`
+              : `lg:col-span-4 border-r border-[#353534] flex flex-col bg-[#121212] min-h-0 ${
+                  selectedStudentId ? 'hidden lg:flex' : 'flex'
+                }`
+          }
         >
-          <div className="p-4 border-b border-[#353534] space-y-3 shrink-0">
+          <div className={`${isDrawer ? 'p-3.5' : 'p-4'} border-b border-[#353534] space-y-3 shrink-0`}>
             <div className="flex items-center justify-between gap-2">
               <div className="flex items-center gap-2 min-w-0">
                 <Users className="w-4 h-4 text-[#e9c349] shrink-0" />
                 <span className="text-xs font-bold uppercase tracking-wider text-stone-200 truncate">
-                  Conversas Individuais
+                  {isDrawer ? 'Conversas (Admin)' : 'Conversas Individuais'}
                 </span>
               </div>
               <div className="flex items-center gap-1.5 shrink-0">
@@ -655,10 +675,30 @@ export default function AdminStudentChatsTab({
                 >
                   <Plus className="w-4 h-4 stroke-[3]" />
                 </button>
-                {totalUnread > 0 && (
+                {totalUnread > 0 && !isDrawer && (
                   <span className="text-[11px] font-mono tabular-nums font-bold text-[#e9c349]">
                     {totalUnread} não {totalUnread === 1 ? 'lida' : 'lidas'}
                   </span>
+                )}
+                {isDrawer && onExpandFull && (
+                  <button
+                    type="button"
+                    onClick={onExpandFull}
+                    className="p-1.5 rounded-lg text-stone-400 hover:text-white hover:bg-white/10 transition-colors cursor-pointer"
+                    title="Abrir em ecrã completo"
+                  >
+                    <Maximize2 className="w-3.5 h-3.5" />
+                  </button>
+                )}
+                {isDrawer && onCloseDrawer && (
+                  <button
+                    type="button"
+                    onClick={onCloseDrawer}
+                    className="p-1.5 rounded-lg text-stone-400 hover:text-white hover:bg-white/10 transition-colors cursor-pointer"
+                    title="Fechar chat"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
                 )}
               </div>
             </div>
@@ -869,9 +909,13 @@ export default function AdminStudentChatsTab({
 
         {/* Coluna Direita: Janela de Mensagens Individual */}
         <div
-          className={`lg:col-span-8 flex flex-col bg-[#0e0e0e] min-h-0 ${
-            selectedStudentId ? 'flex' : 'hidden lg:flex'
-          }`}
+          className={
+            isDrawer
+              ? `flex-1 flex flex-col bg-[#0e0e0e] min-h-0 ${selectedStudentId ? 'flex' : 'hidden'}`
+              : `lg:col-span-8 flex flex-col bg-[#0e0e0e] min-h-0 ${
+                  selectedStudentId ? 'flex' : 'hidden lg:flex'
+                }`
+          }
         >
           {!selectedStudentInfo ? (
             <div className="flex-1 flex flex-col items-center justify-center p-8 text-center">
@@ -911,7 +955,7 @@ export default function AdminStudentChatsTab({
                   <button
                     type="button"
                     onClick={() => setSelectedStudentId(null)}
-                    className="lg:hidden p-2 rounded-xl bg-[#1c1c1c] text-stone-300 hover:text-white cursor-pointer"
+                    className={`${isDrawer ? 'inline-flex' : 'lg:hidden'} p-2 rounded-xl bg-[#1c1c1c] text-stone-300 hover:text-white cursor-pointer`}
                     aria-label="Voltar à lista de alunos"
                   >
                     <ArrowLeft className="w-4 h-4" />
@@ -959,10 +1003,35 @@ export default function AdminStudentChatsTab({
                   </div>
                 </div>
 
-                <span className="hidden sm:inline-flex items-center gap-1.5 text-[11px] text-stone-400 shrink-0">
-                  <User className="w-3.5 h-3.5 text-[#e9c349]" />
-                  <span>Chat Individual 1-para-1</span>
-                </span>
+                {isDrawer ? (
+                  <div className="flex items-center gap-1 shrink-0">
+                    {onExpandFull && (
+                      <button
+                        type="button"
+                        onClick={onExpandFull}
+                        className="p-1.5 rounded-lg text-stone-400 hover:text-white hover:bg-white/10 transition-colors cursor-pointer"
+                        title="Abrir em ecrã completo"
+                      >
+                        <Maximize2 className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+                    {onCloseDrawer && (
+                      <button
+                        type="button"
+                        onClick={onCloseDrawer}
+                        className="p-1.5 rounded-lg text-stone-400 hover:text-white hover:bg-white/10 transition-colors cursor-pointer"
+                        title="Fechar chat"
+                      >
+                        <X className="w-4 h-4" />
+                      </button>
+                    )}
+                  </div>
+                ) : (
+                  <span className="hidden sm:inline-flex items-center gap-1.5 text-[11px] text-stone-400 shrink-0">
+                    <User className="w-3.5 h-3.5 text-[#e9c349]" />
+                    <span>Chat Individual 1-para-1</span>
+                  </span>
+                )}
               </div>
 
               {selectedStudentInfo.isPreRegistered && (

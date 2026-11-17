@@ -11,6 +11,14 @@ import { Coupon } from '../types';
 import { EcosystemFooter } from './EcosystemFooter';
 import { isMasterEmail } from '../utils/constants';
 import { sortCoursesByLevel } from '../utils/courseSorting';
+import {
+  subscribeChristmasBonusConfig,
+  ChristmasBonusConfig,
+  DEFAULT_CHRISTMAS_BONUS_CONFIG,
+  isChristmasBonusCardActive,
+} from '../services/christmasBonusService';
+import ChristmasBonusCourseCard from './ChristmasBonusCourseCard';
+import ChristmasBonusAuthModal from './ChristmasBonusAuthModal';
 
 export interface Course {
   id: string;
@@ -44,6 +52,17 @@ export default function StudentCatalog({ onSelectCourse }: StudentCatalogProps) 
   const [enrollingCourseId, setEnrollingCourseId] = useState<string | null>(null);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [coupons, setCoupons] = useState<Coupon[]>([]);
+  const [christmasBonusConfig, setChristmasBonusConfig] = useState<ChristmasBonusConfig>(
+    DEFAULT_CHRISTMAS_BONUS_CONFIG
+  );
+  const [showChristmasAuthModal, setShowChristmasAuthModal] = useState(false);
+
+  useEffect(() => {
+    const unsub = subscribeChristmasBonusConfig((cfg) => {
+      setChristmasBonusConfig(cfg);
+    });
+    return () => unsub();
+  }, []);
 
   useEffect(() => {
     const fetchCoupons = async () => {
@@ -230,15 +249,35 @@ export default function StudentCatalog({ onSelectCourse }: StudentCatalogProps) 
     }
   };
 
+  const isBonusCardActive = isChristmasBonusCardActive(christmasBonusConfig);
+  const qSearch = searchTerm.trim().toLowerCase();
+  const matchesBonusSearch =
+    isBonusCardActive &&
+    (!qSearch ||
+      (christmasBonusConfig.title || '').toLowerCase().includes(qSearch) ||
+      (christmasBonusConfig.subtitle || '').toLowerCase().includes(qSearch) ||
+      (christmasBonusConfig.description || '').toLowerCase().includes(qSearch) ||
+      'natal'.includes(qSearch) ||
+      'marks'.includes(qSearch) ||
+      'ao vivo'.includes(qSearch));
+
+  const handleChristmasBonusClick = () => {
+    if (currentUser) {
+      navigate('/library/bonus-natal');
+      return;
+    }
+    setShowChristmasAuthModal(true);
+  };
+
   if (isLoading) {
     return <div className="flex justify-center items-center h-screen bg-[#0a0a0a] text-[#e9c349]">Carregando catálogo...</div>;
   }
 
-  if (courses.length === 0) {
+  if (courses.length === 0 && !isBonusCardActive) {
     return <div className="flex justify-center items-center h-screen bg-[#0a0a0a] text-gray-500">Nenhum curso disponível no momento.</div>;
   }
 
-  const currentCourse = courses[currentIndex];
+  const currentCourse = courses.length > 0 ? courses[currentIndex % courses.length] : null;
 
   const filteredCourses = courses.filter(course => 
     course.title.toLowerCase().includes(searchTerm.toLowerCase()) || 
@@ -256,6 +295,7 @@ export default function StudentCatalog({ onSelectCourse }: StudentCatalogProps) 
       )}
 
       {/* BANNER DESTAQUE (HERO) - Cobre todas as extremidades e cantos */}
+      {currentCourse && (
       <div className="relative w-full h-[320px] xs:h-[360px] sm:h-[440px] md:h-[500px] lg:h-[560px] xl:h-[620px] overflow-hidden bg-black">
         {/* Imagem de Capa cobrindo 100% das extremidades com alta nitidez */}
         <div className="absolute inset-0 w-full h-full">
@@ -365,6 +405,7 @@ export default function StudentCatalog({ onSelectCourse }: StudentCatalogProps) 
           </div>
         )}
       </div>
+      )}
 
       {/* VITRINE EM GRID - Preenche todas as laterais com fluidez */}
       <div className="w-full px-3.5 sm:px-6 lg:px-8 xl:px-10 mt-6 sm:mt-10">
@@ -377,7 +418,15 @@ export default function StudentCatalog({ onSelectCourse }: StudentCatalogProps) 
           />
         </div>
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-4 sm:gap-6">
-          {filteredCourses.length > 0 ? (
+          {matchesBonusSearch && (
+            <ChristmasBonusCourseCard
+              config={christmasBonusConfig}
+              isAuthenticated={Boolean(currentUser)}
+              variant="catalog"
+              onOpen={handleChristmasBonusClick}
+            />
+          )}
+          {filteredCourses.length > 0 || matchesBonusSearch ? (
             filteredCourses.map((course) => {
               const hasAccess = checkUserHasAccess(course);
               const isFree = !course.price || course.price === 0;
@@ -510,6 +559,12 @@ export default function StudentCatalog({ onSelectCourse }: StudentCatalogProps) 
       <div className="mt-12 border-t border-gray-800/60">
         <EcosystemFooter />
       </div>
+
+      <ChristmasBonusAuthModal
+        isOpen={showChristmasAuthModal}
+        onClose={() => setShowChristmasAuthModal(false)}
+        title={christmasBonusConfig.title || 'Bônus de Natal'}
+      />
     </div>
   );
 }

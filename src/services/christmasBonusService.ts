@@ -25,6 +25,7 @@ export interface ChristmasBonusConfig {
   liveRoomUrl: string;
   accessNotes: string;
   coverImageUrl: string;
+  isCardVisible: boolean;
   days: ChristmasBonusDay[];
   updatedAt: string;
   updatedBy?: string;
@@ -47,15 +48,16 @@ export const DEFAULT_CHRISTMAS_BONUS_CONFIG: ChristmasBonusConfig = {
   festiveTag: 'Bônus de Boas Festas',
   subtitle: 'Sete dias de operação ao vivo com Marks, o Monstro',
   description:
-    'Uma imersão especial de Boas Festas dedicada aos alunos matriculados da Money Building: sete dias consecutivos operando ao vivo com o Marks no mercado, unindo espírito natalício, disciplina e lucratividade.',
+    'Uma imersão especial de Boas Festas dedicada aos estudantes da Money Building: sete dias consecutivos operando ao vivo com o Marks no mercado, unindo espírito natalício, disciplina e lucratividade.',
   status: 'draft',
   startDate: 'Datas a definir (Dezembro)',
   endDate: '7 Dias Consecutivos',
   liveTimeWat: '20:00 WAT (Horário de Angola)',
   liveRoomUrl: '',
   accessNotes:
-    'Este evento é exclusivo para alunos com matrícula ativa. Utilize gestão de risco responsável (1% a 2% por operação), entre na sala com 10 minutos de antecedência e utilize apenas o link oficial publicado nesta página.',
+    'Este evento especial é aberto a todos os estudantes da plataforma. Utilize gestão de risco responsável (1% a 2% por operação), entre na sala com 10 minutos de antecedência e utilize apenas o link oficial publicado nesta página.',
   coverImageUrl: '',
+  isCardVisible: true,
   days: DEFAULT_CHRISTMAS_BONUS_DAYS,
   updatedAt: new Date().toISOString(),
   updatedBy: 'Administração Money Building',
@@ -93,8 +95,16 @@ function mergeConfig(raw?: Partial<ChristmasBonusConfig> | null): ChristmasBonus
   return {
     ...DEFAULT_CHRISTMAS_BONUS_CONFIG,
     ...(raw || {}),
+    isCardVisible: typeof raw?.isCardVisible === 'boolean' ? raw.isCardVisible : true,
     days,
   };
+}
+
+export function isChristmasBonusCardActive(config?: Partial<ChristmasBonusConfig> | null): boolean {
+  if (!config) return true;
+  if (config.isCardVisible === false) return false;
+  if (config.status === 'ended') return false;
+  return true;
 }
 
 export async function getChristmasBonusConfig(): Promise<ChristmasBonusConfig> {

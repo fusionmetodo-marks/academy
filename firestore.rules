@@ -91,18 +91,11 @@ service cloud.firestore {
     // 4. Configurações da plataforma, métodos de pagamento e cupões
     match /settings/{settingId} {
       // Bloqueio estrito: O cofre de chaves ('secureVaultConfig') e faturamento ('firebaseBilling') NUNCA são públicos.
-      // O documento 'christmas_bonus' (link da sala ao vivo de Natal) é restrito a admins ou alunos com matrícula ativa.
       allow read: if isAdmin() || (
         settingId != 'secureVaultConfig' &&
         settingId != 'keys' &&
         settingId != 'secrets' &&
-        settingId != 'firebaseBilling' &&
-        (settingId != 'christmas_bonus' || (
-          isSignedIn() &&
-          exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
-          'enrolledCourses' in get(/databases/$(database)/documents/users/$(request.auth.uid)).data &&
-          get(/databases/$(database)/documents/users/$(request.auth.uid)).data.enrolledCourses.size() > 0
-        ))
+        settingId != 'firebaseBilling'
       );
       allow write: if isAdmin();
     }

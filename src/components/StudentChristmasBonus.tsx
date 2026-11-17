@@ -162,6 +162,7 @@ export default function StudentChristmasBonus({
           liveRoomUrl: cleanMainUrl,
           accessNotes: draftForm.accessNotes.trim(),
           coverImageUrl: draftForm.coverImageUrl.trim(),
+          isCardVisible: draftForm.isCardVisible !== false,
           days: draftForm.days.map((d, idx) => ({
             dayNumber: idx + 1,
             dateLabel: d.dateLabel.trim() || 'Data a definir',
@@ -285,6 +286,38 @@ export default function StudentChristmasBonus({
                     <option value="ended">Encerrado</option>
                   </select>
                 </div>
+              </div>
+
+              {/* Card Visibility Toggle (Activate / Deactivate on Home & Catalog) */}
+              <div className="p-4 rounded-2xl bg-[#0d0d0d] border border-white/10 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div>
+                  <p className="text-xs font-bold text-white">
+                    Exibir Card do Bônus na Home Page e Vitrine de Cursos
+                  </p>
+                  <p className="text-[11px] text-stone-400 mt-0.5">
+                    Quando ativo, visitantes sem conta e alunos (com ou sem matrícula) veem o card exclusivo na vitrine. Quando encerrar a campanha, desative aqui.
+                  </p>
+                </div>
+
+                <button
+                  type="button"
+                  id="btn-toggle-christmas-card-visibility"
+                  onClick={() =>
+                    setDraftForm((prev) => ({
+                      ...prev,
+                      isCardVisible: prev.isCardVisible === false ? true : false,
+                    }))
+                  }
+                  className={`px-4 py-2 rounded-xl text-xs font-extrabold border transition-colors cursor-pointer whitespace-nowrap shrink-0 ${
+                    draftForm.isCardVisible !== false
+                      ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/40 hover:bg-emerald-500/25'
+                      : 'bg-stone-800 text-stone-300 border-stone-700 hover:bg-stone-700'
+                  }`}
+                >
+                  {draftForm.isCardVisible !== false
+                    ? 'Ativo · Visível na Vitrine'
+                    : 'Desativado · Oculto da Vitrine'}
+                </button>
               </div>
 
               {/* Event Identity & WAT Schedule */}
@@ -790,16 +823,16 @@ export default function StudentChristmasBonus({
             <div className="mt-5 space-y-3 text-xs">
               <div className="p-3.5 rounded-2xl bg-black/50 border border-white/10 space-y-2">
                 <div className="flex items-center justify-between gap-2">
-                  <span className="text-stone-400">Aluno autorizado:</span>
+                  <span className="text-stone-400">Participante:</span>
                   <span className="font-bold text-white truncate max-w-[200px]">
-                    {studentName || studentEmail || 'Aluno Matriculado'}
+                    {studentName || studentEmail || 'Estudante da Plataforma'}
                   </span>
                 </div>
                 <div className="flex items-center justify-between gap-2 pt-2 border-t border-white/5">
-                  <span className="text-stone-400">Matrícula ativa:</span>
+                  <span className="text-stone-400">Acesso ao Bônus:</span>
                   <span className="inline-flex items-center gap-1 text-emerald-400 font-bold">
                     <CheckCircle2 className="w-3.5 h-3.5" />
-                    Liberado
+                    Liberado para Todos
                   </span>
                 </div>
                 <div className="flex items-center justify-between gap-2 pt-2 border-t border-white/5">

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, Edit, Trash2, MoreVertical, Copy, BookOpen, Layers, X, Check, Globe, Lock, AlertTriangle, ExternalLink, Image as ImageIcon, DollarSign, ClipboardPaste, Tag, Briefcase, TrendingUp, GraduationCap, ShieldCheck, FileText, ArrowRight } from 'lucide-react';
+import { Plus, Edit, Trash2, MoreVertical, Copy, BookOpen, Layers, X, Check, Globe, Lock, AlertTriangle, ExternalLink, Image as ImageIcon, DollarSign, ClipboardPaste, Tag, Briefcase, TrendingUp, GraduationCap, ShieldCheck, FileText, ArrowRight, CreditCard } from 'lucide-react';
 import { doc, deleteDoc, setDoc, updateDoc, getDoc, serverTimestamp } from 'firebase/firestore';
 import { db, auth } from '../firebase';
 import { isMasterEmail } from '../utils/constants';
@@ -8,6 +8,7 @@ import { Coupon } from '../types';
 import { subscribeCoupons, getCourseDiscountInfo } from '../utils/discountUtils';
 import { getCourseLevelOrder, sortCoursesByLevel } from '../utils/courseSorting';
 import { getCachedUserProfile, subscribeSharedCourses } from '../services/sharedFirestoreStore';
+import { slugify } from '../utils/slugify';
 
 interface CourseItem {
   id: string;
@@ -289,11 +290,27 @@ export default function CoursesList({ onSelectCourse }: CoursesListProps) {
 
   // Abrir Modal de Edição Rápida
   
-  const handleCopyLink = (courseId: string, e: React.MouseEvent) => {
+  const handleCopyCheckoutLink = (course: CourseItem, e: React.MouseEvent) => {
     e.stopPropagation();
-    const link = `${window.location.origin}/checkout?courseId=${courseId}`;
+    const link = `${window.location.origin}/checkout?courseId=${course.id}`;
     navigator.clipboard.writeText(link);
-    setToastMessage({ text: 'Link copiado com sucesso!', type: 'success' });
+    showToast(`Link do Checkout de "${course.title}" copiado!`, 'success');
+    setOpenMenuId(null);
+  };
+
+  const handleCopyInfoLink = (course: CourseItem, e: React.MouseEvent) => {
+    e.stopPropagation();
+    const courseSlug = slugify(course.title) || course.id;
+    const link = `${window.location.origin}/library/${courseSlug}`;
+    navigator.clipboard.writeText(link);
+    if (course.status !== 'published') {
+      showToast(
+        `Link de Informações copiado! Publique "${course.title}" para acesso externo.`,
+        'success'
+      );
+    } else {
+      showToast(`Link da Página de Informações de "${course.title}" copiado!`, 'success');
+    }
     setOpenMenuId(null);
   };
 
@@ -619,13 +636,48 @@ export default function CoursesList({ onSelectCourse }: CoursesListProps) {
                           className="fixed inset-0 z-30" 
                           onClick={(e) => { e.stopPropagation(); setOpenMenuId(null); }} 
                         />
-                        <div className="absolute right-0 mt-2 w-48 bg-[#181818] border border-gray-800 rounded-xl shadow-2xl py-1 z-40 overflow-hidden animate-in fade-in zoom-in-95">
-                          <button 
-                            onClick={(e) => handleCopyLink(course.id, e)}
-                            className="w-full flex items-center gap-3 px-4 py-3 text-sm text-gray-300 hover:bg-gray-800 hover:text-white transition-colors cursor-pointer"
+                        <div className="absolute right-0 mt-2 w-64 bg-[#181818] border border-gray-800 rounded-xl shadow-2xl py-1.5 z-40 overflow-hidden animate-in fade-in zoom-in-95">
+                          <div className="px-3.5 py-1.5 text-[10px] font-bold uppercase tracking-wider text-gray-500 border-b border-gray-800/80">
+                            Links para Compartilhar
+                          </div>
+                          <button
+                            id={`btn-copy-checkout-link-${course.id}`}
+                            type="button"
+                            onClick={(e) => handleCopyCheckoutLink(course, e)}
+                            className="w-full flex items-center gap-3 px-4 py-2.5 text-left hover:bg-gray-800 transition-colors cursor-pointer group/link"
                           >
-                            <Copy className="w-4 h-4" />
-                            Copiar Link
+                            <div className="w-7 h-7 rounded-lg bg-[#e9c349]/15 border border-[#e9c349]/30 text-[#e9c349] flex items-center justify-center shrink-0">
+                              <CreditCard className="w-3.5 h-3.5" />
+                            </div>
+                            <div className="min-w-0 flex-1">
+                              <span className="block text-xs font-bold text-white group-hover/link:text-[#e9c349] transition-colors">
+                                Link do Checkout
+                              </span>
+                              <span className="block text-[10px] text-gray-400 truncate">
+                                Página direta de pagamento
+                              </span>
+                            </div>
+                            <Copy className="w-3.5 h-3.5 text-gray-500 group-hover/link:text-[#e9c349] shrink-0" />
+                          </button>
+
+                          <button
+                            id={`btn-copy-info-link-${course.id}`}
+                            type="button"
+                            onClick={(e) => handleCopyInfoLink(course, e)}
+                            className="w-full flex items-center gap-3 px-4 py-2.5 text-left hover:bg-gray-800 transition-colors cursor-pointer border-b border-gray-800/80 group/info"
+                          >
+                            <div className="w-7 h-7 rounded-lg bg-emerald-500/15 border border-emerald-500/30 text-emerald-400 flex items-center justify-center shrink-0">
+                              <FileText className="w-3.5 h-3.5" />
+                            </div>
+                            <div className="min-w-0 flex-1">
+                              <span className="block text-xs font-bold text-white group-hover/info:text-emerald-400 transition-colors">
+                                Link de Informações
+                              </span>
+                              <span className="block text-[10px] text-gray-400 truncate">
+                                Detalhes e módulos do curso
+                              </span>
+                            </div>
+                            <Copy className="w-3.5 h-3.5 text-gray-500 group-hover/info:text-emerald-400 shrink-0" />
                           </button>
                           {copiedModuleInfo && (
                             <button 
