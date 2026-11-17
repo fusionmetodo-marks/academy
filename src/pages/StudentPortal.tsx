@@ -842,7 +842,6 @@ export default function StudentPortal() {
           <StudentChristmasBonus
             studentName={userProfile?.fullName || user?.displayName}
             studentEmail={user?.email}
-            isAdminSession={isRealAdmin && !isViewingAsStudent}
             onBackCatalog={() => handleSetView('catalog')}
             onOpenMyCourses={() => handleSetView('my-courses')}
           />
