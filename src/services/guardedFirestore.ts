@@ -2,6 +2,7 @@ import * as rawFirestore from 'firebase/firestore';
 import {
   createSimulatedQuotaExceededError,
   isDailyReadAccessDisabledSync,
+  setDailyReadAccessDisabledSync,
   subscribeReadAccessChanged,
 } from './firestoreReadGuardState';
 
@@ -52,58 +53,126 @@ export {
   type FirestoreError,
 } from 'firebase/firestore';
 
-export const getDoc: typeof rawFirestore.getDoc = ((...args: any[]) => {
+let globalSyncStarted = false;
+let initialSyncPromise: Promise<void> = Promise.resolve();
+
+function getPacificCycleKey(date: Date = new Date()): string {
+  try {
+    return new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'America/Los_Angeles',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).format(date);
+  } catch {
+    return date.toISOString().split('T')[0];
+  }
+}
+
+function parseRemoteReadDisabled(data: Record<string, any> | undefined): boolean {
+  if (!data || data.dailyReadAccessDisabled !== true) return false;
+  if (data.cycleKey && data.cycleKey !== getPacificCycleKey()) return false;
+  return true;
+}
+
+export function initGlobalReadQuotaSync(db: rawFirestore.Firestore): void {
+  if (globalSyncStarted || typeof window === 'undefined') return;
+  globalSyncStarted = true;
+
+  const controlRef = rawFirestore.doc(db, 'settings', 'readQuotaControl');
+
+  const fetchInitial = async () => {
+    try {
+      const snap = await rawFirestore.getDocFromServer(controlRef);
+      const disabled = snap.exists() ? parseRemoteReadDisabled(snap.data()) : false;
+      setDailyReadAccessDisabledSync(disabled);
+    } catch {
+      // Offline, missing permissions, or real quota exceeded — fallback gracefully
+    }
+  };
+
+  initialSyncPromise = Promise.race([
+    fetchInitial(),
+    new Promise<void>((resolve) => setTimeout(resolve, 1500)),
+  ]);
+
+  rawFirestore.onSnapshot(
+    controlRef,
+    (snap) => {
+      if (snap.metadata?.fromCache) return;
+      const disabled = snap.exists() ? parseRemoteReadDisabled(snap.data()) : false;
+      setDailyReadAccessDisabledSync(disabled);
+    },
+    () => {
+      // Ignore transient listener errors if offline or real 429 occurs
+    }
+  );
+}
+
+export async function waitForInitialReadGuardSync(): Promise<void> {
+  await initialSyncPromise;
+}
+
+export const getDoc: typeof rawFirestore.getDoc = (async (...args: any[]) => {
+  await initialSyncPromise;
   if (isDailyReadAccessDisabledSync()) {
-    return Promise.reject(createSimulatedQuotaExceededError());
+    throw createSimulatedQuotaExceededError();
   }
   return (rawFirestore.getDoc as any)(...args);
 }) as typeof rawFirestore.getDoc;
 
-export const getDocFromServer: typeof rawFirestore.getDocFromServer = ((...args: any[]) => {
+export const getDocFromServer: typeof rawFirestore.getDocFromServer = (async (...args: any[]) => {
+  await initialSyncPromise;
   if (isDailyReadAccessDisabledSync()) {
-    return Promise.reject(createSimulatedQuotaExceededError());
+    throw createSimulatedQuotaExceededError();
   }
   return (rawFirestore.getDocFromServer as any)(...args);
 }) as typeof rawFirestore.getDocFromServer;
 
-export const getDocFromCache: typeof rawFirestore.getDocFromCache = ((...args: any[]) => {
+export const getDocFromCache: typeof rawFirestore.getDocFromCache = (async (...args: any[]) => {
+  await initialSyncPromise;
   if (isDailyReadAccessDisabledSync()) {
-    return Promise.reject(createSimulatedQuotaExceededError());
+    throw createSimulatedQuotaExceededError();
   }
   return (rawFirestore.getDocFromCache as any)(...args);
 }) as typeof rawFirestore.getDocFromCache;
 
-export const getDocs: typeof rawFirestore.getDocs = ((...args: any[]) => {
+export const getDocs: typeof rawFirestore.getDocs = (async (...args: any[]) => {
+  await initialSyncPromise;
   if (isDailyReadAccessDisabledSync()) {
-    return Promise.reject(createSimulatedQuotaExceededError());
+    throw createSimulatedQuotaExceededError();
   }
   return (rawFirestore.getDocs as any)(...args);
 }) as typeof rawFirestore.getDocs;
 
-export const getDocsFromServer: typeof rawFirestore.getDocsFromServer = ((...args: any[]) => {
+export const getDocsFromServer: typeof rawFirestore.getDocsFromServer = (async (...args: any[]) => {
+  await initialSyncPromise;
   if (isDailyReadAccessDisabledSync()) {
-    return Promise.reject(createSimulatedQuotaExceededError());
+    throw createSimulatedQuotaExceededError();
   }
   return (rawFirestore.getDocsFromServer as any)(...args);
 }) as typeof rawFirestore.getDocsFromServer;
 
-export const getDocsFromCache: typeof rawFirestore.getDocsFromCache = ((...args: any[]) => {
+export const getDocsFromCache: typeof rawFirestore.getDocsFromCache = (async (...args: any[]) => {
+  await initialSyncPromise;
   if (isDailyReadAccessDisabledSync()) {
-    return Promise.reject(createSimulatedQuotaExceededError());
+    throw createSimulatedQuotaExceededError();
   }
   return (rawFirestore.getDocsFromCache as any)(...args);
 }) as typeof rawFirestore.getDocsFromCache;
 
-export const getCountFromServer: typeof rawFirestore.getCountFromServer = ((...args: any[]) => {
+export const getCountFromServer: typeof rawFirestore.getCountFromServer = (async (...args: any[]) => {
+  await initialSyncPromise;
   if (isDailyReadAccessDisabledSync()) {
-    return Promise.reject(createSimulatedQuotaExceededError());
+    throw createSimulatedQuotaExceededError();
   }
   return (rawFirestore.getCountFromServer as any)(...args);
 }) as typeof rawFirestore.getCountFromServer;
 
-export const runTransaction: typeof rawFirestore.runTransaction = ((...args: any[]) => {
+export const runTransaction: typeof rawFirestore.runTransaction = (async (...args: any[]) => {
+  await initialSyncPromise;
   if (isDailyReadAccessDisabledSync()) {
-    return Promise.reject(createSimulatedQuotaExceededError());
+    throw createSimulatedQuotaExceededError();
   }
   return (rawFirestore.runTransaction as any)(...args);
 }) as typeof rawFirestore.runTransaction;
@@ -126,7 +195,6 @@ function extractOnSnapshotErrorCallback(rest: any[]): ((err: any) => void) | und
       return typeof first.error === 'function' ? first.error.bind(first) : undefined;
     }
 
-    // first is SnapshotListenOptions
     const second = rest[1];
     if (typeof second === 'function') {
       return typeof rest[2] === 'function' ? rest[2] : undefined;
@@ -145,6 +213,7 @@ export const onSnapshot: typeof rawFirestore.onSnapshot = ((...allArgs: any[]) =
 
   let isUnsubscribed = false;
   let activeRealUnsub: (() => void) | null = null;
+  let unsubGuard: (() => void) | null = null;
 
   const startRealListener = () => {
     if (isUnsubscribed || activeRealUnsub) return;
@@ -169,24 +238,31 @@ export const onSnapshot: typeof rawFirestore.onSnapshot = ((...allArgs: any[]) =
     }
   };
 
-  if (isDailyReadAccessDisabledSync()) {
-    stopRealListenerAndEmitError();
-  } else {
-    startRealListener();
-  }
-
-  const unsubGuard = subscribeReadAccessChanged((disabled) => {
+  initialSyncPromise.then(() => {
     if (isUnsubscribed) return;
-    if (disabled) {
+
+    if (isDailyReadAccessDisabledSync()) {
       stopRealListenerAndEmitError();
     } else {
       startRealListener();
     }
+
+    unsubGuard = subscribeReadAccessChanged((disabled) => {
+      if (isUnsubscribed) return;
+      if (disabled) {
+        stopRealListenerAndEmitError();
+      } else {
+        startRealListener();
+      }
+    });
   });
 
   return () => {
     isUnsubscribed = true;
-    unsubGuard();
+    if (unsubGuard) {
+      unsubGuard();
+      unsubGuard = null;
+    }
     if (activeRealUnsub) {
       try {
         activeRealUnsub();

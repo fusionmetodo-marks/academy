@@ -192,6 +192,17 @@
         "updatedAtIso": { "type": "string", "format": "date-time" }
       }
     },
+    "ReadQuotaControlSettings": {
+      "title": "ReadQuotaControlSettings",
+      "description": "Global platform toggle stored in settings/readQuotaControl allowing administrators to simulate daily Firestore read quota exhaustion across all users.",
+      "type": "object",
+      "properties": {
+        "dailyReadAccessDisabled": { "type": "boolean" },
+        "cycleKey": { "type": "string" },
+        "updatedAtIso": { "type": "string", "format": "date-time" },
+        "updatedByEmail": { "type": "string", "format": "email" }
+      }
+    },
     "ChristmasBonusSettings": {
       "title": "ChristmasBonusSettings",
       "description": "Admin-editable configuration for the 7-day Christmas live trading bonus with Marks, including main room URL and per-day date, WAT time, session state, quick notice, and optional custom room URL.",

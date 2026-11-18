@@ -96,11 +96,20 @@ export default function Login() {
   };
 
   const handleUserRouting = async (user: any, registrationData?: { firstName: string; phoneCountryCode: string; phoneNumber: string }) => {
-    const userRef = doc(db, 'users', user.uid);
-    const userSnap = await getDoc(userRef);
-    
     const cleanEmail = (user.email || '').trim().toLowerCase();
     const isAdminEmail = isMasterEmail(cleanEmail);
+
+    const userRef = doc(db, 'users', user.uid);
+    let userSnap: any = null;
+    try {
+      userSnap = await getDoc(userRef);
+    } catch (err) {
+      if (!isAdminEmail) {
+        throw err;
+      }
+      navigate('/settings?section=quotas');
+      return;
+    }
 
     let role = isAdminEmail ? 'admin' : 'student';
     let status = isAdminEmail ? 'active' : 'inactive';
@@ -354,23 +363,25 @@ export default function Login() {
       const cleanEmail = (user.email || '').trim().toLowerCase();
       const isAdminEmail = isMasterEmail(cleanEmail);
 
-      const userRef = doc(db, 'users', user.uid);
-      const userSnap = await getDoc(userRef);
+      if (!isAdminEmail) {
+        const userRef = doc(db, 'users', user.uid);
+        const userSnap = await getDoc(userRef);
 
-      const existingData = userSnap.exists() ? userSnap.data() : null;
-      const existingFullName = (existingData?.fullName || existingData?.firstName || existingData?.name || '').trim();
-      const existingPhone = (existingData?.phoneNumber || '').trim();
+        const existingData = userSnap.exists() ? userSnap.data() : null;
+        const existingFullName = (existingData?.fullName || existingData?.firstName || existingData?.name || '').trim();
+        const existingPhone = (existingData?.phoneNumber || '').trim();
 
-      // Regra Rigorosa: Quem entrar pelo Google DEVE ter Nome Completo e Telefone/WhatsApp
-      if (!isAdminEmail && (!existingFullName || !existingPhone)) {
-        setGooglePendingUser(user);
-        setGoogleName(existingFullName || user.displayName || '');
-        setGooglePhoneCountryCode(existingData?.phoneCountryCode || '+244');
-        setGooglePhoneNumber(existingPhone);
-        setGoogleModalError(null);
-        setShowGoogleProfileModal(true);
-        setIsLoading(false);
-        return;
+        // Regra Rigorosa: Quem entrar pelo Google DEVE ter Nome Completo e Telefone/WhatsApp
+        if (!existingFullName || !existingPhone) {
+          setGooglePendingUser(user);
+          setGoogleName(existingFullName || user.displayName || '');
+          setGooglePhoneCountryCode(existingData?.phoneCountryCode || '+244');
+          setGooglePhoneNumber(existingPhone);
+          setGoogleModalError(null);
+          setShowGoogleProfileModal(true);
+          setIsLoading(false);
+          return;
+        }
       }
 
       await handleUserRouting(user);

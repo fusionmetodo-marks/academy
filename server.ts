@@ -309,6 +309,28 @@ app.post('/api/lessons/verify-access', async (req, res) => {
       });
     }
 
+    // 2.5 Verifica se a leitura diária foi desligada globalmente no painel
+    try {
+      const controlSnap = await getDoc(doc(db, 'settings', 'readQuotaControl'));
+      if (controlSnap.exists()) {
+        const ctrl = controlSnap.data();
+        const pacificToday = new Intl.DateTimeFormat('en-CA', {
+          timeZone: 'America/Los_Angeles',
+          year: 'numeric',
+          month: '2-digit',
+          day: '2-digit',
+        }).format(new Date());
+        if (ctrl?.dailyReadAccessDisabled === true && (!ctrl?.cycleKey || ctrl.cycleKey === pacificToday)) {
+          return res.status(429).json({
+            allowed: false,
+            reason: 'Cota diária de leitura do banco de dados indisponível no momento.',
+          });
+        }
+      }
+    } catch {
+      // fallback permissivo se o documento não existir
+    }
+
     // 3. Consulta autoritativa via Firestore REST API com o ID Token do usuário
     let remoteUserData: any = null;
 

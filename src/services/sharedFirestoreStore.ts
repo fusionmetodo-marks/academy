@@ -20,6 +20,7 @@ import {
   isDailyReadAccessDisabledSync,
   subscribeReadAccessChanged,
 } from './firestoreReadGuardState';
+import { waitForInitialReadGuardSync } from './guardedFirestore';
 
 /**
  * Tempo que um listener compartilhado permanece aquecido em memória após a troca de página
@@ -151,7 +152,31 @@ function createSharedCollectionChannel<T>(
     }
   };
 
-  return { subscribe, clear: stopFirestoreListener, restartIfActive, getLatest: () => channel.latestItems };
+  const clearAndNotifyBlocked = (err: unknown) => {
+    stopFirestoreListener();
+    channel.subscribers.forEach((cb) => {
+      try {
+        cb([], 0);
+      } catch {
+        // ignore
+      }
+    });
+    channel.errorSubscribers.forEach((errCb) => {
+      try {
+        errCb(err);
+      } catch {
+        // ignore
+      }
+    });
+  };
+
+  return {
+    subscribe,
+    clear: stopFirestoreListener,
+    clearAndNotifyBlocked,
+    restartIfActive,
+    getLatest: () => channel.latestItems,
+  };
 }
 
 const mapRawDocs = (snap: QuerySnapshot<DocumentData>): any[] => {
@@ -186,6 +211,7 @@ export async function getCachedDocument<T = Record<string, any>>(
   ttlMs: number = 15 * 60 * 1000
 ): Promise<T | null> {
   if (!collectionName || !docId) return null;
+  await waitForInitialReadGuardSync();
   if (isDailyReadAccessDisabledSync()) {
     return null;
   }
@@ -240,6 +266,7 @@ export async function getCachedUserProfile(
   ttlMs: number = 5 * 60 * 1000
 ): Promise<Record<string, any> | null> {
   if (!uid) return null;
+  await waitForInitialReadGuardSync();
   if (isDailyReadAccessDisabledSync()) {
     return null;
   }
@@ -279,13 +306,11 @@ if (typeof window !== 'undefined') {
 
 subscribeReadAccessChanged((disabled) => {
   if (disabled) {
-    clearSharedFirestoreStore();
-    // Garante que assinantes ativos saiam de estados de carregamento se estiverem abertos
+    docCache.clear();
     const err = createSimulatedQuotaExceededError();
     [sharedUsersChannel, sharedCoursesChannel, sharedTransactionsChannel].forEach((ch) => {
-      ch.clear();
+      ch.clearAndNotifyBlocked(err);
     });
-    void err;
   } else {
     sharedUsersChannel.restartIfActive();
     sharedCoursesChannel.restartIfActive();

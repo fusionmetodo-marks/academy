@@ -31,6 +31,7 @@ import {
 } from 'firebase/firestore';
 
 import firebaseConfig from '../firebase-applet-config.json';
+import { initGlobalReadQuotaSync } from './services/guardedFirestore';
 
 // Configure log level to silent to prevent connection heartbeat noise during transient reconnects
 setLogLevel('silent');
@@ -48,6 +49,8 @@ export const db = initializeFirestore(app, {
     tabManager: persistentMultipleTabManager(),
   }),
 }, firebaseConfig.firestoreDatabaseId);
+
+initGlobalReadQuotaSync(db);
 
 export const googleProvider = new GoogleAuthProvider();
 

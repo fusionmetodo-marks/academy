@@ -71,11 +71,40 @@ export function subscribeReadAccessChanged(cb: (disabled: boolean) => void): () 
   };
 }
 
-export function createSimulatedQuotaExceededError(): Error & { code: string } {
+export function createSimulatedQuotaExceededError(): Error & {
+  code: string;
+  isSimulatedQuotaBlock: boolean;
+} {
   const err = new Error(
     'Quota exceeded: Acesso de leitura diário desligado (simulação de cota diária atingida).'
-  ) as Error & { code: string };
+  ) as Error & { code: string; isSimulatedQuotaBlock: boolean };
   err.name = 'FirebaseError';
   err.code = 'resource-exhausted';
+  err.isSimulatedQuotaBlock = true;
   return err;
+}
+
+export function isSimulatedQuotaError(err: unknown): boolean {
+  if (!err) return false;
+  if (typeof err === 'object' && (err as any).isSimulatedQuotaBlock === true) {
+    return true;
+  }
+  const msg = String((err as any)?.message || err || '');
+  return msg.includes('Acesso de leitura diário desligado');
+}
+
+// Durante a simulação manual de leitura desligada, evita que handlers legados que usam
+// console.error(..., err) disparem alertas falsos de erro no runtime do navegador.
+const CONSOLE_FILTER_KEY = '__mbFirestoreReadSimConsoleFiltered';
+if (typeof window !== 'undefined' && typeof console !== 'undefined' && !(console as any)[CONSOLE_FILTER_KEY]) {
+  const originalConsoleError = console.error.bind(console);
+  const originalConsoleWarn = console.warn.bind(console);
+  console.error = (...args: any[]) => {
+    if (dailyReadAccessDisabledFlag && args.some((arg) => isSimulatedQuotaError(arg))) {
+      originalConsoleWarn('[Simulação de cota diária]', ...args);
+      return;
+    }
+    originalConsoleError(...args);
+  };
+  (console as any)[CONSOLE_FILTER_KEY] = true;
 }

@@ -1,6 +1,9 @@
 import { doc, getDoc, getDocFromServer, onSnapshot, serverTimestamp, setDoc } from 'firebase/firestore';
 import { auth, db } from '../firebase';
-import { setDailyReadAccessDisabledSync } from './firestoreReadGuardState';
+import {
+  setDailyReadAccessDisabledSync,
+  subscribeReadAccessChanged,
+} from './firestoreReadGuardState';
 
 export const FIRESTORE_SPARK_LIMITS = {
   readUnitsDaily: 50_000,
@@ -629,14 +632,50 @@ export function setDailyReadAccessDisabled(disabled: boolean) {
     lastExhaustedAtMs: nextDisabled ? now : inMemoryState.lastExhaustedAtMs,
     lastProbeStatus: nextDisabled ? 'exhausted' : 'unknown',
     lastProbeMessage: nextDisabled
-      ? 'Acesso de leitura diário desligado manualmente (simulação de cota diária atingida).'
-      : 'Acesso de leitura diário religado. Leituras no Firestore restauradas.',
+      ? 'Acesso de leitura diário desligado para toda a plataforma (simulação de cota diária atingida).'
+      : 'Acesso de leitura diário religado para todos os usuários. Leituras no Firestore restauradas.',
     lastProbeAtMs: now,
   };
   saveImmediateToStorage();
   setDailyReadAccessDisabledSync(nextDisabled);
   notifySubscribers();
+
+  // Sincroniza globalmente no Firestore para bloquear/desbloquear todos os usuários
+  if (auth.currentUser) {
+    setDoc(
+      doc(db, 'settings', 'readQuotaControl'),
+      {
+        dailyReadAccessDisabled: nextDisabled,
+        cycleKey: inMemoryState.cycleKey,
+        updatedAtIso: new Date().toISOString(),
+        updatedByEmail: auth.currentUser.email || null,
+        updatedAt: serverTimestamp(),
+      },
+      { merge: true }
+    ).catch((err) => {
+      console.warn('Aviso ao sincronizar bloqueio global de leitura:', err);
+    });
+  }
 }
+
+subscribeReadAccessChanged((disabled) => {
+  ensureCycleFresh();
+  if (inMemoryState.dailyReadAccessDisabled === disabled) return;
+  const now = Date.now();
+  inMemoryState = {
+    ...inMemoryState,
+    dailyReadAccessDisabled: disabled,
+    quotaExhaustedDetected: disabled ? true : false,
+    lastExhaustedAtMs: disabled ? now : inMemoryState.lastExhaustedAtMs,
+    lastProbeStatus: disabled ? 'exhausted' : 'unknown',
+    lastProbeMessage: disabled
+      ? 'Acesso de leitura diário desligado para toda a plataforma (simulação de cota diária atingida).'
+      : 'Acesso de leitura diário religado para todos os usuários. Leituras no Firestore restauradas.',
+    lastProbeAtMs: now,
+  };
+  saveImmediateToStorage();
+  notifySubscribers();
+});
 
 export function resetLocalCycleCounters() {
   const currentCycle = getPacificQuotaCycleKey();

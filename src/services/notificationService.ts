@@ -29,6 +29,11 @@ import {
   recordMeteredFirestoreReads,
   recordMeteredFirestoreWrites,
 } from './firestoreQuotaService';
+import {
+  isDailyReadAccessDisabledSync,
+  isSimulatedQuotaError,
+  subscribeReadAccessChanged,
+} from './firestoreReadGuardState';
 
 export type NotificationType =
   | 'new_student'
@@ -992,6 +997,21 @@ if (typeof window !== 'undefined') {
   });
 }
 
+subscribeReadAccessChanged((disabled) => {
+  if (disabled) {
+    notifChannels.forEach((channel) => {
+      channel.latest = null;
+      channel.subscribers.forEach((cb) => {
+        try {
+          cb([]);
+        } catch {
+          // ignore
+        }
+      });
+    });
+  }
+});
+
 /**
  * Inscreve-se nas notificações em tempo real (multiplexado para evitar leituras duplicadas entre componentes)
  */
@@ -1022,7 +1042,7 @@ export const subscribeToNotifications = (
     }
     channel.subscribers.add(onUpdate);
     channel.updateStudentOptions?.(options);
-    if (channel.latest !== null) {
+    if (!isDailyReadAccessDisabledSync() && channel.latest !== null) {
       onUpdate(channel.latest);
     }
 
@@ -1457,7 +1477,11 @@ export const subscribeToNotifications = (
       }
     },
     (error) => {
-      console.error('Erro no listener de notificações:', error);
+      if (isSimulatedQuotaError(error)) {
+        console.warn('Listener de notificações pausado (simulação de cota diária desligada).');
+      } else {
+        console.error('Erro no listener de notificações:', error);
+      }
       if (isQuotaExhaustedError(error)) markFirestoreQuotaExhausted();
     }
   );
