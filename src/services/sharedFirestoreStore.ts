@@ -15,6 +15,11 @@ import {
   recordMeteredFirestoreReads,
   recordSavedCacheReads,
 } from './firestoreQuotaService';
+import {
+  createSimulatedQuotaExceededError,
+  isDailyReadAccessDisabledSync,
+  subscribeReadAccessChanged,
+} from './firestoreReadGuardState';
 
 /**
  * Tempo que um listener compartilhado permanece aquecido em memória após a troca de página
@@ -115,7 +120,7 @@ function createSharedCollectionChannel<T>(
     channel.subscribers.add(onUpdate);
     if (onError) channel.errorSubscribers.add(onError);
 
-    if (channel.latestItems !== null) {
+    if (!isDailyReadAccessDisabledSync() && channel.latestItems !== null) {
       recordSavedCacheReads(Math.max(1, channel.latestSize));
       try {
         onUpdate(channel.latestItems, channel.latestSize);
@@ -140,7 +145,13 @@ function createSharedCollectionChannel<T>(
     };
   };
 
-  return { subscribe, clear: stopFirestoreListener, getLatest: () => channel.latestItems };
+  const restartIfActive = () => {
+    if (channel.subscribers.size > 0) {
+      ensureStarted();
+    }
+  };
+
+  return { subscribe, clear: stopFirestoreListener, restartIfActive, getLatest: () => channel.latestItems };
 }
 
 const mapRawDocs = (snap: QuerySnapshot<DocumentData>): any[] => {
@@ -175,6 +186,9 @@ export async function getCachedDocument<T = Record<string, any>>(
   ttlMs: number = 15 * 60 * 1000
 ): Promise<T | null> {
   if (!collectionName || !docId) return null;
+  if (isDailyReadAccessDisabledSync()) {
+    return null;
+  }
   const cacheKey = `${collectionName}/${docId}`;
   const now = Date.now();
   const cached = docCache.get(cacheKey);
@@ -207,6 +221,9 @@ export async function getCachedDocument<T = Record<string, any>>(
       if (isQuotaExhaustedError(err)) {
         markFirestoreQuotaExhausted();
       }
+      if (isDailyReadAccessDisabledSync()) {
+        return { exists: false, data: null, fetchedAt: 0 };
+      }
       return cached || { exists: false, data: null, fetchedAt: 0 };
     } finally {
       inflightDocRequests.delete(cacheKey);
@@ -223,6 +240,9 @@ export async function getCachedUserProfile(
   ttlMs: number = 5 * 60 * 1000
 ): Promise<Record<string, any> | null> {
   if (!uid) return null;
+  if (isDailyReadAccessDisabledSync()) {
+    return null;
+  }
   const warmUsers = sharedUsersChannel.getLatest();
   if (warmUsers) {
     const found = warmUsers.find((u) => u.id === uid);
@@ -256,3 +276,19 @@ if (typeof window !== 'undefined') {
     prevUid = nextUid;
   });
 }
+
+subscribeReadAccessChanged((disabled) => {
+  if (disabled) {
+    clearSharedFirestoreStore();
+    // Garante que assinantes ativos saiam de estados de carregamento se estiverem abertos
+    const err = createSimulatedQuotaExceededError();
+    [sharedUsersChannel, sharedCoursesChannel, sharedTransactionsChannel].forEach((ch) => {
+      ch.clear();
+    });
+    void err;
+  } else {
+    sharedUsersChannel.restartIfActive();
+    sharedCoursesChannel.restartIfActive();
+    sharedTransactionsChannel.restartIfActive();
+  }
+});

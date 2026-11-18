@@ -1,5 +1,6 @@
 import { doc, getDoc, getDocFromServer, onSnapshot, serverTimestamp, setDoc } from 'firebase/firestore';
 import { auth, db } from '../firebase';
+import { setDailyReadAccessDisabledSync } from './firestoreReadGuardState';
 
 export const FIRESTORE_SPARK_LIMITS = {
   readUnitsDaily: 50_000,
@@ -59,6 +60,7 @@ export interface FirestoreQuotaSnapshot {
   monthlyWriteUnitsOffset: number | null;
   monthlyEgressGiB: number;
   storedDataGiB: number;
+  dailyReadAccessDisabled: boolean;
 }
 
 export interface DailyQuotaHistoryEntry {
@@ -225,6 +227,7 @@ function createDefaultState(cycleKey: string, preservedControls?: Partial<Firest
     monthlyWriteUnitsOffset: preservedControls?.monthlyWriteUnitsOffset ?? null,
     monthlyEgressGiB: preservedControls?.monthlyEgressGiB ?? 0,
     storedDataGiB: preservedControls?.storedDataGiB ?? 0,
+    dailyReadAccessDisabled: preservedControls?.dailyReadAccessDisabled ?? false,
   };
 }
 
@@ -254,13 +257,17 @@ function loadStateFromStorage(): FirestoreQuotaSnapshot {
         storedDataGiB: parsed.storedDataGiB,
       });
       localStorage.setItem(STORAGE_KEY, JSON.stringify(fresh));
+      setDailyReadAccessDisabledSync(false);
       return fresh;
     }
-    return {
+    const merged = {
       ...createDefaultState(currentCycle),
       ...parsed,
       cycleKey: currentCycle,
+      dailyReadAccessDisabled: Boolean(parsed.dailyReadAccessDisabled),
     };
+    setDailyReadAccessDisabledSync(merged.dailyReadAccessDisabled);
+    return merged;
   } catch {
     return createDefaultState(currentCycle);
   }
@@ -402,7 +409,9 @@ function ensureCycleFresh() {
       monthlyWriteUnitsOffset: inMemoryState.monthlyWriteUnitsOffset,
       monthlyEgressGiB: inMemoryState.monthlyEgressGiB,
       storedDataGiB: inMemoryState.storedDataGiB,
+      dailyReadAccessDisabled: false,
     });
+    setDailyReadAccessDisabledSync(false);
     inMemoryHistory = syncHistoryWithState(inMemoryState);
     schedulePersist();
   }
@@ -609,6 +618,26 @@ export function updateQuotaControls(
   notifySubscribers();
 }
 
+export function setDailyReadAccessDisabled(disabled: boolean) {
+  ensureCycleFresh();
+  const nextDisabled = Boolean(disabled);
+  const now = Date.now();
+  inMemoryState = {
+    ...inMemoryState,
+    dailyReadAccessDisabled: nextDisabled,
+    quotaExhaustedDetected: nextDisabled ? true : false,
+    lastExhaustedAtMs: nextDisabled ? now : inMemoryState.lastExhaustedAtMs,
+    lastProbeStatus: nextDisabled ? 'exhausted' : 'unknown',
+    lastProbeMessage: nextDisabled
+      ? 'Acesso de leitura diário desligado manualmente (simulação de cota diária atingida).'
+      : 'Acesso de leitura diário religado. Leituras no Firestore restauradas.',
+    lastProbeAtMs: now,
+  };
+  saveImmediateToStorage();
+  setDailyReadAccessDisabledSync(nextDisabled);
+  notifySubscribers();
+}
+
 export function resetLocalCycleCounters() {
   const currentCycle = getPacificQuotaCycleKey();
   inMemoryState = createDefaultState(currentCycle, {
@@ -625,6 +654,8 @@ export function resetLocalCycleCounters() {
     monthlyWriteUnitsOffset: inMemoryState.monthlyWriteUnitsOffset,
     monthlyEgressGiB: inMemoryState.monthlyEgressGiB,
     storedDataGiB: inMemoryState.storedDataGiB,
+    dailyReadAccessDisabled: inMemoryState.dailyReadAccessDisabled,
+    quotaExhaustedDetected: inMemoryState.dailyReadAccessDisabled ? true : false,
   });
   saveImmediateToStorage();
   notifySubscribers();
@@ -647,7 +678,7 @@ function applyRemoteBillingDoc(data: Record<string, any> | null | undefined) {
 
   if (data.planTier === 'spark' || data.planTier === 'blaze') {
     nextPatch.planTier = data.planTier;
-    if (data.planTier === 'blaze') {
+    if (data.planTier === 'blaze' && !inMemoryState.dailyReadAccessDisabled) {
       nextPatch.quotaExhaustedDetected = false;
     }
   }

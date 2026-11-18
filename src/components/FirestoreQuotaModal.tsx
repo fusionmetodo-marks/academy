@@ -53,6 +53,7 @@ import {
   probeFirestoreQuotaAvailability,
   resetLocalCycleCounters,
   saveTeamBillingConfigToFirestore,
+  setDailyReadAccessDisabled,
   subscribeQuotaHistory,
   subscribeQuotaState,
   subscribeTeamBillingSync,
@@ -407,6 +408,23 @@ export const FirestoreQuotaModal: React.FC<FirestoreQuotaModalProps> = ({
     onNotify?.(labels[economyMode], 'info');
   };
 
+  const handleToggleDailyReadAccess = () => {
+    const nextDisabled = !quotaState.dailyReadAccessDisabled;
+    setDailyReadAccessDisabled(nextDisabled);
+    if (nextDisabled) {
+      onNotify?.(
+        'Acesso de leitura diário desligado (simulação). Os dados não serão carregados até religar.',
+        'info'
+      );
+    } else {
+      onNotify?.(
+        'Acesso de leitura diário religado. O carregamento de dados voltou ao normal.',
+        'success'
+      );
+      probeFirestoreQuotaAvailability().catch(() => {});
+    }
+  };
+
   const monthlyReadsFreePct = Math.min(
     100,
     Math.round(
@@ -513,7 +531,9 @@ export const FirestoreQuotaModal: React.FC<FirestoreQuotaModalProps> = ({
         <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-5">
           <div className="space-y-2 max-w-3xl">
             <div className="flex flex-wrap items-center gap-2.5">
-              {isBlaze ? (
+              {quotaState.dailyReadAccessDisabled ? (
+                <AlertTriangle className="w-5 h-5 text-red-400 shrink-0" />
+              ) : isBlaze ? (
                 <CheckCircle2 className="w-5 h-5 text-sky-400 shrink-0" />
               ) : quotaState.quotaExhaustedDetected ? (
                 <AlertTriangle className="w-5 h-5 text-red-400 shrink-0" />
@@ -521,7 +541,9 @@ export const FirestoreQuotaModal: React.FC<FirestoreQuotaModalProps> = ({
                 <CheckCircle2 className="w-5 h-5 text-emerald-400 shrink-0" />
               )}
               <h3 className="text-base sm:text-lg font-extrabold text-white">
-                {isBlaze
+                {quotaState.dailyReadAccessDisabled
+                  ? 'Leitura Diária Desligada (Simulação de Cota Esgotada)'
+                  : isBlaze
                   ? 'Plano Pago Blaze Ativo — Sincronizado para toda a equipe'
                   : quotaState.quotaExhaustedDetected
                   ? 'Plano Spark Esgotado Hoje (429 RESOURCE_EXHAUSTED)'
@@ -1086,6 +1108,38 @@ export const FirestoreQuotaModal: React.FC<FirestoreQuotaModalProps> = ({
                   className="w-4 h-4 accent-[#e9c349] cursor-pointer"
                 />
               </label>
+
+              <div className="flex items-center justify-between gap-3 pt-2.5 border-t border-white/5">
+                <div className="min-w-0">
+                  <span className="block text-[11px] text-stone-400 font-medium">
+                    Acesso de leitura diário (simulação)
+                  </span>
+                  <span className="block text-[10px] text-stone-500">
+                    {quotaState.dailyReadAccessDisabled
+                      ? 'Leituras bloqueadas · dados não carregam na plataforma'
+                      : 'Desligue para simular o bloqueio de leitura por cota diária'}
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  id="btn-toggle-daily-read-access"
+                  role="switch"
+                  aria-checked={!quotaState.dailyReadAccessDisabled}
+                  onClick={handleToggleDailyReadAccess}
+                  className={`inline-flex items-center gap-2 px-2.5 py-1 rounded-lg border text-[11px] font-medium transition-colors cursor-pointer shrink-0 ${
+                    quotaState.dailyReadAccessDisabled
+                      ? 'bg-red-950/30 border-red-500/30 text-red-300 hover:bg-red-950/50'
+                      : 'bg-surface-container-lowest border-outline-variant/20 text-stone-400 hover:text-stone-200 hover:border-outline-variant/40'
+                  }`}
+                >
+                  <span
+                    className={`w-1.5 h-1.5 rounded-full ${
+                      quotaState.dailyReadAccessDisabled ? 'bg-red-400' : 'bg-emerald-400/80'
+                    }`}
+                  />
+                  <span>{quotaState.dailyReadAccessDisabled ? 'Desligado' : 'Ligado'}</span>
+                </button>
+              </div>
             </div>
 
             <form

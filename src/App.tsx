@@ -106,24 +106,32 @@ export default function App() {
         checkDevice(currentUser.uid, currentUser.email);
         unsubscribeProfile = subscribeUserEnrollments(currentUser, (enrollData) => {
           const isMaster = isMasterEmail(currentUser.email);
-          let baseProfile = enrollData.userProfile || {};
+          setUserProfile((prev: any) => {
+            let baseProfile = enrollData.userProfile || {};
 
-          if (isMaster) {
-            baseProfile = {
+            if (!enrollData.userProfile && enrollData.readError && prev && prev.uid === currentUser.uid && (prev.role === 'admin' || prev.role === 'producer')) {
+              baseProfile = {
+                ...prev,
+              };
+            }
+
+            if (isMaster) {
+              baseProfile = {
+                ...baseProfile,
+                uid: currentUser.uid,
+                email: currentUser.email,
+                role: 'admin',
+                roleType: 'admin',
+                subscriptionStatus: 'active'
+              };
+            }
+
+            return {
               ...baseProfile,
-              uid: currentUser.uid,
-              email: currentUser.email,
-              role: 'admin',
-              roleType: 'admin',
-              subscriptionStatus: 'active'
+              enrolledCourses: enrollData.enrolledCourses,
+              completedLessons: enrollData.completedLessons,
+              subscriptionStatus: isMaster ? 'active' : (baseProfile.subscriptionStatus || enrollData.subscriptionStatus)
             };
-          }
-
-          setUserProfile({
-            ...baseProfile,
-            enrolledCourses: enrollData.enrolledCourses,
-            completedLessons: enrollData.completedLessons,
-            subscriptionStatus: isMaster ? 'active' : (baseProfile.subscriptionStatus || enrollData.subscriptionStatus)
           });
           setLoading(false);
         });

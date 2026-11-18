@@ -8,6 +8,7 @@ export interface UserEnrollmentData {
   completedLessons: string[];
   subscriptionStatus: string;
   userProfile: any;
+  readError?: boolean;
 }
 
 /**
@@ -32,7 +33,7 @@ export function subscribeUserEnrollments(
   let unsub1 = () => {};
   let unsub2 = () => {};
 
-  const handleSnapData = (docId: string, data: any) => {
+  const handleSnapData = (docId: string, data: any, readError: boolean = false) => {
     let enrolled = Array.isArray(data?.enrolledCourses) ? data.enrolledCourses : [];
     // Mapeamento de retrocompatibilidade para alunos antigos: 'marks-trading-master' ou 'curso-cfa' equivale ao Nível 1
     if (enrolled.includes('marks-trading-master') || enrolled.includes('curso-cfa')) {
@@ -48,7 +49,8 @@ export function subscribeUserEnrollments(
       enrolledCourses: enrolled,
       completedLessons: completed,
       subscriptionStatus: status,
-      userProfile: data ? { ...data, subscriptionStatus: status } : null
+      userProfile: data ? { ...data, subscriptionStatus: status } : null,
+      readError,
     });
   };
 
@@ -72,13 +74,14 @@ export function subscribeUserEnrollments(
           }
         }, (err) => {
           console.warn("Erro ao escutar usuário por e-mail:", err);
-          handleSnapData(user.uid!, null);
+          handleSnapData(user.uid!, null, true);
         });
       } else {
         handleSnapData(user.uid!, null);
       }
     }, (err) => {
       console.warn("Erro ao escutar documento do usuário por UID:", err);
+      handleSnapData(user.uid!, null, true);
     });
   } else if (user.email) {
     const cleanEmail = user.email.trim().toLowerCase();
@@ -90,6 +93,9 @@ export function subscribeUserEnrollments(
       } else {
         handleSnapData('', null);
       }
+    }, (err) => {
+      console.warn("Erro ao escutar usuário por e-mail:", err);
+      handleSnapData('', null, true);
     });
   }
 

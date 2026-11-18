@@ -19,6 +19,7 @@ import {
   subscribeQuotaState,
   subscribeTeamBillingSync,
 } from '../services/firestoreQuotaService';
+import { subscribeReadAccessChanged } from '../services/firestoreReadGuardState';
 import { 
   ArrowLeft,
   Award,
@@ -128,11 +129,17 @@ export default function Settings() {
 
   useEffect(() => {
     const unsub = subscribeQuotaState((next) => setQuotaState(next));
+    const unsubReadGuard = subscribeReadAccessChanged((disabled) => {
+      if (!disabled) {
+        fetchSettings();
+      }
+    });
     const timer = setInterval(() => {
       setQuotaResetInfo(getNextFirestoreResetInfo());
     }, 30_000);
     return () => {
       unsub();
+      unsubReadGuard();
       clearInterval(timer);
     };
   }, []);
@@ -1568,7 +1575,8 @@ export default function Settings() {
               100,
               Math.round((effectiveReadsUsed / FIRESTORE_SPARK_LIMITS.readUnitsDaily) * 1000) / 10
             );
-            const isExhausted = !isBlaze && quotaState.quotaExhaustedDetected;
+            const isReadBlockedSim = Boolean(quotaState.dailyReadAccessDisabled);
+            const isExhausted = isReadBlockedSim || (!isBlaze && quotaState.quotaExhaustedDetected);
             const isHigh = !isBlaze && !isExhausted && readsPct >= quotaState.warningThresholdPct;
             const blazeBudgetPct =
               quotaState.monthlyBudgetUsd > 0
@@ -1618,7 +1626,9 @@ export default function Settings() {
                             : 'text-emerald-400'
                         }`}
                       >
-                        {isBlaze
+                        {isReadBlockedSim
+                          ? 'Leitura Desligada (Simulação)'
+                          : isBlaze
                           ? isBudgetAlert
                             ? `Blaze • Alerta ${blazeBudgetPct.toFixed(0)}%`
                             : 'Blaze (Pago) Sincronizado'
