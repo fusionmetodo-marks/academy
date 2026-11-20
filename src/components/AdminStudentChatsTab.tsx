@@ -17,6 +17,13 @@ import {
   Megaphone,
   Maximize2,
   Radio,
+  Check,
+  CheckCheck,
+  CheckSquare,
+  Square,
+  Mail,
+  MailOpen,
+  MoreVertical,
 } from 'lucide-react';
 import { auth } from '../firebase';
 import {
@@ -48,6 +55,7 @@ import {
   extractStudentPhoneString,
   isPreRegisteredChatId,
   markChatAsRead,
+  markChatAsUnread,
   normalizeContactEmail,
   normalizePhoneDigits,
   resolveChatTargetForContact,
@@ -171,14 +179,44 @@ export default function AdminStudentChatsTab({
   // Modal de Pesquisa / Nova Conversa e Modal de Envios em Grupo
   const [isNewContactOpen, setIsNewContactOpen] = useState(false);
   const [isGroupModalOpen, setIsGroupModalOpen] = useState(false);
+  const [groupModalInitialIds, setGroupModalInitialIds] = useState<string[]>([]);
   const [modalSearchQuery, setModalSearchQuery] = useState('');
   const [modalFilterMode, setModalFilterMode] = useState<'all' | 'enrolled'>('all');
 
+  // Seleção múltipla de contatos para envio em lote & Menu de Contexto (botão direito)
+  const [selectionMode, setSelectionMode] = useState(false);
+  const [markedContactIds, setMarkedContactIds] = useState<Set<string>>(new Set());
+  const [contextMenu, setContextMenu] = useState<{
+    x: number;
+    y: number;
+    contactId: string;
+    studentName: string;
+    studentEmail?: string | null;
+    thread: ChatThread | null;
+  } | null>(null);
+  const manualUnreadLockIdsRef = useRef<Set<string>>(new Set());
+  const prevSelectedIdRef = useRef<string | null>(null);
+
   useEffect(() => {
     if (groupComposerTrigger > 0) {
+      setGroupModalInitialIds(markedContactIds.size > 0 ? Array.from(markedContactIds) : []);
       setIsGroupModalOpen(true);
     }
   }, [groupComposerTrigger]);
+
+  useEffect(() => {
+    if (!contextMenu) return;
+    const handleClose = () => setContextMenu(null);
+    const handleEsc = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setContextMenu(null);
+    };
+    window.addEventListener('mousedown', handleClose);
+    window.addEventListener('keydown', handleEsc);
+    return () => {
+      window.removeEventListener('mousedown', handleClose);
+      window.removeEventListener('keydown', handleEsc);
+    };
+  }, [contextMenu]);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const currentUser = auth.currentUser;
@@ -195,6 +233,7 @@ export default function AdminStudentChatsTab({
             name: initialStudentName || prev[initialStudentId]?.name || 'Contato',
             email: normalizeContactEmail(initialStudentEmail) || prev[initialStudentId]?.email || '',
             phone: String(initialStudentPhone || prev[initialStudentId]?.phone || '').trim(),
+            enrolledCourses: prev[initialStudentId]?.enrolledCourses || [],
             enrolledCount: 0,
             isPreRegistered: isPreRegisteredChatId(initialStudentId),
           },
@@ -393,12 +432,28 @@ export default function AdminStudentChatsTab({
     [activeThreads, selectedStudentId]
   );
 
+  // Ao trocar de conversa, libera qualquer bloqueio manual anterior da conversa recém-aberta
+  useEffect(() => {
+    if (selectedStudentId !== prevSelectedIdRef.current) {
+      prevSelectedIdRef.current = selectedStudentId;
+      if (selectedStudentId) {
+        manualUnreadLockIdsRef.current.delete(selectedStudentId);
+      }
+    }
+  }, [selectedStudentId]);
+
   // Marca como lida automaticamente quando o admin abre a conversa com não lidas
   useEffect(() => {
-    if (selectedStudentId && activeThread && activeThread.unreadByAdmin > 0) {
-      markChatAsRead(selectedStudentId, 'admin');
+    if (
+      selectedStudentId &&
+      selectedStudentId !== CHRISTMAS_LIVE_ROOM_SELECTION &&
+      activeThread &&
+      activeThread.unreadByAdmin > 0 &&
+      !manualUnreadLockIdsRef.current.has(selectedStudentId)
+    ) {
+      markChatAsRead(selectedStudentId, 'admin', { studentEmail: activeThread.studentEmail });
     }
-  }, [selectedStudentId, activeThread?.unreadByAdmin]);
+  }, [selectedStudentId, activeThread?.unreadByAdmin, activeThread?.studentEmail]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -609,6 +664,7 @@ export default function AdminStudentChatsTab({
       }
 
       succeeded = true;
+      manualUnreadLockIdsRef.current.delete(selectedStudentInfo.id);
       setDraft('');
       setLessonContext(null);
     } catch (err) {
@@ -619,6 +675,94 @@ export default function AdminStudentChatsTab({
       setSending(false);
     }
   };
+
+  const handleOpenConversation = (studentId: string, thread?: ChatThread | null) => {
+    manualUnreadLockIdsRef.current.delete(studentId);
+    setSelectedStudentId(studentId);
+    if (thread && thread.unreadByAdmin > 0) {
+      markChatAsRead(studentId, 'admin', { studentEmail: thread.studentEmail });
+    }
+  };
+
+  const handleMarkAsUnread = async (thread: ChatThread) => {
+    manualUnreadLockIdsRef.current.add(thread.studentId);
+    await markChatAsUnread(thread.studentId, 'admin', {
+      studentName: thread.studentName,
+      studentEmail: thread.studentEmail,
+      lastMessage: thread.lastMessage,
+      lastMessageAtMs: thread.lastMessageAtMs,
+      currentUnreadCount: thread.unreadByAdmin,
+    });
+  };
+
+  const handleMarkAsRead = async (thread: ChatThread) => {
+    manualUnreadLockIdsRef.current.delete(thread.studentId);
+    await markChatAsRead(thread.studentId, 'admin', {
+      studentEmail: thread.studentEmail,
+    });
+  };
+
+  const toggleMarkedContact = (contactId: string) => {
+    setMarkedContactIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(contactId)) next.delete(contactId);
+      else next.add(contactId);
+      return next;
+    });
+  };
+
+  const openContextMenuAt = (
+    e: React.MouseEvent,
+    payload: {
+      contactId: string;
+      studentName: string;
+      studentEmail?: string | null;
+      thread: ChatThread | null;
+    }
+  ) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const menuWidth = 232;
+    const menuHeight = 205;
+    const clampedX = Math.min(e.clientX, window.innerWidth - menuWidth - 12);
+    const clampedY = Math.min(e.clientY, window.innerHeight - menuHeight - 12);
+    setContextMenu({
+      x: Math.max(8, clampedX),
+      y: Math.max(8, clampedY),
+      ...payload,
+    });
+  };
+
+  const openGroupModalWithContacts = (ids: string[]) => {
+    setGroupModalInitialIds(ids);
+    setIsGroupModalOpen(true);
+  };
+
+  const groupModalExtraContacts = useMemo(() => {
+    const extras: ContactOption[] = [];
+    const registeredIds = new Set(students.map((s) => s.id));
+    pendingBuyerContacts.forEach((p) => {
+      if (!registeredIds.has(p.id)) extras.push(p);
+    });
+    activeThreads.forEach((t) => {
+      if (!registeredIds.has(t.studentId)) {
+        extras.push({
+          id: t.studentId,
+          name: t.studentName,
+          email: t.studentEmail || '',
+          phone: t.studentPhone || '',
+          enrolledCourses: [],
+          enrolledCount: 0,
+          isPreRegistered: Boolean(t.isPreRegistered || isPreRegisteredChatId(t.studentId)),
+          sourceLabel: 'Contato do chat',
+        });
+      }
+    });
+    (Object.values(manualContacts) as ContactOption[]).forEach((mc) => {
+      if (!registeredIds.has(mc.id)) extras.push(mc);
+    });
+    return extras;
+  }, [students, pendingBuyerContacts, activeThreads, manualContacts]);
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -704,8 +848,34 @@ export default function AdminStudentChatsTab({
               <div className="flex items-center gap-1.5 shrink-0">
                 <button
                   type="button"
+                  id="btn-toggle-contact-selection"
+                  onClick={() => {
+                    if (selectionMode) {
+                      setSelectionMode(false);
+                    } else {
+                      setSelectionMode(true);
+                    }
+                  }}
+                  className={`px-2 h-7 rounded-xl border text-[10px] font-bold flex items-center gap-1 transition-all cursor-pointer active:scale-95 ${
+                    selectionMode || markedContactIds.size > 0
+                      ? 'bg-[#e9c349] text-black border-[#e9c349]'
+                      : 'bg-[#1c1c1c] hover:bg-[#262626] border-[#353534] text-stone-300'
+                  }`}
+                  title="Marcar vários contatos para enviar uma mensagem de uma só vez"
+                >
+                  <CheckSquare className="w-3.5 h-3.5" />
+                  <span className="hidden sm:inline">
+                    {markedContactIds.size > 0 ? `Marcados (${markedContactIds.size})` : 'Marcar'}
+                  </span>
+                </button>
+                <button
+                  type="button"
                   id="btn-open-group-message-sidebar"
-                  onClick={() => setIsGroupModalOpen(true)}
+                  onClick={() =>
+                    openGroupModalWithContacts(
+                      markedContactIds.size > 0 ? Array.from(markedContactIds) : []
+                    )
+                  }
                   className="px-2.5 h-7 rounded-xl bg-[#e9c349]/15 hover:bg-[#e9c349]/25 border border-[#e9c349]/35 text-[#e9c349] text-[10px] font-extrabold flex items-center gap-1 transition-all cursor-pointer active:scale-95"
                   title="Enviar mensagem para vários alunos, turmas ou todos"
                 >
@@ -801,7 +971,12 @@ export default function AdminStudentChatsTab({
             </div>
           </div>
 
-          <div className="flex-1 overflow-y-auto divide-y divide-[#353534]/50">
+          <div
+            className="flex-1 overflow-y-auto divide-y divide-[#353534]/50"
+            onScroll={() => {
+              if (contextMenu) setContextMenu(null);
+            }}
+          >
             {/* Sala de Operação Ao Vivo Bônus de Natal — Fixada no Topo */}
             <button
               type="button"
@@ -857,22 +1032,70 @@ export default function AdminStudentChatsTab({
                 {paginatedThreads.map((t) => {
                   const isSelected = selectedStudentId === t.studentId;
                   const hasUnread = t.unreadByAdmin > 0;
+                  const isMarked = markedContactIds.has(t.studentId);
+                  const showCheckboxes = selectionMode || markedContactIds.size > 0;
                   const initial = (t.studentName?.[0] || 'E').toUpperCase();
                   const linkedUser = studentByIdMap.get(t.studentId);
                   const isEnrolled = (linkedUser?.enrolledCount ?? 0) >= 1;
                   const isPreReg = !linkedUser && (t.isPreRegistered || isPreRegisteredChatId(t.studentId));
+                  const wasSeenByStudent =
+                    t.lastSenderRole === 'admin' &&
+                    (t.lastReadByStudentAtMs || 0) >= t.lastMessageAtMs &&
+                    (t.unreadByStudent || 0) === 0;
 
                   return (
-                    <button
+                    <div
                       key={t.studentId}
-                      type="button"
-                      onClick={() => setSelectedStudentId(t.studentId)}
-                      className={`w-full text-left px-4 py-3.5 flex items-start gap-3 transition-colors cursor-pointer ${
-                        isSelected
+                      onClick={() => {
+                        if (selectionMode) {
+                          toggleMarkedContact(t.studentId);
+                        } else {
+                          handleOpenConversation(t.studentId, t);
+                        }
+                      }}
+                      onContextMenu={(e) =>
+                        openContextMenuAt(e, {
+                          contactId: t.studentId,
+                          studentName: t.studentName,
+                          studentEmail: t.studentEmail,
+                          thread: t,
+                        })
+                      }
+                      role="button"
+                      tabIndex={0}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                          e.preventDefault();
+                          if (selectionMode) toggleMarkedContact(t.studentId);
+                          else handleOpenConversation(t.studentId, t);
+                        }
+                      }}
+                      className={`group w-full text-left px-4 py-3.5 flex items-start gap-3 transition-colors cursor-pointer ${
+                        isMarked
+                          ? 'bg-[#e9c349]/12 border-l-2 border-l-[#e9c349]'
+                          : isSelected
                           ? 'bg-[#e9c349]/10 border-l-2 border-l-[#e9c349]'
                           : 'hover:bg-[#1a1a1a]'
                       }`}
                     >
+                      {showCheckboxes && (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            toggleMarkedContact(t.studentId);
+                          }}
+                          aria-label={isMarked ? `Desmarcar ${t.studentName}` : `Marcar ${t.studentName}`}
+                          className="mt-2 shrink-0 text-[#e9c349] hover:scale-110 transition-transform cursor-pointer"
+                        >
+                          {isMarked ? (
+                            <CheckSquare className="w-4 h-4 text-[#e9c349]" />
+                          ) : (
+                            <Square className="w-4 h-4 text-stone-500 hover:text-stone-300" />
+                          )}
+                        </button>
+                      )}
+
                       <div className="w-9 h-9 rounded-full bg-[#242424] border border-white/10 text-stone-200 font-bold text-xs flex items-center justify-center shrink-0 mt-0.5">
                         {initial}
                       </div>
@@ -898,9 +1121,26 @@ export default function AdminStudentChatsTab({
                               </span>
                             )}
                           </div>
-                          <span className="text-[10px] font-mono tabular-nums text-stone-500 shrink-0">
-                            {formatListTime(t.lastMessageAtMs)}
-                          </span>
+                          <div className="flex items-center gap-1 shrink-0">
+                            <span className="text-[10px] font-mono tabular-nums text-stone-500">
+                              {formatListTime(t.lastMessageAtMs)}
+                            </span>
+                            <button
+                              type="button"
+                              onClick={(e) =>
+                                openContextMenuAt(e, {
+                                  contactId: t.studentId,
+                                  studentName: t.studentName,
+                                  studentEmail: t.studentEmail,
+                                  thread: t,
+                                })
+                              }
+                              title="Opções da conversa (ou botão direito)"
+                              className="opacity-70 sm:opacity-0 sm:group-hover:opacity-100 p-0.5 rounded text-stone-400 hover:text-white hover:bg-white/10 transition-all cursor-pointer"
+                            >
+                              <MoreVertical className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
                         </div>
 
                         {t.studentEmail && (
@@ -911,12 +1151,26 @@ export default function AdminStudentChatsTab({
 
                         <div className="flex items-center justify-between gap-2 mt-1">
                           <p
-                            className={`text-[11px] truncate ${
+                            className={`text-[11px] truncate flex items-center gap-1 min-w-0 ${
                               hasUnread ? 'text-stone-200 font-semibold' : 'text-stone-400'
                             }`}
                           >
-                            {t.lastSenderRole === 'admin' ? 'Você: ' : ''}
-                            {t.lastMessage}
+                            {t.lastSenderRole === 'admin' && (
+                              <span
+                                className="inline-flex items-center shrink-0"
+                                title={wasSeenByStudent ? 'Visualizada pelo aluno' : 'Enviada'}
+                              >
+                                {wasSeenByStudent ? (
+                                  <CheckCheck className="w-3.5 h-3.5 text-[#e9c349]" />
+                                ) : (
+                                  <Check className="w-3 h-3 text-stone-500" />
+                                )}
+                              </span>
+                            )}
+                            <span className="truncate">
+                              {t.lastSenderRole === 'admin' ? 'Você: ' : ''}
+                              {t.lastMessage}
+                            </span>
                           </p>
                           {hasUnread && (
                             <span className="min-w-[18px] h-[18px] px-1.5 rounded-full bg-[#e9c349] text-black text-[10px] font-extrabold font-mono tabular-nums flex items-center justify-center shrink-0">
@@ -925,7 +1179,7 @@ export default function AdminStudentChatsTab({
                           )}
                         </div>
                       </div>
-                    </button>
+                    </div>
                   );
                 })}
 
@@ -969,17 +1223,63 @@ export default function AdminStudentChatsTab({
                     <div className="divide-y divide-[#353534]/40">
                       {displayedNewCandidates.map((student) => {
                         const isSelected = selectedStudentId === student.id;
+                        const isMarked = markedContactIds.has(student.id);
+                        const showCheckboxes = selectionMode || markedContactIds.size > 0;
                         const initial = (student.name?.[0] || 'E').toUpperCase();
                         const isEnrolled = student.enrolledCount >= 1;
                         return (
-                          <button
+                          <div
                             key={student.id}
-                            type="button"
-                            onClick={() => setSelectedStudentId(student.id)}
+                            role="button"
+                            tabIndex={0}
+                            onClick={() => {
+                              if (selectionMode) {
+                                toggleMarkedContact(student.id);
+                              } else {
+                                handleOpenConversation(student.id);
+                              }
+                            }}
+                            onContextMenu={(e) =>
+                              openContextMenuAt(e, {
+                                contactId: student.id,
+                                studentName: student.name,
+                                studentEmail: student.email,
+                                thread: null,
+                              })
+                            }
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter' || e.key === ' ') {
+                                e.preventDefault();
+                                if (selectionMode) toggleMarkedContact(student.id);
+                                else handleOpenConversation(student.id);
+                              }
+                            }}
                             className={`w-full text-left px-4 py-3 flex items-center gap-3 transition-colors cursor-pointer ${
-                              isSelected ? 'bg-[#e9c349]/10' : 'hover:bg-[#1a1a1a]'
+                              isMarked
+                                ? 'bg-[#e9c349]/12'
+                                : isSelected
+                                ? 'bg-[#e9c349]/10'
+                                : 'hover:bg-[#1a1a1a]'
                             }`}
                           >
+                            {showCheckboxes && (
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  toggleMarkedContact(student.id);
+                                }}
+                                aria-label={isMarked ? `Desmarcar ${student.name}` : `Marcar ${student.name}`}
+                                className="shrink-0 text-[#e9c349] hover:scale-110 transition-transform cursor-pointer"
+                              >
+                                {isMarked ? (
+                                  <CheckSquare className="w-4 h-4 text-[#e9c349]" />
+                                ) : (
+                                  <Square className="w-4 h-4 text-stone-500 hover:text-stone-300" />
+                                )}
+                              </button>
+                            )}
+
                             <div className="w-8 h-8 rounded-full bg-[#1e1e1e] border border-white/10 text-stone-300 font-bold text-[11px] flex items-center justify-center shrink-0">
                               {initial}
                             </div>
@@ -1011,7 +1311,7 @@ export default function AdminStudentChatsTab({
                             <span className="text-[10px] font-bold text-[#e9c349] shrink-0">
                               Conversar
                             </span>
-                          </button>
+                          </div>
                         );
                       })}
                     </div>
@@ -1020,6 +1320,53 @@ export default function AdminStudentChatsTab({
               </>
             )}
           </div>
+
+          {/* Barra Fixa de Envio Rápido para Contatos Marcados */}
+          {(selectionMode || markedContactIds.size > 0) && (
+            <div className="px-3.5 py-2.5 bg-[#15130c] border-t border-[#e9c349]/35 flex flex-wrap items-center justify-between gap-2 shrink-0">
+              <div className="flex items-center gap-2 min-w-0">
+                <span className="text-[11px] font-extrabold text-[#e9c349] font-mono tabular-nums">
+                  {markedContactIds.size} {markedContactIds.size === 1 ? 'contato marcado' : 'contatos marcados'}
+                </span>
+                {paginatedThreads.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setMarkedContactIds((prev) => {
+                        const next = new Set(prev);
+                        paginatedThreads.forEach((t) => next.add(t.studentId));
+                        return next;
+                      });
+                    }}
+                    className="text-[10px] font-bold text-stone-300 hover:text-white underline cursor-pointer"
+                  >
+                    Marcar página
+                  </button>
+                )}
+              </div>
+              <div className="flex items-center gap-1.5 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setMarkedContactIds(new Set());
+                    setSelectionMode(false);
+                  }}
+                  className="px-2.5 py-1.5 rounded-lg bg-[#222] hover:bg-[#2c2c2c] text-stone-300 text-[10px] font-bold cursor-pointer"
+                >
+                  Limpar
+                </button>
+                <button
+                  type="button"
+                  disabled={markedContactIds.size === 0}
+                  onClick={() => openGroupModalWithContacts(Array.from(markedContactIds))}
+                  className="px-3 py-1.5 rounded-lg bg-[#e9c349] hover:bg-[#d4b03f] text-black text-[11px] font-extrabold flex items-center gap-1.5 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed shadow-md"
+                >
+                  <Send className="w-3 h-3" />
+                  <span>Enviar ({markedContactIds.size})</span>
+                </button>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Coluna Direita: Janela de Mensagens Individual */}
@@ -1127,35 +1474,70 @@ export default function AdminStudentChatsTab({
                   </div>
                 </div>
 
-                {isDrawer ? (
-                  <div className="flex items-center gap-1 shrink-0">
-                    {onExpandFull && (
-                      <button
-                        type="button"
-                        onClick={onExpandFull}
-                        className="p-1.5 rounded-lg text-stone-400 hover:text-white hover:bg-white/10 transition-colors cursor-pointer"
-                        title="Abrir em ecrã completo"
-                      >
-                        <Maximize2 className="w-3.5 h-3.5" />
-                      </button>
-                    )}
-                    {onCloseDrawer && (
-                      <button
-                        type="button"
-                        onClick={onCloseDrawer}
-                        className="p-1.5 rounded-lg text-stone-400 hover:text-white hover:bg-white/10 transition-colors cursor-pointer"
-                        title="Fechar chat"
-                      >
-                        <X className="w-4 h-4" />
-                      </button>
-                    )}
-                  </div>
-                ) : (
-                  <span className="hidden sm:inline-flex items-center gap-1.5 text-[11px] text-stone-400 shrink-0">
-                    <User className="w-3.5 h-3.5 text-[#e9c349]" />
-                    <span>Chat Individual 1-para-1</span>
-                  </span>
-                )}
+                <div className="flex items-center gap-1.5 shrink-0">
+                  {activeThread && (
+                    <button
+                      type="button"
+                      onClick={() =>
+                        activeThread.unreadByAdmin > 0
+                          ? handleMarkAsRead(activeThread)
+                          : handleMarkAsUnread(activeThread)
+                      }
+                      className={`px-2.5 py-1.5 rounded-xl border text-[11px] font-bold flex items-center gap-1.5 transition-colors cursor-pointer ${
+                        activeThread.unreadByAdmin > 0
+                          ? 'bg-emerald-500/15 border-emerald-500/35 text-emerald-300 hover:bg-emerald-500/25'
+                          : 'bg-[#1c1c1c] border-[#353534] text-stone-300 hover:text-[#e9c349] hover:border-[#e9c349]/40'
+                      }`}
+                      title={
+                        activeThread.unreadByAdmin > 0
+                          ? 'Marcar conversa como lida em todo o sistema'
+                          : 'Marcar conversa como não lida em todo o sistema'
+                      }
+                    >
+                      {activeThread.unreadByAdmin > 0 ? (
+                        <>
+                          <MailOpen className="w-3.5 h-3.5" />
+                          <span className="hidden sm:inline">Marcar lida</span>
+                        </>
+                      ) : (
+                        <>
+                          <Mail className="w-3.5 h-3.5" />
+                          <span className="hidden sm:inline">Marcar não lida</span>
+                        </>
+                      )}
+                    </button>
+                  )}
+
+                  {isDrawer ? (
+                    <div className="flex items-center gap-1 shrink-0">
+                      {onExpandFull && (
+                        <button
+                          type="button"
+                          onClick={onExpandFull}
+                          className="p-1.5 rounded-lg text-stone-400 hover:text-white hover:bg-white/10 transition-colors cursor-pointer"
+                          title="Abrir em ecrã completo"
+                        >
+                          <Maximize2 className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+                      {onCloseDrawer && (
+                        <button
+                          type="button"
+                          onClick={onCloseDrawer}
+                          className="p-1.5 rounded-lg text-stone-400 hover:text-white hover:bg-white/10 transition-colors cursor-pointer"
+                          title="Fechar chat"
+                        >
+                          <X className="w-4 h-4" />
+                        </button>
+                      )}
+                    </div>
+                  ) : (
+                    <span className="hidden md:inline-flex items-center gap-1.5 text-[11px] text-stone-400 shrink-0 pl-1">
+                      <User className="w-3.5 h-3.5 text-[#e9c349]" />
+                      <span>Chat 1-para-1</span>
+                    </span>
+                  )}
+                </div>
               </div>
 
               {selectedStudentInfo.isPreRegistered && (
@@ -1203,7 +1585,18 @@ export default function AdminStudentChatsTab({
                           </div>
                         )}
 
-                        <div className={`flex flex-col ${isAdminMsg ? 'items-end' : 'items-start'}`}>
+                        <div
+                          className={`flex flex-col ${isAdminMsg ? 'items-end' : 'items-start'}`}
+                          onContextMenu={(e) => {
+                            if (!activeThread) return;
+                            openContextMenuAt(e, {
+                              contactId: activeThread.studentId,
+                              studentName: activeThread.studentName,
+                              studentEmail: activeThread.studentEmail,
+                              thread: activeThread,
+                            });
+                          }}
+                        >
                           <div
                             className={`max-w-[85%] sm:max-w-[75%] rounded-2xl px-3.5 py-2.5 border ${
                               isAdminMsg
@@ -1251,6 +1644,31 @@ export default function AdminStudentChatsTab({
                                   : 'text-[#e9c349] font-semibold underline decoration-[#e9c349]/80 hover:text-[#f5d76e]'
                               }
                             />
+
+                            {isAdminMsg && (
+                              <div
+                                className="mt-1 flex items-center justify-end gap-1 text-[10px] font-semibold text-black/65 select-none"
+                                title={
+                                  (activeThread?.lastReadByStudentAtMs || 0) >= msg.createdAtMs &&
+                                  (activeThread?.unreadByStudent || 0) === 0
+                                    ? 'Visualizada pelo estudante'
+                                    : 'Enviada para o estudante'
+                                }
+                              >
+                                {(activeThread?.lastReadByStudentAtMs || 0) >= msg.createdAtMs &&
+                                (activeThread?.unreadByStudent || 0) === 0 ? (
+                                  <>
+                                    <CheckCheck className="w-3.5 h-3.5 text-emerald-900 stroke-[2.5]" />
+                                    <span>Visualizada</span>
+                                  </>
+                                ) : (
+                                  <>
+                                    <Check className="w-3 h-3 text-black/55" />
+                                    <span>Enviada</span>
+                                  </>
+                                )}
+                              </div>
+                            )}
                           </div>
                         </div>
                       </React.Fragment>
@@ -1481,11 +1899,124 @@ export default function AdminStudentChatsTab({
 
       <GroupMessageModal
         isOpen={isGroupModalOpen}
-        onClose={() => setIsGroupModalOpen(false)}
+        onClose={() => {
+          setIsGroupModalOpen(false);
+          setGroupModalInitialIds([]);
+        }}
         students={students}
+        extraContacts={groupModalExtraContacts}
+        initialSelectedIds={groupModalInitialIds}
         courses={courses}
         isMasterViewer={isMasterViewer}
+        onSendSuccess={() => {
+          setMarkedContactIds(new Set());
+          setSelectionMode(false);
+        }}
       />
+
+      {/* Menu Flutuante de Botão Direito (Marcar Lido / Não Lido & Seleção em Lote) */}
+      {contextMenu && (
+        <div
+          style={{ left: contextMenu.x, top: contextMenu.y }}
+          onMouseDown={(e) => e.stopPropagation()}
+          className="fixed z-[9999] w-60 bg-[#181818] border border-[#353534] rounded-xl shadow-[0_18px_45px_rgba(0,0,0,0.88)] py-1.5 text-xs text-stone-200 animate-in fade-in zoom-in-95 duration-100"
+        >
+          <div className="px-3.5 py-1.5 border-b border-white/10 mb-1">
+            <p className="text-[11px] font-bold text-white truncate">{contextMenu.studentName}</p>
+          </div>
+
+          <button
+            type="button"
+            onClick={() => {
+              const { contactId, thread } = contextMenu;
+              setContextMenu(null);
+              handleOpenConversation(contactId, thread);
+            }}
+            className="w-full px-3.5 py-2 text-left flex items-center gap-2.5 hover:bg-white/10 hover:text-white transition-colors cursor-pointer"
+          >
+            <MessageSquare className="w-3.5 h-3.5 text-[#e9c349]" />
+            <span>Abrir conversa</span>
+          </button>
+
+          {contextMenu.thread && (
+            contextMenu.thread.unreadByAdmin > 0 ? (
+              <button
+                type="button"
+                onClick={() => {
+                  const t = contextMenu.thread!;
+                  setContextMenu(null);
+                  handleMarkAsRead(t);
+                }}
+                className="w-full px-3.5 py-2 text-left flex items-center gap-2.5 hover:bg-white/10 hover:text-emerald-400 transition-colors cursor-pointer"
+              >
+                <MailOpen className="w-3.5 h-3.5 text-emerald-400" />
+                <span>Marcar como lida</span>
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={() => {
+                  const t = contextMenu.thread!;
+                  setContextMenu(null);
+                  handleMarkAsUnread(t);
+                }}
+                className="w-full px-3.5 py-2 text-left flex items-center gap-2.5 hover:bg-white/10 hover:text-[#e9c349] transition-colors cursor-pointer"
+              >
+                <Mail className="w-3.5 h-3.5 text-[#e9c349]" />
+                <span>Marcar como não lido</span>
+              </button>
+            )
+          )}
+
+          <button
+            type="button"
+            onClick={() => {
+              const targetId = contextMenu.contactId;
+              setContextMenu(null);
+              toggleMarkedContact(targetId);
+            }}
+            className="w-full px-3.5 py-2 text-left flex items-center gap-2.5 hover:bg-white/10 hover:text-white transition-colors cursor-pointer"
+          >
+            {markedContactIds.has(contextMenu.contactId) ? (
+              <>
+                <Square className="w-3.5 h-3.5 text-stone-400" />
+                <span>Desmarcar contato</span>
+              </>
+            ) : (
+              <>
+                <CheckSquare className="w-3.5 h-3.5 text-[#e9c349]" />
+                <span>Marcar contato para enviar</span>
+              </>
+            )}
+          </button>
+
+          <div className="my-1 border-t border-white/10" />
+
+          <button
+            type="button"
+            onClick={() => {
+              const targetId = contextMenu.contactId;
+              const nextIds = new Set<string>(markedContactIds);
+              nextIds.add(targetId);
+              setMarkedContactIds(nextIds);
+              setContextMenu(null);
+              openGroupModalWithContacts(Array.from(nextIds));
+            }}
+            className="w-full px-3.5 py-2 text-left flex items-center gap-2.5 hover:bg-[#e9c349]/15 text-[#e9c349] font-bold transition-colors cursor-pointer"
+          >
+            <Send className="w-3.5 h-3.5" />
+            <span>
+              {markedContactIds.size > 0
+                ? `Enviar para selecionados (${
+                    markedContactIds.has(contextMenu.contactId)
+                      ? markedContactIds.size
+                      : markedContactIds.size + 1
+                  })`
+                : 'Enviar em grupo com este contato'}
+            </span>
+          </button>
+        </div>
+      )}
     </>
   );
 }

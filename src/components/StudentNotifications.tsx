@@ -13,6 +13,8 @@ import {
   Unlock,
   X,
   MessageSquare,
+  Mail,
+  MailOpen,
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { auth } from '../firebase';
@@ -20,6 +22,7 @@ import {
   SystemNotification,
   subscribeToNotifications,
   markNotificationAsRead,
+  markNotificationAsUnread,
   markAllNotificationsAsRead,
   deleteNotification,
   inferNotificationScope,
@@ -46,8 +49,27 @@ export default function StudentNotifications({
   const [filterMode, setFilterMode] = useState<'all' | 'individual' | 'collective' | 'messages' | 'unread'>('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [pushPermission, setPushPermission] = useState<NotificationPermission | 'unsupported'>('default');
+  const [contextMenu, setContextMenu] = useState<{
+    x: number;
+    y: number;
+    notif: SystemNotification;
+  } | null>(null);
 
   const resolvedUserId = userId || auth.currentUser?.uid;
+
+  useEffect(() => {
+    if (!contextMenu) return;
+    const close = () => setContextMenu(null);
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') close();
+    };
+    window.addEventListener('mousedown', close);
+    window.addEventListener('keydown', onKey);
+    return () => {
+      window.removeEventListener('mousedown', close);
+      window.removeEventListener('keydown', onKey);
+    };
+  }, [contextMenu]);
 
   useEffect(() => {
     if (typeof window !== 'undefined' && 'Notification' in window) {
@@ -428,6 +450,17 @@ export default function StudentNotifications({
               <div
                 key={notif.id}
                 onClick={() => handleOpenNotification(notif)}
+                onContextMenu={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  const clampedX = Math.min(e.clientX, window.innerWidth - 220);
+                  const clampedY = Math.min(e.clientY, window.innerHeight - 140);
+                  setContextMenu({
+                    x: Math.max(8, clampedX),
+                    y: Math.max(8, clampedY),
+                    notif,
+                  });
+                }}
                 className={`p-4 sm:p-5 flex items-start gap-3.5 transition-colors cursor-pointer group ${
                   !notif.read ? 'bg-[#e9c349]/[0.05] hover:bg-white/[0.04]' : 'hover:bg-white/[0.03]'
                 }`}
@@ -483,7 +516,7 @@ export default function StudentNotifications({
                 </div>
 
                 <div className="flex items-center gap-1 shrink-0">
-                  {!notif.read && notif.id && (
+                  {notif.id && (!notif.read ? (
                     <button
                       type="button"
                       onClick={(e) => {
@@ -495,7 +528,19 @@ export default function StudentNotifications({
                     >
                       <Check className="w-4 h-4" />
                     </button>
-                  )}
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        markNotificationAsUnread(notif.id!, resolvedUserId, 'student', notif);
+                      }}
+                      title="Marcar como não lida"
+                      className="p-2 rounded-lg text-stone-500 hover:text-[#e9c349] hover:bg-white/5 transition-colors cursor-pointer"
+                    >
+                      <Mail className="w-4 h-4" />
+                    </button>
+                  ))}
                   <button
                     type="button"
                     onClick={(e) => {
@@ -513,6 +558,55 @@ export default function StudentNotifications({
           })
         )}
       </div>
+
+      {contextMenu && contextMenu.notif.id && (
+        <div
+          style={{ left: contextMenu.x, top: contextMenu.y }}
+          onMouseDown={(e) => e.stopPropagation()}
+          className="fixed z-[9999] w-52 bg-[#161820] border border-white/15 rounded-xl shadow-[0_14px_38px_rgba(0,0,0,0.85)] py-1.5 text-xs text-stone-200"
+        >
+          <button
+            type="button"
+            onClick={() => {
+              const target = contextMenu.notif;
+              setContextMenu(null);
+              handleOpenNotification(target);
+            }}
+            className="w-full px-3.5 py-2 text-left flex items-center gap-2.5 hover:bg-white/10 hover:text-white transition-colors cursor-pointer"
+          >
+            <ChevronRight className="w-3.5 h-3.5 text-[#e9c349]" />
+            <span>Abrir</span>
+          </button>
+
+          {contextMenu.notif.read ? (
+            <button
+              type="button"
+              onClick={() => {
+                const target = contextMenu.notif;
+                setContextMenu(null);
+                markNotificationAsUnread(target.id!, resolvedUserId, 'student', target);
+              }}
+              className="w-full px-3.5 py-2 text-left flex items-center gap-2.5 hover:bg-white/10 hover:text-[#e9c349] transition-colors cursor-pointer"
+            >
+              <Mail className="w-3.5 h-3.5 text-[#e9c349]" />
+              <span>Marcar como não lida</span>
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={() => {
+                const target = contextMenu.notif;
+                setContextMenu(null);
+                markNotificationAsRead(target.id!, resolvedUserId, 'student', target);
+              }}
+              className="w-full px-3.5 py-2 text-left flex items-center gap-2.5 hover:bg-white/10 hover:text-emerald-400 transition-colors cursor-pointer"
+            >
+              <MailOpen className="w-3.5 h-3.5 text-emerald-400" />
+              <span>Marcar como lida</span>
+            </button>
+          )}
+        </div>
+      )}
     </div>
   );
 }

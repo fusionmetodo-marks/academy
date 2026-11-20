@@ -26,6 +26,8 @@ export interface GroupStudentOption {
   phone: string;
   enrolledCourses: string[];
   enrolledCount: number;
+  isPreRegistered?: boolean;
+  sourceLabel?: string;
 }
 
 export interface GroupCourseOption {
@@ -38,8 +40,11 @@ interface GroupMessageModalProps {
   isOpen: boolean;
   onClose: () => void;
   students: GroupStudentOption[];
+  extraContacts?: GroupStudentOption[];
+  initialSelectedIds?: string[];
   courses: GroupCourseOption[];
   isMasterViewer: boolean;
+  onSendSuccess?: (sentCount: number) => void;
 }
 
 const normalizeEnrolledList = (raw: string[]): string[] => {
@@ -69,8 +74,11 @@ export default function GroupMessageModal({
   isOpen,
   onClose,
   students,
+  extraContacts = [],
+  initialSelectedIds,
   courses,
   isMasterViewer,
+  onSendSuccess,
 }: GroupMessageModalProps) {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [activePreset, setActivePreset] = useState<'none' | 'all' | 'enrolled' | 'course' | 'custom'>('none');
@@ -83,22 +91,38 @@ export default function GroupMessageModal({
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const bulkGuard = useSafeSubmitGuard({ cooldownMs: 1200, duplicateWindowMs: 5000 });
 
+  const allContacts = useMemo(() => {
+    const map = new Map<string, GroupStudentOption>();
+    students.forEach((s) => map.set(s.id, s));
+    extraContacts.forEach((c) => {
+      if (c?.id && !map.has(c.id)) {
+        map.set(c.id, c);
+      }
+    });
+    return Array.from(map.values());
+  }, [students, extraContacts]);
+
   useEffect(() => {
     if (!isOpen) return;
     setErrorMsg(null);
     setResultSummary(null);
     setProgress(null);
-  }, [isOpen]);
+    if (initialSelectedIds && initialSelectedIds.length > 0) {
+      setSelectedIds(new Set(initialSelectedIds));
+      setActivePreset('custom');
+      setSelectedCourseId('');
+    }
+  }, [isOpen, initialSelectedIds]);
 
   const enrolledStudents = useMemo(
-    () => students.filter((s) => s.enrolledCount >= 1),
-    [students]
+    () => allContacts.filter((s) => s.enrolledCount >= 1),
+    [allContacts]
   );
 
   const courseStudentCountMap = useMemo(() => {
     const counts = new Map<string, number>();
     courses.forEach((c) => counts.set(c.id, 0));
-    students.forEach((s) => {
+    allContacts.forEach((s) => {
       const normalized = normalizeEnrolledList(s.enrolledCourses);
       courses.forEach((c) => {
         if (normalized.includes(c.id)) {
@@ -107,18 +131,18 @@ export default function GroupMessageModal({
       });
     });
     return counts;
-  }, [courses, students]);
+  }, [courses, allContacts]);
 
   const filteredStudents = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
-    if (!q) return students;
-    return students.filter(
+    if (!q) return allContacts;
+    return allContacts.filter(
       (s) =>
         s.name.toLowerCase().includes(q) ||
         s.email.toLowerCase().includes(q) ||
         s.phone.toLowerCase().includes(q)
     );
-  }, [students, searchQuery]);
+  }, [allContacts, searchQuery]);
 
   const selectedCourseObj = useMemo(
     () => courses.find((c) => c.id === selectedCourseId) || null,
@@ -126,8 +150,8 @@ export default function GroupMessageModal({
   );
 
   const selectedRecipients = useMemo(
-    () => students.filter((s) => selectedIds.has(s.id)),
-    [students, selectedIds]
+    () => allContacts.filter((s) => selectedIds.has(s.id)),
+    [allContacts, selectedIds]
   );
 
   if (!isOpen) return null;
@@ -156,7 +180,7 @@ export default function GroupMessageModal({
       setActivePreset('custom');
       return;
     }
-    const matched = students.filter((s) =>
+    const matched = allContacts.filter((s) =>
       normalizeEnrolledList(s.enrolledCourses).includes(courseId)
     );
     setSelectedIds(new Set(matched.map((s) => s.id)));
@@ -250,6 +274,7 @@ export default function GroupMessageModal({
           studentName: r.name,
           studentEmail: r.email || null,
           studentPhone: r.phone || null,
+          isPreRegistered: Boolean(r.isPreRegistered),
         })),
         senderId: auth.currentUser?.uid,
         senderName: adminName,
@@ -264,6 +289,7 @@ export default function GroupMessageModal({
       if (summary.succeeded > 0) {
         succeeded = true;
         setDraft('');
+        onSendSuccess?.(summary.succeeded);
       }
       if (summary.failed > 0 && summary.succeeded === 0) {
         setErrorMsg('Não foi possível entregar a mensagem aos destinatários selecionados.');

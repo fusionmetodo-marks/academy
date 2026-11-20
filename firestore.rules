@@ -235,7 +235,8 @@ service cloud.firestore {
           'isPreRegistered', 'linkedUserId', 'mergedIntoChatId', 'sourcePreChatId',
           'lastMessage', 'lastSenderRole', 'lastSenderId', 'lastMessageAtMs',
           'updatedAt', 'unreadByAdmin', 'unreadByStudent',
-          'lastAdminBellAtMs', 'lastStudentBellAtMs'
+          'lastAdminBellAtMs', 'lastStudentBellAtMs',
+          'lastReadByAdminAtMs', 'lastReadByStudentAtMs'
         ]) &&
         data.studentId is string && data.studentId == studentId && data.studentId.size() <= 128 &&
         data.studentName is string && data.studentName.size() > 0 && data.studentName.size() <= 200 &&
@@ -253,7 +254,9 @@ service cloud.firestore {
         data.unreadByAdmin is number && data.unreadByAdmin >= 0 && data.unreadByAdmin <= 100000 &&
         data.unreadByStudent is number && data.unreadByStudent >= 0 && data.unreadByStudent <= 100000 &&
         (!('lastAdminBellAtMs' in data) || data.lastAdminBellAtMs == null || (data.lastAdminBellAtMs is number && data.lastAdminBellAtMs >= 0)) &&
-        (!('lastStudentBellAtMs' in data) || data.lastStudentBellAtMs == null || (data.lastStudentBellAtMs is number && data.lastStudentBellAtMs >= 0));
+        (!('lastStudentBellAtMs' in data) || data.lastStudentBellAtMs == null || (data.lastStudentBellAtMs is number && data.lastStudentBellAtMs >= 0)) &&
+        (!('lastReadByAdminAtMs' in data) || data.lastReadByAdminAtMs == null || (data.lastReadByAdminAtMs is number && data.lastReadByAdminAtMs >= 0)) &&
+        (!('lastReadByStudentAtMs' in data) || data.lastReadByStudentAtMs == null || (data.lastReadByStudentAtMs is number && data.lastReadByStudentAtMs >= 0));
     }
 
     function isValidChatMessage(data, studentId) {
@@ -304,8 +307,7 @@ service cloud.firestore {
         isAdmin() ||
         (request.auth.uid == studentId && (
           (request.resource.data.lastSenderId == request.auth.uid && request.resource.data.lastSenderRole == 'student') ||
-          (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['unreadByStudent', 'updatedAt']) &&
-           request.resource.data.unreadByStudent == 0) ||
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['unreadByStudent', 'lastReadByStudentAtMs', 'updatedAt']) ||
           ('sourcePreChatId' in request.resource.data && canStudentMigrateFrom(request.resource.data.sourcePreChatId))
         )) ||
         (request.auth.uid != studentId &&

@@ -133,6 +133,24 @@ export const vibrateDevice = () => {
   }
 };
 
+export const CHAT_READ_SYNC_EVENT = 'mb_chat_read_sync';
+
+export interface ChatReadSyncDetail {
+  studentId?: string | null;
+  notifId?: string | null;
+  readerRole?: 'admin' | 'student';
+  read: boolean;
+}
+
+export const emitChatReadSyncEvent = (detail: ChatReadSyncDetail) => {
+  if (typeof window === 'undefined') return;
+  try {
+    window.dispatchEvent(new CustomEvent<ChatReadSyncDetail>(CHAT_READ_SYNC_EVENT, { detail }));
+  } catch {
+    // ignore
+  }
+};
+
 const sessionStartedAtMs = Date.now();
 const globallyAlertedIds = new Set<string>();
 export type IncomingAlertListener = (notif: SystemNotification) => void;
@@ -1194,7 +1212,13 @@ export const subscribeToNotifications = (
           const docTs =
             data.timestamp || (data.createdAt?.toMillis ? data.createdAt.toMillis() : Date.now());
 
-          if (check.keep && !userState?.dismissed && !isRead && docTs >= sessionStartedAtMs - 15_000) {
+          if (
+            check.keep &&
+            !userState?.dismissed &&
+            !isRead &&
+            !data.metadata?.manualUnread &&
+            docTs >= sessionStartedAtMs - 15_000
+          ) {
             triggerAlertOnce({
               id,
               type: data.type || 'general',
@@ -1447,7 +1471,7 @@ export const subscribeToNotifications = (
 
             const docTs =
               data.timestamp || (data.createdAt?.toMillis ? data.createdAt.toMillis() : Date.now());
-            if (!data.read && docTs >= sessionStartedAtMs - 15_000) {
+            if (!data.read && !data.metadata?.manualUnread && docTs >= sessionStartedAtMs - 15_000) {
               triggerAlertOnce({
                 id,
                 type: data.type || 'general',
@@ -1514,16 +1538,286 @@ export const subscribeToNotifications = (
 };
 
 /**
- * Marca uma notificação como lida (preservando isolamento individual para alunos)
+ * Atualiza o documento /chats/{studentId} diretamente a partir de ações na Central de Notificações
+ * para manter todos os pontos da interface sincronizados.
+ */
+const syncChatThreadReadState = async (
+  studentId: string,
+  readerRole: 'admin' | 'student',
+  isRead: boolean
+) => {
+  const cleanId = String(studentId || '').trim();
+  if (!cleanId) return;
+  try {
+    const threadRef = doc(db, 'chats', cleanId);
+    const snap = await getDoc(threadRef).catch(() => null);
+    if (!snap || !snap.exists()) return;
+    const data = snap.data() || {};
+
+    if (isRead) {
+      if (readerRole === 'admin') {
+        await updateDoc(threadRef, {
+          unreadByAdmin: 0,
+          lastReadByAdminAtMs: Date.now(),
+          updatedAt: serverTimestamp(),
+        });
+      } else {
+        await updateDoc(threadRef, {
+          unreadByStudent: 0,
+          lastReadByStudentAtMs: Date.now(),
+          updatedAt: serverTimestamp(),
+        });
+      }
+    } else {
+      if (readerRole === 'admin') {
+        const nextCount = Math.max(1, Number(data.unreadByAdmin || 0));
+        await updateDoc(threadRef, {
+          unreadByAdmin: nextCount,
+          updatedAt: serverTimestamp(),
+        });
+      } else {
+        const nextCount = Math.max(1, Number(data.unreadByStudent || 0));
+        await updateDoc(threadRef, {
+          unreadByStudent: nextCount,
+          updatedAt: serverTimestamp(),
+        });
+      }
+    }
+  } catch (err) {
+    console.warn('Aviso ao sincronizar estado de leitura da conversa:', err);
+  }
+};
+
+const findChatNotificationsForThread = async (
+  studentId: string,
+  readerRole: 'admin' | 'student',
+  studentEmail?: string | null
+): Promise<Array<{ id: string; timestamp: number; read: boolean; scope?: NotificationScope; targetUserId?: string | null }>> => {
+  const matchesMap = new Map<
+    string,
+    { id: string; timestamp: number; read: boolean; scope?: NotificationScope; targetUserId?: string | null }
+  >();
+  const cleanEmail = String(studentEmail || '').trim().toLowerCase();
+
+  const matchesThread = (data: any): boolean => {
+    if (!data || data.type !== 'chat_message') return false;
+    const docRole = data.targetRole || 'all';
+    if (readerRole === 'admin') {
+      if (docRole === 'student' && data.scope === 'individual') return false;
+      const metaStudentId = String(data.metadata?.studentId || '').trim();
+      if (metaStudentId && metaStudentId === studentId) return true;
+      if (cleanEmail) {
+        const metaEmail = String(data.metadata?.studentEmail || data.targetEmail || '').trim().toLowerCase();
+        if (metaEmail && metaEmail === cleanEmail) return true;
+      }
+      return false;
+    } else {
+      const targetUid = String(data.targetUserId || '').trim();
+      const metaStudentId = String(data.metadata?.studentId || '').trim();
+      const targetEm = String(data.targetEmail || data.metadata?.targetEmail || '').trim().toLowerCase();
+      return (
+        targetUid === studentId ||
+        metaStudentId === studentId ||
+        Boolean(cleanEmail && targetEm && targetEm === cleanEmail)
+      );
+    }
+  };
+
+  notifChannels.forEach((ch) => {
+    (ch.latest || []).forEach((n) => {
+      if (n.id && matchesThread(n)) {
+        matchesMap.set(n.id, {
+          id: n.id,
+          timestamp: Number(n.timestamp || 0),
+          read: Boolean(n.read),
+          scope: n.scope,
+          targetUserId: n.targetUserId || null,
+        });
+      }
+    });
+  });
+
+  if (!isDailyReadAccessDisabledSync()) {
+    try {
+      if (readerRole === 'admin') {
+        const snap = await getDocs(
+          query(collection(db, 'notifications'), where('type', '==', 'chat_message'), limit(100))
+        );
+        snap.forEach((docSnap) => {
+          const data = docSnap.data();
+          if (matchesThread(data)) {
+            matchesMap.set(docSnap.id, {
+              id: docSnap.id,
+              timestamp: Number(data.timestamp || (data.createdAt?.toMillis ? data.createdAt.toMillis() : 0)),
+              read: Boolean(data.read),
+              scope: data.scope,
+              targetUserId: data.targetUserId || null,
+            });
+          }
+        });
+      } else {
+        const queriesToRun = [
+          getDocs(query(collection(db, 'notifications'), where('targetUserId', '==', studentId), limit(50))),
+        ];
+        if (cleanEmail) {
+          queriesToRun.push(
+            getDocs(query(collection(db, 'notifications'), where('targetEmail', '==', cleanEmail), limit(50)))
+          );
+        }
+        const snaps = await Promise.all(queriesToRun);
+        snaps.forEach((snap) => {
+          snap.forEach((docSnap) => {
+            const data = docSnap.data();
+            if (matchesThread(data)) {
+              matchesMap.set(docSnap.id, {
+                id: docSnap.id,
+                timestamp: Number(data.timestamp || (data.createdAt?.toMillis ? data.createdAt.toMillis() : 0)),
+                read: Boolean(data.read),
+                scope: data.scope || 'individual',
+                targetUserId: data.targetUserId || null,
+              });
+            }
+          });
+        });
+      }
+    } catch (err) {
+      console.warn('Aviso ao consultar notificações de chat para sincronização:', err);
+    }
+  }
+
+  return Array.from(matchesMap.values()).sort((a, b) => b.timestamp - a.timestamp);
+};
+
+/**
+ * Marca todas as notificações 'chat_message' dessa conversa como lidas no Sininho/Toasts.
+ */
+export const markChatNotificationsReadForThread = async (
+  studentId: string,
+  readerRole: 'admin' | 'student',
+  studentEmail?: string | null
+) => {
+  if (!studentId) return;
+  emitChatReadSyncEvent({ studentId, readerRole, read: true });
+  try {
+    const resolvedStudentEmail =
+      studentEmail || (readerRole === 'student' ? auth.currentUser?.email || null : null);
+    const matching = await findChatNotificationsForThread(studentId, readerRole, resolvedStudentEmail);
+    const unreadMatches = matching.filter((m) => !m.read);
+    await Promise.all(
+      unreadMatches.map(async (m) => {
+        if (readerRole === 'student') {
+          await setDoc(
+            doc(db, 'users', studentId, 'notificationStates', m.id),
+            {
+              userId: studentId,
+              notificationId: m.id,
+              read: true,
+              dismissed: false,
+              updatedAt: serverTimestamp(),
+            },
+            { merge: true }
+          ).catch(() => {});
+          if (m.targetUserId === studentId || resolvedStudentEmail) {
+            await updateDoc(doc(db, 'notifications', m.id), { read: true }).catch(() => {});
+          }
+        } else {
+          await updateDoc(doc(db, 'notifications', m.id), { read: true }).catch(() => {});
+        }
+      })
+    );
+  } catch (err) {
+    console.warn('Aviso ao marcar notificações da conversa como lidas:', err);
+  }
+};
+
+/**
+ * Sincroniza 'Marcar como não lido' da conversa com o Sininho (Centro de Notificações).
+ */
+export const markChatNotificationUnreadForThread = async (
+  studentId: string,
+  readerRole: 'admin' | 'student',
+  threadInfo?: {
+    studentName?: string;
+    studentEmail?: string | null;
+    lastMessage?: string;
+    lastMessageAtMs?: number;
+  }
+) => {
+  if (!studentId) return;
+  emitChatReadSyncEvent({ studentId, readerRole, read: false });
+  try {
+    const resolvedStudentEmail =
+      threadInfo?.studentEmail || (readerRole === 'student' ? auth.currentUser?.email || null : null);
+    const matching = await findChatNotificationsForThread(studentId, readerRole, resolvedStudentEmail);
+    if (matching.length > 0) {
+      const latest = matching[0];
+      if (readerRole === 'student') {
+        await setDoc(
+          doc(db, 'users', studentId, 'notificationStates', latest.id),
+          {
+            userId: studentId,
+            notificationId: latest.id,
+            read: false,
+            dismissed: false,
+            updatedAt: serverTimestamp(),
+          },
+          { merge: true }
+        ).catch(() => {});
+        if (latest.targetUserId === studentId || resolvedStudentEmail) {
+          await updateDoc(doc(db, 'notifications', latest.id), { read: false }).catch(() => {});
+        }
+      } else {
+        await updateDoc(doc(db, 'notifications', latest.id), { read: false }).catch(() => {});
+      }
+      return;
+    }
+
+    if (readerRole === 'admin' && threadInfo?.lastMessage) {
+      const cleanName = String(threadInfo.studentName || 'Estudante').trim() || 'Estudante';
+      const cleanMsg = String(threadInfo.lastMessage || '').trim().slice(0, 140);
+      await setDoc(doc(db, 'notifications', createIdempotentMessageId('ntf')), {
+        type: 'chat_message',
+        scope: 'admin',
+        title: `💬 Conversa de ${cleanName}`,
+        message: cleanMsg || 'Conversa marcada como não lida',
+        link: `/messages?tab=chat&studentId=${encodeURIComponent(studentId)}`,
+        targetRole: 'admin',
+        targetUserId: null,
+        targetEmail: null,
+        read: false,
+        archived: false,
+        metadata: {
+          scope: 'admin',
+          studentId,
+          studentName: cleanName,
+          studentEmail: resolvedStudentEmail || '',
+          senderName: cleanName,
+          messagePreview: cleanMsg,
+          manualUnread: true,
+        },
+        timestamp: threadInfo.lastMessageAtMs || Date.now(),
+        createdAt: serverTimestamp(),
+      }).catch(() => {});
+    }
+  } catch (err) {
+    console.warn('Aviso ao marcar notificação da conversa como não lida:', err);
+  }
+};
+
+/**
+ * Marca uma notificação como lida (e sincroniza com o chat se for 'chat_message')
  */
 export const markNotificationAsRead = async (
   id: string,
   userId?: string,
   userRole: string = 'admin',
-  notif?: SystemNotification
+  notif?: SystemNotification,
+  options?: { skipChatSync?: boolean }
 ) => {
   try {
     const resolvedUid = userId || auth.currentUser?.uid;
+    const readerRole: 'admin' | 'student' = userRole === 'student' ? 'student' : 'admin';
+
     if (userRole === 'student' && resolvedUid) {
       await setDoc(
         doc(db, 'users', resolvedUid, 'notificationStates', id),
@@ -1539,17 +1833,92 @@ export const markNotificationAsRead = async (
       if (notif?.scope === 'individual' && notif.targetUserId === resolvedUid) {
         await updateDoc(doc(db, 'notifications', id), { read: true }).catch(() => {});
       }
-      return;
+    } else {
+      await updateDoc(doc(db, 'notifications', id), { read: true });
     }
 
-    await updateDoc(doc(db, 'notifications', id), { read: true });
+    const targetChatId =
+      readerRole === 'admin'
+        ? String(notif?.metadata?.studentId || notif?.targetUserId || '').trim()
+        : resolvedUid || String(notif?.metadata?.studentId || '').trim();
+
+    emitChatReadSyncEvent({
+      notifId: id,
+      studentId: targetChatId || null,
+      readerRole,
+      read: true,
+    });
+
+    if (!options?.skipChatSync && notif?.type === 'chat_message' && targetChatId) {
+      await Promise.all([
+        syncChatThreadReadState(targetChatId, readerRole, true),
+        markChatNotificationsReadForThread(
+          targetChatId,
+          readerRole,
+          notif.metadata?.studentEmail || notif.targetEmail || null
+        ),
+      ]);
+    }
   } catch (error) {
     console.error('Erro ao marcar notificação como lida:', error);
   }
 };
 
 /**
- * Marca todas as notificações como lidas
+ * Marca uma notificação como NÃO lida (e sincroniza com o chat se for 'chat_message')
+ */
+export const markNotificationAsUnread = async (
+  id: string,
+  userId?: string,
+  userRole: string = 'admin',
+  notif?: SystemNotification,
+  options?: { skipChatSync?: boolean }
+) => {
+  try {
+    const resolvedUid = userId || auth.currentUser?.uid;
+    const readerRole: 'admin' | 'student' = userRole === 'student' ? 'student' : 'admin';
+
+    if (userRole === 'student' && resolvedUid) {
+      await setDoc(
+        doc(db, 'users', resolvedUid, 'notificationStates', id),
+        {
+          userId: resolvedUid,
+          notificationId: id,
+          read: false,
+          dismissed: false,
+          updatedAt: serverTimestamp(),
+        },
+        { merge: true }
+      );
+      if (notif?.scope === 'individual' && notif.targetUserId === resolvedUid) {
+        await updateDoc(doc(db, 'notifications', id), { read: false }).catch(() => {});
+      }
+    } else {
+      await updateDoc(doc(db, 'notifications', id), { read: false });
+    }
+
+    const targetChatId =
+      readerRole === 'admin'
+        ? String(notif?.metadata?.studentId || notif?.targetUserId || '').trim()
+        : resolvedUid || String(notif?.metadata?.studentId || '').trim();
+
+    emitChatReadSyncEvent({
+      notifId: id,
+      studentId: targetChatId || null,
+      readerRole,
+      read: false,
+    });
+
+    if (!options?.skipChatSync && notif?.type === 'chat_message' && targetChatId) {
+      await syncChatThreadReadState(targetChatId, readerRole, false);
+    }
+  } catch (error) {
+    console.error('Erro ao marcar notificação como não lida:', error);
+  }
+};
+
+/**
+ * Marca todas as notificações como lidas (sincronizando também chats vinculados)
  */
 export const markAllNotificationsAsRead = async (
   notifications: SystemNotification[],
@@ -1558,9 +1927,32 @@ export const markAllNotificationsAsRead = async (
 ) => {
   try {
     const unread = notifications.filter((n) => !n.read && n.id);
+    const readerRole: 'admin' | 'student' = userRole === 'student' ? 'student' : 'admin';
+    const resolvedUid = userId || auth.currentUser?.uid;
+    const chatIdsToSync = new Set<string>();
+
+    unread.forEach((n) => {
+      if (n.type === 'chat_message') {
+        const sId =
+          readerRole === 'admin'
+            ? String(n.metadata?.studentId || n.targetUserId || '').trim()
+            : resolvedUid || String(n.metadata?.studentId || '').trim();
+        if (sId) chatIdsToSync.add(sId);
+      }
+    });
+
     await Promise.all(
-      unread.map((n) => markNotificationAsRead(n.id!, userId, userRole, n))
+      unread.map((n) => markNotificationAsRead(n.id!, userId, userRole, n, { skipChatSync: true }))
     );
+
+    if (chatIdsToSync.size > 0) {
+      await Promise.all(
+        Array.from(chatIdsToSync).map(async (sId) => {
+          emitChatReadSyncEvent({ studentId: sId, readerRole, read: true });
+          await syncChatThreadReadState(sId, readerRole, true);
+        })
+      );
+    }
   } catch (error) {
     console.error('Erro ao marcar todas como lidas:', error);
   }

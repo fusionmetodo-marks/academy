@@ -10,6 +10,8 @@ import {
   Bell,
   BellOff,
   Radio,
+  Check,
+  CheckCheck,
 } from 'lucide-react';
 import { auth } from '../firebase';
 import {
@@ -169,10 +171,12 @@ export default function StudentChatView({
 
   // Marca automaticamente como lida quando o chat está visível e há não lidas do admin
   useEffect(() => {
-    if (resolvedUid && thread && thread.unreadByStudent > 0) {
-      markChatAsRead(resolvedUid, 'student');
+    if (resolvedUid && activeChannel === 'individual' && thread && thread.unreadByStudent > 0) {
+      markChatAsRead(resolvedUid, 'student', {
+        studentEmail: studentEmail ?? auth.currentUser?.email ?? null,
+      });
     }
-  }, [resolvedUid, thread?.unreadByStudent]);
+  }, [resolvedUid, activeChannel, thread?.unreadByStudent, studentEmail]);
 
   // Rola para a mensagem mais recente
   useEffect(() => {
@@ -485,6 +489,31 @@ export default function StudentChatView({
                           : 'text-[#e9c349] font-semibold underline decoration-[#e9c349]/80 hover:text-[#f5d76e]'
                       }
                     />
+
+                    {isMine && (
+                      <div
+                        className="mt-1 flex items-center justify-end gap-1 text-[10px] font-semibold text-black/65 select-none"
+                        title={
+                          (thread?.lastReadByAdminAtMs || 0) >= msg.createdAtMs &&
+                          (thread?.unreadByAdmin || 0) === 0
+                            ? 'Visualizada pela Administração'
+                            : 'Enviada para a Administração'
+                        }
+                      >
+                        {(thread?.lastReadByAdminAtMs || 0) >= msg.createdAtMs &&
+                        (thread?.unreadByAdmin || 0) === 0 ? (
+                          <>
+                            <CheckCheck className="w-3.5 h-3.5 text-emerald-900 stroke-[2.5]" />
+                            <span>Visualizada</span>
+                          </>
+                        ) : (
+                          <>
+                            <Check className="w-3 h-3 text-black/55" />
+                            <span>Enviada</span>
+                          </>
+                        )}
+                      </div>
+                    )}
                   </div>
                 </div>
               </React.Fragment>

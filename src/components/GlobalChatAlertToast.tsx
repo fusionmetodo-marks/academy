@@ -2,6 +2,8 @@ import React, { useEffect, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { Bell, ChevronRight, MessageSquare, X } from 'lucide-react';
 import {
+  CHAT_READ_SYNC_EVENT,
+  ChatReadSyncDetail,
   SystemNotification,
   subscribeToNotifications,
   subscribeToIncomingAlerts,
@@ -41,6 +43,28 @@ export const GlobalChatAlertToast: React.FC<GlobalChatAlertToastProps> = ({
     });
     return () => unsubPref();
   }, [userId]);
+
+  useEffect(() => {
+    const handleSync = (e: Event) => {
+      const detail = (e as CustomEvent<ChatReadSyncDetail>).detail;
+      if (!detail || !detail.read) return;
+      setAlerts((prev) =>
+        prev.filter((a) => {
+          if (detail.notifId && a.id === detail.notifId) return false;
+          if (
+            detail.studentId &&
+            a.type === 'chat_message' &&
+            (a.metadata?.studentId === detail.studentId || a.targetUserId === detail.studentId)
+          ) {
+            return false;
+          }
+          return true;
+        })
+      );
+    };
+    window.addEventListener(CHAT_READ_SYNC_EVENT, handleSync);
+    return () => window.removeEventListener(CHAT_READ_SYNC_EVENT, handleSync);
+  }, []);
 
   // Mantém uma assinatura global ativa em qualquer rota da aplicação
   useEffect(() => {

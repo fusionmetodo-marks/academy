@@ -17,11 +17,14 @@ import {
   ChevronRight,
   Unlock,
   MessageSquare,
+  Mail,
+  MailOpen,
 } from 'lucide-react';
 import {
   SystemNotification,
   subscribeToNotifications,
   markNotificationAsRead,
+  markNotificationAsUnread,
   markAllNotificationsAsRead,
   deleteNotification,
   requestPushPermission,
@@ -61,6 +64,11 @@ export const NotificationCenter: React.FC<NotificationCenterProps> = ({
   const [scopeFilter, setScopeFilter] = useState<'all' | 'individual' | 'collective'>('all');
   const [permissionState, setPermissionState] = useState<NotificationPermission>('default');
   const [hasNewAlertAnimation, setHasNewAlertAnimation] = useState(false);
+  const [notifContextMenu, setNotifContextMenu] = useState<{
+    x: number;
+    y: number;
+    notif: SystemNotification;
+  } | null>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const navigate = useNavigate();
 
@@ -154,18 +162,26 @@ export const NotificationCenter: React.FC<NotificationCenterProps> = ({
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
+      setNotifContextMenu(null);
       if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
         setIsOpen(false);
       }
     };
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setNotifContextMenu(null);
+      }
+    };
 
-    if (isOpen) {
+    if (isOpen || notifContextMenu) {
       document.addEventListener('mousedown', handleClickOutside);
+      document.addEventListener('keydown', handleKeyDown);
     }
     return () => {
       document.removeEventListener('mousedown', handleClickOutside);
+      document.removeEventListener('keydown', handleKeyDown);
     };
-  }, [isOpen]);
+  }, [isOpen, notifContextMenu]);
 
   const systemNotifications = useMemo(
     () => notifications.filter((n) => n.type !== 'chat_message'),
@@ -597,6 +613,19 @@ export const NotificationCenter: React.FC<NotificationCenterProps> = ({
                         : 'hover:bg-[#181a20]'
                     }`}
                     onClick={() => handleNotificationClick(notif)}
+                    onContextMenu={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      const menuWidth = 210;
+                      const menuHeight = 135;
+                      const clampedX = Math.min(e.clientX, window.innerWidth - menuWidth - 12);
+                      const clampedY = Math.min(e.clientY, window.innerHeight - menuHeight - 12);
+                      setNotifContextMenu({
+                        x: Math.max(8, clampedX),
+                        y: Math.max(8, clampedY),
+                        notif,
+                      });
+                    }}
                   >
                     <div className="relative mt-0.5 shrink-0">
                       <div className="w-8 h-8 rounded-xl bg-black/60 border border-white/10 flex items-center justify-center">
@@ -657,7 +686,7 @@ export const NotificationCenter: React.FC<NotificationCenterProps> = ({
                     </div>
 
                     <div className="flex flex-col items-center gap-1 shrink-0">
-                      {!notif.read && notif.id && (
+                      {notif.id && (!notif.read ? (
                         <button
                           type="button"
                           onClick={(e) => {
@@ -669,7 +698,19 @@ export const NotificationCenter: React.FC<NotificationCenterProps> = ({
                         >
                           <Check className="w-3.5 h-3.5" />
                         </button>
-                      )}
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            markNotificationAsUnread(notif.id!, resolvedUserId, userRole, notif);
+                          }}
+                          className="opacity-70 sm:opacity-0 sm:group-hover:opacity-100 p-1 text-stone-500 hover:text-[#e9c349] rounded-lg hover:bg-white/5 transition-all cursor-pointer"
+                          title="Marcar como não lida"
+                        >
+                          <Mail className="w-3.5 h-3.5" />
+                        </button>
+                      ))}
                       <button
                         type="button"
                         onClick={(e) => {
@@ -727,6 +768,55 @@ export const NotificationCenter: React.FC<NotificationCenterProps> = ({
               </button>
             )}
           </div>
+        </div>
+      )}
+
+      {notifContextMenu && notifContextMenu.notif.id && (
+        <div
+          style={{ left: notifContextMenu.x, top: notifContextMenu.y }}
+          onMouseDown={(e) => e.stopPropagation()}
+          className="fixed z-[9999] w-52 bg-[#161820] border border-white/15 rounded-xl shadow-[0_14px_38px_rgba(0,0,0,0.85)] py-1.5 text-xs text-stone-200 animate-fadeIn"
+        >
+          <button
+            type="button"
+            onClick={() => {
+              const target = notifContextMenu.notif;
+              setNotifContextMenu(null);
+              handleNotificationClick(target);
+            }}
+            className="w-full px-3.5 py-2 text-left flex items-center gap-2.5 hover:bg-white/10 hover:text-white transition-colors cursor-pointer"
+          >
+            <ChevronRight className="w-3.5 h-3.5 text-[#e9c349]" />
+            <span>Abrir</span>
+          </button>
+
+          {notifContextMenu.notif.read ? (
+            <button
+              type="button"
+              onClick={() => {
+                const target = notifContextMenu.notif;
+                setNotifContextMenu(null);
+                markNotificationAsUnread(target.id!, resolvedUserId, userRole, target);
+              }}
+              className="w-full px-3.5 py-2 text-left flex items-center gap-2.5 hover:bg-white/10 hover:text-[#e9c349] transition-colors cursor-pointer"
+            >
+              <Mail className="w-3.5 h-3.5 text-[#e9c349]" />
+              <span>Marcar como não lida</span>
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={() => {
+                const target = notifContextMenu.notif;
+                setNotifContextMenu(null);
+                markNotificationAsRead(target.id!, resolvedUserId, userRole, target);
+              }}
+              className="w-full px-3.5 py-2 text-left flex items-center gap-2.5 hover:bg-white/10 hover:text-emerald-400 transition-colors cursor-pointer"
+            >
+              <MailOpen className="w-3.5 h-3.5 text-emerald-400" />
+              <span>Marcar como lida</span>
+            </button>
+          )}
         </div>
       )}
     </div>

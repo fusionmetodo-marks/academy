@@ -269,7 +269,9 @@
         "unreadByAdmin": { "type": "number" },
         "unreadByStudent": { "type": "number" },
         "lastAdminBellAtMs": { "type": "number" },
-        "lastStudentBellAtMs": { "type": "number" }
+        "lastStudentBellAtMs": { "type": "number" },
+        "lastReadByAdminAtMs": { "type": "number" },
+        "lastReadByStudentAtMs": { "type": "number" }
       },
       "required": ["studentId", "studentName", "lastMessage", "lastSenderRole", "lastSenderId", "lastMessageAtMs", "unreadByAdmin", "unreadByStudent"]
     },

@@ -18,7 +18,11 @@ import {
 } from 'firebase/firestore';
 import { onAuthStateChanged } from 'firebase/auth';
 import { db, auth } from '../firebase';
-import { notifyNewChatMessage } from './notificationService';
+import {
+  markChatNotificationsReadForThread,
+  markChatNotificationUnreadForThread,
+  notifyNewChatMessage,
+} from './notificationService';
 import {
   MESSAGE_SAFETY_CONFIG,
   SendSafetyStatus,
@@ -51,6 +55,8 @@ export interface ChatThread {
   unreadByStudent: number;
   lastAdminBellAtMs?: number | null;
   lastStudentBellAtMs?: number | null;
+  lastReadByAdminAtMs?: number | null;
+  lastReadByStudentAtMs?: number | null;
 }
 
 export interface ChatMessage {
@@ -493,6 +499,14 @@ export const sendDirectChatMessage = async (params: {
           unreadByStudent: params.senderRole === 'admin' ? prevUnreadStudent + 1 : 0,
           lastAdminBellAtMs: shouldNotifyAdminBell ? nowMs : prevLastAdminBellAtMs,
           lastStudentBellAtMs: shouldNotifyStudentBell ? nowMs : prevLastStudentBellAtMs,
+          lastReadByAdminAtMs:
+            params.senderRole === 'admin'
+              ? nowMs
+              : existingThread?.lastReadByAdminAtMs ?? null,
+          lastReadByStudentAtMs:
+            params.senderRole === 'student'
+              ? nowMs
+              : existingThread?.lastReadByStudentAtMs ?? null,
         };
 
         tx.set(threadRef, threadPayload, { merge: true });
@@ -521,6 +535,12 @@ export const sendDirectChatMessage = async (params: {
       phone: resolvedStudentPhone,
       nowMs: baseCreatedAtMs,
     }).catch(() => {});
+  }
+
+  if (params.senderRole === 'admin') {
+    markChatNotificationsReadForThread(targetChatId, 'admin', resolvedStudentEmail).catch(() => {});
+  } else {
+    markChatNotificationsReadForThread(targetChatId, 'student', resolvedStudentEmail).catch(() => {});
   }
 
   if (shouldNotifyAdminBell) {
@@ -553,6 +573,7 @@ export interface BulkChatRecipient {
   studentName: string;
   studentEmail?: string | null;
   studentPhone?: string | null;
+  isPreRegistered?: boolean;
 }
 
 export interface BulkSendProgress {
@@ -633,7 +654,7 @@ export const sendBulkDirectChatMessages = async (params: {
               studentName: recipient.studentName,
               studentEmail: recipient.studentEmail || null,
               studentPhone: recipient.studentPhone || null,
-              isPreRegistered: false,
+              isPreRegistered: Boolean(recipient.isPreRegistered),
               senderId: params.senderId,
               senderName: params.senderName,
               senderRole: 'admin',
@@ -884,25 +905,79 @@ export const claimPreRegisteredChatsForUser = async (params: {
 };
 
 /**
- * Zera o contador de mensagens não lidas quando o estudante ou administrador abre a conversa
+ * Zera o contador de mensagens não lidas, registra o timestamp de visualização
+ * e sincroniza as notificações 'chat_message' correspondentes no Sininho/Toasts.
  */
-export const markChatAsRead = async (studentId: string, readerRole: ChatSenderRole) => {
+export const markChatAsRead = async (
+  studentId: string,
+  readerRole: ChatSenderRole,
+  options?: { studentEmail?: string | null }
+) => {
   if (!studentId) return;
   try {
+    const readAtMs = Date.now();
     const threadRef = doc(db, 'chats', studentId);
     if (readerRole === 'admin') {
-      await updateDoc(threadRef, {
-        unreadByAdmin: 0,
-        updatedAt: serverTimestamp(),
-      });
+      await Promise.all([
+        updateDoc(threadRef, {
+          unreadByAdmin: 0,
+          lastReadByAdminAtMs: readAtMs,
+          updatedAt: serverTimestamp(),
+        }),
+        markChatNotificationsReadForThread(studentId, 'admin', options?.studentEmail || null),
+      ]);
     } else {
-      await updateDoc(threadRef, {
-        unreadByStudent: 0,
-        updatedAt: serverTimestamp(),
-      });
+      await Promise.all([
+        updateDoc(threadRef, {
+          unreadByStudent: 0,
+          lastReadByStudentAtMs: readAtMs,
+          updatedAt: serverTimestamp(),
+        }),
+        markChatNotificationsReadForThread(studentId, 'student', options?.studentEmail || null),
+      ]);
     }
   } catch (err) {
     console.warn('Não foi possível marcar conversa como lida:', err);
+  }
+};
+
+/**
+ * Marca a conversa manualmente como NÃO lida e sincroniza com o Centro de Notificações (Sininho).
+ */
+export const markChatAsUnread = async (
+  studentId: string,
+  readerRole: ChatSenderRole,
+  threadInfo?: {
+    studentName?: string;
+    studentEmail?: string | null;
+    lastMessage?: string;
+    lastMessageAtMs?: number;
+    currentUnreadCount?: number;
+  }
+) => {
+  if (!studentId) return;
+  try {
+    const threadRef = doc(db, 'chats', studentId);
+    const nextCount = Math.max(1, Number(threadInfo?.currentUnreadCount || 0));
+    if (readerRole === 'admin') {
+      await Promise.all([
+        updateDoc(threadRef, {
+          unreadByAdmin: nextCount,
+          updatedAt: serverTimestamp(),
+        }),
+        markChatNotificationUnreadForThread(studentId, 'admin', threadInfo),
+      ]);
+    } else {
+      await Promise.all([
+        updateDoc(threadRef, {
+          unreadByStudent: nextCount,
+          updatedAt: serverTimestamp(),
+        }),
+        markChatNotificationUnreadForThread(studentId, 'student', threadInfo),
+      ]);
+    }
+  } catch (err) {
+    console.warn('Não foi possível marcar conversa como não lida:', err);
   }
 };
 
@@ -944,6 +1019,8 @@ export const subscribeStudentChatThread = (
         unreadByStudent: Number(data.unreadByStudent || 0),
         lastAdminBellAtMs: data.lastAdminBellAtMs ?? null,
         lastStudentBellAtMs: data.lastStudentBellAtMs ?? null,
+        lastReadByAdminAtMs: data.lastReadByAdminAtMs ?? null,
+        lastReadByStudentAtMs: data.lastReadByStudentAtMs ?? null,
       });
     },
     (err) => {
@@ -1022,6 +1099,8 @@ export const subscribeAllChatThreads = (onUpdate: (threads: ChatThread[]) => voi
             unreadByStudent: Number(data.unreadByStudent || 0),
             lastAdminBellAtMs: data.lastAdminBellAtMs ?? null,
             lastStudentBellAtMs: data.lastStudentBellAtMs ?? null,
+            lastReadByAdminAtMs: data.lastReadByAdminAtMs ?? null,
+            lastReadByStudentAtMs: data.lastReadByStudentAtMs ?? null,
           });
         });
         list.sort((a, b) => b.lastMessageAtMs - a.lastMessageAtMs);
