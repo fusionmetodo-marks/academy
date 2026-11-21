@@ -1571,18 +1571,6 @@ export default function Settings() {
                 ? Math.max(0, quotaState.consoleReadsOffset)
                 : quotaState.sessionReads;
             const readsRemaining = Math.max(0, FIRESTORE_SPARK_LIMITS.readUnitsDaily - effectiveReadsUsed);
-            const readsPct = Math.min(
-              100,
-              Math.round((effectiveReadsUsed / FIRESTORE_SPARK_LIMITS.readUnitsDaily) * 1000) / 10
-            );
-            const isReadBlockedSim = Boolean(quotaState.dailyReadAccessDisabled);
-            const isExhausted = isReadBlockedSim || (!isBlaze && quotaState.quotaExhaustedDetected);
-            const isHigh = !isBlaze && !isExhausted && readsPct >= quotaState.warningThresholdPct;
-            const blazeBudgetPct =
-              quotaState.monthlyBudgetUsd > 0
-                ? (monthlyRollup.estimatedMonthlyCostUsd / quotaState.monthlyBudgetUsd) * 100
-                : 0;
-            const isBudgetAlert = isBlaze && blazeBudgetPct >= quotaState.budgetAlertThresholdPct;
 
             return (
               <section
@@ -1613,32 +1601,6 @@ export default function Settings() {
                   </div>
 
                   <div className="space-y-2 pt-2 border-t border-outline-variant/10 text-xs">
-                    <div className="flex justify-between items-center text-stone-400">
-                      <span>Estado do Plano:</span>
-                      <span
-                        className={`font-bold text-[11px] ${
-                          isExhausted || isBudgetAlert
-                            ? 'text-red-400'
-                            : isHigh
-                            ? 'text-amber-400'
-                            : isBlaze
-                            ? 'text-emerald-400'
-                            : 'text-emerald-400'
-                        }`}
-                      >
-                        {isReadBlockedSim
-                          ? 'Leitura Desligada (Simulação)'
-                          : isBlaze
-                          ? isBudgetAlert
-                            ? `Blaze • Alerta ${blazeBudgetPct.toFixed(0)}%`
-                            : 'Blaze (Pago) Sincronizado'
-                          : isExhausted
-                          ? 'Spark Esgotado (429)'
-                          : isHigh
-                          ? `Spark Alerta (${readsPct.toFixed(0)}%)`
-                          : 'Spark Dentro da Cota'}
-                      </span>
-                    </div>
                     {isBlaze ? (
                       <div className="flex justify-between items-center text-stone-400">
                         <span>Estimativa / Teto (Mês):</span>

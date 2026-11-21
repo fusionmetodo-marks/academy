@@ -542,7 +542,9 @@ export const FirestoreQuotaModal: React.FC<FirestoreQuotaModalProps> = ({
               )}
               <h3 className="text-base sm:text-lg font-extrabold text-white">
                 {quotaState.dailyReadAccessDisabled
-                  ? 'Leitura Diária Desligada (Simulação de Cota Esgotada)'
+                  ? isBlaze
+                    ? 'Cota Diária Atingida Hoje (429 RESOURCE_EXHAUSTED)'
+                    : 'Plano Spark Esgotado Hoje (429 RESOURCE_EXHAUSTED)'
                   : isBlaze
                   ? 'Plano Pago Blaze Ativo — Sincronizado para toda a equipe'
                   : quotaState.quotaExhaustedDetected
@@ -1112,12 +1114,7 @@ export const FirestoreQuotaModal: React.FC<FirestoreQuotaModalProps> = ({
               <div className="flex items-center justify-between gap-3 pt-2.5 border-t border-white/5">
                 <div className="min-w-0">
                   <span className="block text-[11px] text-stone-400 font-medium">
-                    Acesso de leitura diário (simulação)
-                  </span>
-                  <span className="block text-[10px] text-stone-500">
-                    {quotaState.dailyReadAccessDisabled
-                      ? 'Leituras bloqueadas · dados não carregam na plataforma'
-                      : 'Desligue para simular o bloqueio de leitura por cota diária'}
+                    Acesso de leitura diário
                   </span>
                 </div>
                 <button
@@ -1125,19 +1122,19 @@ export const FirestoreQuotaModal: React.FC<FirestoreQuotaModalProps> = ({
                   id="btn-toggle-daily-read-access"
                   role="switch"
                   aria-checked={!quotaState.dailyReadAccessDisabled}
+                  aria-label="Acesso de leitura diário"
                   onClick={handleToggleDailyReadAccess}
-                  className={`inline-flex items-center gap-2 px-2.5 py-1 rounded-lg border text-[11px] font-medium transition-colors cursor-pointer shrink-0 ${
+                  className={`inline-flex items-center justify-center w-6 h-6 rounded-full border transition-colors cursor-pointer shrink-0 ${
                     quotaState.dailyReadAccessDisabled
-                      ? 'bg-red-950/30 border-red-500/30 text-red-300 hover:bg-red-950/50'
-                      : 'bg-surface-container-lowest border-outline-variant/20 text-stone-400 hover:text-stone-200 hover:border-outline-variant/40'
+                      ? 'bg-red-950/30 border-red-500/40 hover:bg-red-950/50'
+                      : 'bg-emerald-950/30 border-emerald-500/40 hover:bg-emerald-950/50'
                   }`}
                 >
                   <span
-                    className={`w-1.5 h-1.5 rounded-full ${
-                      quotaState.dailyReadAccessDisabled ? 'bg-red-400' : 'bg-emerald-400/80'
+                    className={`w-2 h-2 rounded-full ${
+                      quotaState.dailyReadAccessDisabled ? 'bg-red-400' : 'bg-emerald-400'
                     }`}
                   />
-                  <span>{quotaState.dailyReadAccessDisabled ? 'Desligado' : 'Ligado'}</span>
                 </button>
               </div>
             </div>
