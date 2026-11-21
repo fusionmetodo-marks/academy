@@ -260,7 +260,7 @@ export default function StudentChristmasBonus({
                 className="mt-2 text-base sm:text-xl font-bold text-[#e9c349] leading-snug"
                 style={{ textWrap: 'balance' }}
               >
-                {config.subtitle || 'Sete dias de operação ao vivo com Marks, o Monstro'}
+                {config.subtitle || '45 dias de operação ao vivo às 22h com Marks, o Monstro'}
               </p>
 
               <p className="mt-3 text-xs sm:text-sm text-stone-300 leading-relaxed max-w-2xl">
@@ -280,7 +280,7 @@ export default function StudentChristmasBonus({
                 <span className="text-stone-600" aria-hidden="true">·</span>
                 <span className="inline-flex items-center gap-1.5">
                   <Sparkles className="w-3.5 h-3.5 text-rose-400" />
-                  <span>7 Dias Consecutivos</span>
+                  <span>{config.endDate || `${config.days.length} Dias Consecutivos`}</span>
                 </span>
                 <span className="text-stone-600" aria-hidden="true">·</span>
                 <span className="text-[#e9c349] font-sans font-bold">
@@ -312,7 +312,7 @@ export default function StudentChristmasBonus({
             </h2>
           </div>
           <p className="text-xs sm:text-sm text-stone-400 max-w-md leading-relaxed">
-            Operadores em destaque na condução das operações ao vivo durante os 7 dias do Bônus de Natal.
+            Operadores em destaque na condução das operações ao vivo durante os {config.days.length} dias do Bônus de Natal.
           </p>
         </div>
 
@@ -370,27 +370,27 @@ export default function StudentChristmasBonus({
         </div>
       </section>
 
-      {/* ASYMMETRIC BENTO GRID: CLEAN 7-DAY SCHEDULE + LIVE ROOM ACCESS */}
+      {/* ASYMMETRIC BENTO GRID: CLEAN 45-DAY SCHEDULE + LIVE ROOM ACCESS */}
       <div className="mt-8 grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-        {/* Left Column: 7-Day Selector & Saved Operational Info */}
+        {/* Left Column: 45-Day Selector & Saved Operational Info */}
         <div className="lg:col-span-7 bg-[#131313] border border-white/10 rounded-3xl p-5 sm:p-7 shadow-xl">
           <div className="flex flex-wrap items-center justify-between gap-3 pb-4 border-b border-white/10">
             <div>
               <h2 className="text-lg sm:text-xl font-extrabold text-white font-headline">
-                Calendário dos 7 Dias com Marks, o Monstro
+                Calendário dos {config.days.length} Dias com Marks, o Monstro
               </h2>
               <p className="text-xs text-stone-400 mt-0.5">
                 Selecione um dia para consultar a data, horário em Angola e estado da sala ao vivo.
               </p>
             </div>
             <span className="text-xs font-mono text-stone-400 tabular-nums">
-              Dia 0{activeDay.dayNumber} de 07
+              Dia {String(activeDay.dayNumber).padStart(2, '0')} de {String(config.days.length).padStart(2, '0')}
             </span>
           </div>
 
-          {/* Interactive 7-Day Strip */}
+          {/* Interactive 45-Day Strip */}
           <div
-            className="grid grid-cols-7 gap-1.5 sm:gap-2 mt-5"
+            className="grid grid-cols-5 sm:grid-cols-9 gap-1.5 sm:gap-2 mt-5"
             role="tablist"
             aria-label="Dias de operação ao vivo"
           >
@@ -403,14 +403,14 @@ export default function StudentChristmasBonus({
                   role="tab"
                   aria-selected={isSelected}
                   onClick={() => setSelectedDay(day.dayNumber)}
-                  className={`py-2.5 px-1 rounded-xl text-center transition-all cursor-pointer border font-mono tabular-nums ${
+                  className={`py-2 px-1 rounded-xl text-center transition-all cursor-pointer border font-mono tabular-nums ${
                     isSelected
                       ? 'bg-[#e9c349] text-black border-[#e9c349] font-black shadow-md'
                       : 'bg-black/40 text-stone-300 border-white/10 hover:border-[#e9c349]/40 hover:text-white font-semibold'
                   }`}
                 >
-                  <span className="block text-[10px] uppercase opacity-80">Dia</span>
-                  <span className="block text-sm sm:text-base">{day.dayNumber}</span>
+                  <span className="block text-[9px] uppercase opacity-80">Dia</span>
+                  <span className="block text-xs sm:text-sm">{String(day.dayNumber).padStart(2, '0')}</span>
                 </button>
               );
             })}
@@ -420,7 +420,7 @@ export default function StudentChristmasBonus({
           <div className="mt-5 p-5 rounded-2xl bg-black/50 border border-[#e9c349]/25 space-y-4">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <h3 className="text-lg sm:text-xl font-black text-white font-headline font-mono tabular-nums">
-                Dia 0{activeDay.dayNumber}
+                Dia {String(activeDay.dayNumber).padStart(2, '0')}
               </h3>
               <span className={`text-xs font-bold ${activeDayStateMeta.badgeClass}`}>
                 {activeDayStateMeta.label}
@@ -461,11 +461,12 @@ export default function StudentChristmasBonus({
           </div>
 
           {/* Compact All-Days Overview */}
-          <div className="mt-5 space-y-2">
+          <div className="mt-5 max-h-[420px] overflow-y-auto pr-1.5 space-y-2">
             {config.days.map((day) => {
               const isSelected = day.dayNumber === activeDay.dayNumber;
               const dState = getChristmasBonusDayStateMeta(day.sessionState);
               const hasDayLink = Boolean(day.customRoomUrl?.trim());
+              const dayPadded = String(day.dayNumber).padStart(2, '0');
               return (
                 <button
                   key={`row-${day.dayNumber}`}
@@ -485,12 +486,12 @@ export default function StudentChristmasBonus({
                           : 'bg-white/5 text-[#e9c349] border border-white/10'
                       }`}
                     >
-                      0{day.dayNumber}
+                      {dayPadded}
                     </span>
                     <div className="min-w-0">
                       <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs sm:text-sm">
                         <span className="font-bold text-white font-mono tabular-nums">
-                          Dia 0{day.dayNumber}
+                          Dia {dayPadded}
                         </span>
                         <span className="text-stone-600" aria-hidden="true">·</span>
                         <span className="text-stone-300 truncate">{day.dateLabel}</span>
@@ -532,7 +533,7 @@ export default function StudentChristmasBonus({
                   Sala de Operação ao Vivo
                 </h2>
                 <p className="text-xs text-stone-400">
-                  Dia 0{activeDay.dayNumber} · {activeDay.dateLabel}
+                  Dia {String(activeDay.dayNumber).padStart(2, '0')} · {activeDay.dateLabel}
                 </p>
               </div>
             </div>
@@ -658,7 +659,7 @@ export default function StudentChristmasBonus({
                   rel="noopener noreferrer"
                   className="w-full py-3 px-5 rounded-xl bg-white/5 hover:bg-white/10 border border-white/15 text-stone-100 font-bold text-xs transition-all flex items-center justify-center gap-2 whitespace-nowrap"
                 >
-                  <span>Link Direto da Sessão · Dia 0{activeDay.dayNumber}</span>
+                  <span>Link Direto da Sessão · Dia {String(activeDay.dayNumber).padStart(2, '0')}</span>
                   <ArrowUpRight className="w-4 h-4 text-[#e9c349]" />
                 </a>
               )}

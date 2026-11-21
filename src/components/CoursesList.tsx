@@ -677,7 +677,7 @@ export default function CoursesList({ onSelectCourse }: CoursesListProps) {
                     </span>
                     <span className="text-[10px] font-bold px-2.5 py-1 rounded-md tracking-wider uppercase bg-[#e9c349]/15 text-[#e9c349] border border-[#e9c349]/30 inline-flex items-center gap-1">
                       <Gift className="w-3 h-3 text-rose-400" />
-                      <span>BÔNUS · 7 DIAS</span>
+                      <span>BÔNUS · {christmasBonus.days?.length || 45} DIAS</span>
                     </span>
                   </div>
 
@@ -738,7 +738,7 @@ export default function CoursesList({ onSelectCourse }: CoursesListProps) {
                             className="w-full flex items-center gap-3 px-4 py-3 text-sm text-gray-300 hover:bg-gray-800 hover:text-white transition-colors cursor-pointer"
                           >
                             <Edit className="w-4 h-4 text-[#e9c349]" />
-                            <span>Editar Links, Capa e 7 Dias</span>
+                            <span>Editar Links, Capa e {christmasBonus.days?.length || 45} Dias</span>
                           </button>
 
                           <button
@@ -829,7 +829,7 @@ export default function CoursesList({ onSelectCourse }: CoursesListProps) {
                     </span>
                     <span className="inline-flex items-center gap-1 text-emerald-400 font-bold shrink-0">
                       <Clock className="w-3.5 h-3.5 shrink-0" />
-                      <span>{christmasBonus.liveTimeWat?.split('(')[0]?.trim() || '20:00 WAT'}</span>
+                      <span>{christmasBonus.liveTimeWat?.split('(')[0]?.trim() || '22:00 WAT'}</span>
                     </span>
                   </div>
                   <div className="flex items-center gap-1.5 text-[11px]">

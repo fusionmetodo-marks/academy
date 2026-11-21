@@ -48,6 +48,7 @@ export default function ChristmasBonusEditorModal({
   const [isSaving, setIsSaving] = useState(false);
   const [isProcessingCover, setIsProcessingCover] = useState(false);
   const [coverPreviewFailed, setCoverPreviewFailed] = useState(false);
+  const [dayRangeFilter, setDayRangeFilter] = useState<'all' | '1-15' | '16-30' | '31-45'>('1-15');
   const [feedback, setFeedback] = useState<{
     type: 'success' | 'error' | 'info';
     text: string;
@@ -206,7 +207,7 @@ export default function ChristmasBonusEditorModal({
       if (cleanDayUrl && !/^https?:\/\/.+/i.test(cleanDayUrl)) {
         setFeedback({
           type: 'error',
-          text: `O link específico do Dia 0${day.dayNumber} deve começar com https:// ou http://`,
+          text: `O link específico do Dia ${String(day.dayNumber).padStart(2, '0')} deve começar com https:// ou http://`,
         });
         return;
       }
@@ -223,11 +224,11 @@ export default function ChristmasBonusEditorModal({
           ...draftForm,
           title: draftForm.title.trim() || 'Bônus de Natal',
           festiveTag: draftForm.festiveTag.trim() || 'Bônus de Boas Festas',
-          subtitle: draftForm.subtitle.trim() || 'Sete dias de operação ao vivo com Marks, o Monstro',
+          subtitle: draftForm.subtitle.trim() || '45 dias de operação ao vivo às 22h com Marks, o Monstro',
           description: draftForm.description.trim(),
           startDate: draftForm.startDate.trim(),
-          endDate: '7 Dias Consecutivos',
-          liveTimeWat: draftForm.liveTimeWat.trim() || '20:00 WAT (Horário de Angola)',
+          endDate: `${draftForm.days.length || 45} Dias Consecutivos`,
+          liveTimeWat: draftForm.liveTimeWat.trim() || '22:00 WAT (Horário de Angola)',
           liveRoomUrl: cleanMainUrl,
           accessNotes: draftForm.accessNotes.trim(),
           coverImageUrl: draftForm.coverImageUrl.trim(),
@@ -243,7 +244,7 @@ export default function ChristmasBonusEditorModal({
           days: draftForm.days.map((d, idx) => ({
             dayNumber: idx + 1,
             dateLabel: d.dateLabel.trim() || 'Data a definir',
-            timeLabel: d.timeLabel.trim() || draftForm.liveTimeWat.trim() || '20:00 WAT',
+            timeLabel: d.timeLabel.trim() || draftForm.liveTimeWat.trim() || '22:00 WAT',
             sessionState: d.sessionState,
             quickNotice: d.quickNotice.trim(),
             customRoomUrl: d.customRoomUrl.trim(),
@@ -484,7 +485,7 @@ export default function ChristmasBonusEditorModal({
               className="w-full bg-[#0e0e0e] border border-[#e9c349]/35 focus:border-[#e9c349] rounded-xl py-3 px-4 text-white font-mono text-xs sm:text-sm outline-none"
             />
             <p className="text-[11px] text-stone-400 mt-1">
-              Este link é aplicado a todos os 7 dias, exceto nos dias com link específico abaixo.
+              Este link é aplicado a todos os {draftForm.days.length} dias, exceto nos dias com link específico abaixo.
             </p>
           </div>
 
@@ -535,7 +536,7 @@ export default function ChristmasBonusEditorModal({
                 type="text"
                 value={draftForm.liveTimeWat}
                 onChange={(e) => setDraftForm({ ...draftForm, liveTimeWat: e.target.value })}
-                placeholder="20:00 WAT (Horário de Angola)"
+                placeholder="22:00 WAT (Horário de Angola)"
                 className="w-full bg-[#0e0e0e] border border-white/15 focus:border-[#e9c349] rounded-xl py-2.5 px-3 text-white font-mono text-xs sm:text-sm outline-none"
               />
             </div>
@@ -661,36 +662,86 @@ export default function ChristmasBonusEditorModal({
             </div>
           </div>
 
-          {/* 5. 7 Days Schedule */}
+          {/* 5. 45 Days Schedule */}
           <div className="pt-4 border-t border-gray-800">
             <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
               <div>
                 <h4 className="text-sm font-extrabold text-white">
-                  Configuração dos 7 Dias (Data, Horário WAT, Estado, Aviso e Link Opcional)
+                  Configuração dos {draftForm.days.length} Dias (Data, Horário WAT, Estado, Aviso e Link Opcional)
                 </h4>
                 <p className="text-[11px] text-stone-400">
                   Personalize o dia, horário, aviso rápido ou um link específico por dia.
                 </p>
               </div>
-              <button
-                type="button"
-                onClick={handleResetDefaults}
-                className="px-3 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 border border-white/10 text-stone-300 text-[11px] font-semibold flex items-center gap-1.5 cursor-pointer"
-              >
-                <RotateCcw className="w-3 h-3" />
-                <span>Restaurar Padrão dos Dias</span>
-              </button>
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    const baseTime =
+                      draftForm.liveTimeWat?.split('(')[0]?.trim() || '22:00 WAT';
+                    setDraftForm((prev) => ({
+                      ...prev,
+                      days: prev.days.map((d) => ({ ...d, timeLabel: baseTime })),
+                    }));
+                    setFeedback({
+                      type: 'info',
+                      text: `Horário ${baseTime} aplicado a todos os ${draftForm.days.length} dias. Clique em "Salvar Alterações" para confirmar.`,
+                    });
+                  }}
+                  className="px-3 py-1.5 rounded-lg bg-[#e9c349]/10 hover:bg-[#e9c349]/20 border border-[#e9c349]/30 text-[#e9c349] text-[11px] font-semibold cursor-pointer"
+                >
+                  Aplicar Horário a Todos
+                </button>
+                <button
+                  type="button"
+                  onClick={handleResetDefaults}
+                  className="px-3 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 border border-white/10 text-stone-300 text-[11px] font-semibold flex items-center gap-1.5 cursor-pointer"
+                >
+                  <RotateCcw className="w-3 h-3" />
+                  <span>Restaurar Padrão dos Dias</span>
+                </button>
+              </div>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-              {draftForm.days.map((day, idx) => (
+            <div className="flex flex-wrap items-center gap-1.5 mb-3">
+              {[
+                { id: '1-15' as const, label: 'Dias 01–15' },
+                { id: '16-30' as const, label: 'Dias 16–30' },
+                { id: '31-45' as const, label: 'Dias 31–45' },
+                { id: 'all' as const, label: `Todos (${draftForm.days.length})` },
+              ].map((tab) => (
+                <button
+                  key={tab.id}
+                  type="button"
+                  onClick={() => setDayRangeFilter(tab.id)}
+                  className={`px-3 py-1.5 rounded-lg text-[11px] font-bold font-mono transition-colors cursor-pointer border ${
+                    dayRangeFilter === tab.id
+                      ? 'bg-[#e9c349] text-black border-[#e9c349]'
+                      : 'bg-[#0e0e0e] text-stone-300 border-white/10 hover:border-white/25'
+                  }`}
+                >
+                  {tab.label}
+                </button>
+              ))}
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 max-h-[460px] overflow-y-auto pr-1">
+              {draftForm.days
+                .map((day, idx) => ({ day, idx }))
+                .filter(({ day }) => {
+                  if (dayRangeFilter === '1-15') return day.dayNumber >= 1 && day.dayNumber <= 15;
+                  if (dayRangeFilter === '16-30') return day.dayNumber >= 16 && day.dayNumber <= 30;
+                  if (dayRangeFilter === '31-45') return day.dayNumber >= 31;
+                  return true;
+                })
+                .map(({ day, idx }) => (
                 <div
                   key={day.dayNumber}
                   className="p-3.5 rounded-2xl bg-[#0e0e0e] border border-white/10 space-y-2.5"
                 >
                   <div className="flex items-center justify-between gap-2">
                     <span className="text-xs font-mono font-black text-[#e9c349] uppercase">
-                      Dia 0{day.dayNumber}
+                      Dia {String(day.dayNumber).padStart(2, '0')}
                     </span>
 
                     <select
@@ -727,7 +778,7 @@ export default function ChristmasBonusEditorModal({
                         type="text"
                         value={day.timeLabel}
                         onChange={(e) => handleDayFieldChange(idx, 'timeLabel', e.target.value)}
-                        placeholder="20:00 WAT"
+                        placeholder="22:00 WAT"
                         className="w-full bg-[#161616] border border-white/10 focus:border-[#e9c349] rounded-lg px-2.5 py-1.5 text-xs font-mono text-emerald-300 outline-none"
                       />
                     </div>

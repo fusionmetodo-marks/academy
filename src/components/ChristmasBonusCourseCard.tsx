@@ -28,10 +28,10 @@ export default function ChristmasBonusCourseCard({
 
   const isLiveNow = config.status === 'live';
   const title = config.title?.trim() || 'Bônus de Natal';
-  const subtitle = config.subtitle?.trim() || 'Sete dias de operação ao vivo com Marks, o Monstro';
+  const subtitle = config.subtitle?.trim() || '45 dias de operação ao vivo às 22h com Marks, o Monstro';
   const description =
     config.description?.trim() ||
-    'Sete dias consecutivos de operação ao vivo no mercado com Marks, o Monstro — uma edição exclusiva de Boas Festas.';
+    '45 dias consecutivos de operação ao vivo às 22 horas no mercado com Marks, o Monstro — uma edição exclusiva de Boas Festas.';
 
   return (
     <article
@@ -60,7 +60,7 @@ export default function ChristmasBonusCourseCard({
         {!coverFailed && coverSrc && (
           <img
             src={coverSrc}
-            alt="Bônus de Natal — Sete dias de operação ao vivo com Marks, o Monstro"
+            alt="Bônus de Natal — 45 dias de operação ao vivo às 22h com Marks, o Monstro"
             referrerPolicy="no-referrer"
             onError={() => setCoverFailed(true)}
             className="w-full h-full object-cover object-center group-hover:scale-105 transition-transform duration-500"
@@ -88,7 +88,7 @@ export default function ChristmasBonusCourseCard({
             </span>
           ) : (
             <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-black/75 backdrop-blur-md border border-[#e9c349]/40 text-[#e9c349] text-[10px] font-extrabold uppercase tracking-wider shadow-lg">
-              <span>Exclusivo · 7 Dias</span>
+              <span>Exclusivo · {config.days?.length || 45} Dias</span>
             </span>
           )}
         </div>
@@ -133,11 +133,11 @@ export default function ChristmasBonusCourseCard({
           <div className="flex items-center justify-between gap-2 pt-3 border-t border-white/10 text-[11px] font-mono tabular-nums">
             <span className="inline-flex items-center gap-1.5 text-stone-300 truncate">
               <Calendar className="w-3.5 h-3.5 text-[#e9c349] shrink-0" />
-              <span className="truncate">{config.startDate || '7 Dias Consecutivos'}</span>
+              <span className="truncate">{config.startDate || '45 Dias Consecutivos'}</span>
             </span>
             <span className="inline-flex items-center gap-1 text-emerald-400 font-bold shrink-0">
               <Clock className="w-3.5 h-3.5 shrink-0" />
-              <span>{config.liveTimeWat?.split('(')[0]?.trim() || '20:00 WAT'}</span>
+              <span>{config.liveTimeWat?.split('(')[0]?.trim() || '22:00 WAT'}</span>
             </span>
           </div>
 

@@ -53,7 +53,7 @@ export default function ChristmasBonusAuthModal({
             Identificação Necessária
           </h3>
           <p className="text-stone-400 text-xs sm:text-sm leading-relaxed">
-            Para aceder ao <strong className="text-white">"{title}"</strong> (7 dias de operação ao vivo com Marks, o Monstro), entre na sua conta ou crie um cadastro gratuito em menos de 1 minuto.
+            Para aceder ao <strong className="text-white">"{title}"</strong> (45 dias de operação ao vivo às 22h com Marks, o Monstro), entre na sua conta ou crie um cadastro gratuito em menos de 1 minuto.
           </p>
         </div>
 

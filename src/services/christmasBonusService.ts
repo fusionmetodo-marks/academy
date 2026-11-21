@@ -38,12 +38,16 @@ export interface ChristmasBonusConfig {
   updatedBy?: string;
 }
 
+export const LIVE_OPERATION_DAYS_COUNT = 45;
+export const DEFAULT_LIVE_TIME_SHORT = '22:00 WAT';
+export const DEFAULT_LIVE_TIME_FULL = '22:00 WAT (Horário de Angola)';
+
 export const DEFAULT_CHRISTMAS_BONUS_DAYS: ChristmasBonusDay[] = Array.from(
-  { length: 7 },
+  { length: LIVE_OPERATION_DAYS_COUNT },
   (_, index) => ({
     dayNumber: index + 1,
     dateLabel: 'Data a definir',
-    timeLabel: '20:00 WAT',
+    timeLabel: DEFAULT_LIVE_TIME_SHORT,
     sessionState: 'waiting' as ChristmasBonusDayState,
     quickNotice: 'O link e os detalhes desta sessão serão atualizados pelo Marks antes da abertura da sala.',
     customRoomUrl: '',
@@ -60,18 +64,18 @@ export const DEFAULT_CHRISTMAS_BONUS_OPERATORS: ChristmasBonusOperator[] = [
 ];
 
 export const DEFAULT_CHRISTMAS_BONUS_CONFIG: ChristmasBonusConfig = {
-  title: '7 dias de operação ao vivo com a comunidade Monstros',
+  title: '45 dias de operação ao vivo com a comunidade Monstros',
   festiveTag: 'Bônus de Boas Festas',
-  subtitle: 'Operações ao vivo com Lúrio, Rich Mem, Markes e a comunidade de monstros',
+  subtitle: 'Operações ao vivo às 22h com Lúrio, Rich Mem, Markes e a comunidade de monstros',
   description:
-    'Uma imersão especial dedicada aos estudantes da Money Building: sete dias consecutivos de operação ao vivo com a comunidade Monstros no mercado, unindo disciplina e lucratividade.',
+    'Uma imersão especial dedicada aos estudantes da Money Building: 45 dias consecutivos de operação ao vivo às 22 horas com a comunidade Monstros no mercado, unindo disciplina e lucratividade.',
   status: 'draft',
-  startDate: 'Datas a definir (Dezembro)',
-  endDate: '7 Dias Consecutivos',
-  liveTimeWat: '20:00 WAT (Horário de Angola)',
+  startDate: 'Datas a definir (45 Dias)',
+  endDate: '45 Dias Consecutivos',
+  liveTimeWat: DEFAULT_LIVE_TIME_FULL,
   liveRoomUrl: '',
   accessNotes:
-    'Este evento especial é aberto a todos os estudantes da plataforma. Utilize gestão de risco responsável (1% a 2% por operação), entre na sala com 10 minutos de antecedência e utilize apenas o link oficial publicado nesta página.',
+    'Este evento especial é aberto a todos os estudantes da plataforma. Utilize gestão de risco responsável (1% a 2% por operação), entre na sala com 10 minutos de antecedência às 22h (WAT) e utilize apenas o link oficial publicado nesta página.',
   coverImageUrl: '',
   isCardVisible: true,
   operatorsTitle: DEFAULT_CHRISTMAS_BONUS_OPERATORS_TITLE,
@@ -88,31 +92,88 @@ function sanitizeDayState(val: unknown): ChristmasBonusDayState {
   return 'waiting';
 }
 
+function upgradeLegacyCopy(raw?: Partial<ChristmasBonusConfig> | null): Partial<ChristmasBonusConfig> {
+  if (!raw) return {};
+  const next: Partial<ChristmasBonusConfig> = { ...raw };
+
+  if (typeof next.title === 'string') {
+    const trimmed = next.title.trim();
+    if (/^7\s+dias\s+de\s+opera[cç][aã]o\s+ao\s+vivo/i.test(trimmed)) {
+      next.title = trimmed.replace(/^7\s+dias/i, '45 dias');
+    }
+  }
+
+  if (typeof next.subtitle === 'string') {
+    const trimmed = next.subtitle.trim();
+    if (trimmed === 'Sete dias de operação ao vivo com Marks, o Monstro') {
+      next.subtitle = '45 dias de operação ao vivo às 22h com Marks, o Monstro';
+    } else if (trimmed === 'Operações ao vivo com Lúrio, Rich Mem, Markes e a comunidade de monstros') {
+      next.subtitle = DEFAULT_CHRISTMAS_BONUS_CONFIG.subtitle;
+    }
+  }
+
+  if (typeof next.description === 'string') {
+    const trimmed = next.description.trim();
+    if (
+      trimmed ===
+      'Uma imersão especial dedicada aos estudantes da Money Building: sete dias consecutivos de operação ao vivo com a comunidade Monstros no mercado, unindo disciplina e lucratividade.'
+    ) {
+      next.description = DEFAULT_CHRISTMAS_BONUS_CONFIG.description;
+    }
+  }
+
+  if (typeof next.startDate === 'string' && next.startDate.trim() === 'Datas a definir (Dezembro)') {
+    next.startDate = DEFAULT_CHRISTMAS_BONUS_CONFIG.startDate;
+  }
+
+  if (typeof next.endDate === 'string' && /^7\s+dias\s+consecutivos$/i.test(next.endDate.trim())) {
+    next.endDate = DEFAULT_CHRISTMAS_BONUS_CONFIG.endDate;
+  }
+
+  if (typeof next.liveTimeWat === 'string') {
+    const trimmedTime = next.liveTimeWat.trim();
+    if (trimmedTime === '20:00 WAT (Horário de Angola)' || trimmedTime === '20:00 WAT') {
+      next.liveTimeWat = DEFAULT_LIVE_TIME_FULL;
+    }
+  }
+
+  return next;
+}
+
 function mergeConfig(raw?: Partial<ChristmasBonusConfig> | null): ChristmasBonusConfig {
-  const days =
-    Array.isArray(raw?.days) && raw!.days.length === 7
-      ? raw!.days.map((d: any, idx) => ({
-          dayNumber: idx + 1,
-          dateLabel:
-            typeof d?.dateLabel === 'string' && d.dateLabel.trim()
-              ? d.dateLabel
-              : DEFAULT_CHRISTMAS_BONUS_DAYS[idx].dateLabel,
-          timeLabel:
-            typeof d?.timeLabel === 'string' && d.timeLabel.trim()
-              ? d.timeLabel
-              : DEFAULT_CHRISTMAS_BONUS_DAYS[idx].timeLabel,
-          sessionState: sanitizeDayState(d?.sessionState),
-          quickNotice:
-            typeof d?.quickNotice === 'string'
-              ? d.quickNotice
-              : DEFAULT_CHRISTMAS_BONUS_DAYS[idx].quickNotice,
-          customRoomUrl: typeof d?.customRoomUrl === 'string' ? d.customRoomUrl : '',
-        }))
-      : DEFAULT_CHRISTMAS_BONUS_DAYS.map((d) => ({ ...d }));
+  const normalizedRaw = upgradeLegacyCopy(raw);
+  const existingDays = Array.isArray(normalizedRaw?.days) ? normalizedRaw.days : [];
+
+  const days = DEFAULT_CHRISTMAS_BONUS_DAYS.map((defaultDay, idx) => {
+    const d: any = existingDays[idx];
+    if (!d) {
+      return { ...defaultDay };
+    }
+    const rawTime = typeof d?.timeLabel === 'string' ? d.timeLabel.trim() : '';
+    const resolvedTime =
+      !rawTime || rawTime === '20:00 WAT'
+        ? DEFAULT_LIVE_TIME_SHORT
+        : rawTime;
+
+    return {
+      dayNumber: idx + 1,
+      dateLabel:
+        typeof d?.dateLabel === 'string' && d.dateLabel.trim()
+          ? d.dateLabel
+          : defaultDay.dateLabel,
+      timeLabel: resolvedTime,
+      sessionState: sanitizeDayState(d?.sessionState),
+      quickNotice:
+        typeof d?.quickNotice === 'string'
+          ? d.quickNotice
+          : defaultDay.quickNotice,
+      customRoomUrl: typeof d?.customRoomUrl === 'string' ? d.customRoomUrl : '',
+    };
+  });
 
   const operators =
-    Array.isArray(raw?.operators) && raw!.operators.length > 0
-      ? raw!.operators
+    Array.isArray(normalizedRaw?.operators) && normalizedRaw.operators.length > 0
+      ? normalizedRaw.operators
           .map((op: any) => ({
             name: typeof op?.name === 'string' ? op.name.trim() : '',
             role: typeof op?.role === 'string' && op.role.trim() ? op.role.trim() : 'Operador ao Vivo',
@@ -124,14 +185,14 @@ function mergeConfig(raw?: Partial<ChristmasBonusConfig> | null): ChristmasBonus
     operators.length > 0 ? operators : DEFAULT_CHRISTMAS_BONUS_OPERATORS.map((o) => ({ ...o }));
 
   const operatorsTitle =
-    typeof raw?.operatorsTitle === 'string' && raw.operatorsTitle.trim()
-      ? raw.operatorsTitle.trim()
+    typeof normalizedRaw?.operatorsTitle === 'string' && normalizedRaw.operatorsTitle.trim()
+      ? normalizedRaw.operatorsTitle.trim()
       : DEFAULT_CHRISTMAS_BONUS_OPERATORS_TITLE;
 
   return {
     ...DEFAULT_CHRISTMAS_BONUS_CONFIG,
-    ...(raw || {}),
-    isCardVisible: typeof raw?.isCardVisible === 'boolean' ? raw.isCardVisible : true,
+    ...normalizedRaw,
+    isCardVisible: typeof normalizedRaw?.isCardVisible === 'boolean' ? normalizedRaw.isCardVisible : true,
     operatorsTitle,
     operators: resolvedOperators,
     days,
