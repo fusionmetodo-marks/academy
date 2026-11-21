@@ -211,6 +211,20 @@ export const approveStudentTransaction = async (
 
     console.log(`Curso ${targetCourseId} liberado com sucesso para a transação ${transactionId}`);
 
+    if (targetCourseId === 'live-room-christmas-bonus' && resolvedUserId) {
+      try {
+        const { CHRISTMAS_LIVE_ROOM_ID, joinLiveRoom } = await import('./services/liveRoomService');
+        await joinLiveRoom({
+          roomId: CHRISTMAS_LIVE_ROOM_ID,
+          userId: resolvedUserId,
+          displayName: txUserName || undefined,
+          email: resolvedEmail || undefined,
+        });
+      } catch (liveRoomErr) {
+        console.warn('Falha ao inscrever participante automaticamente na Sala Ao Vivo:', liveRoomErr);
+      }
+    }
+
     // Dispara notificação de pagamento aprovado para o Administrador
     try {
       await addDoc(collection(db, 'notifications'), {

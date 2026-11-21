@@ -6,29 +6,30 @@ import {
   CheckCircle2,
   Clock,
   Gift,
-  Link2,
-  Lock,
   MessageSquare,
   Radio,
   ShieldCheck,
   Sparkles,
+  Ticket,
   TreePine,
   Users,
 } from 'lucide-react';
 import { useSearchParams } from 'react-router-dom';
-import { doc, getDoc, collection, getDocs } from 'firebase/firestore';
+import { collection, getDocs, onSnapshot, query, where } from 'firebase/firestore';
 import { auth, db } from '../firebase';
 import { isMasterEmail } from '../utils/constants';
 import { getCourseLevelOrder } from '../utils/courseSorting';
 import christmasBonusCoverImg from '../assets/images/christmas_bonus_cover_1794907721101.jpg';
 import ChristmasBonusAuthModal from './ChristmasBonusAuthModal';
+import CourseCheckout from './CourseCheckout';
 import { subscribeUserEnrollments } from '../services/enrollmentService';
 import {
   ChristmasBonusConfig,
   DEFAULT_CHRISTMAS_BONUS_CONFIG,
   DEFAULT_CHRISTMAS_BONUS_OPERATORS,
   DEFAULT_CHRISTMAS_BONUS_OPERATORS_TITLE,
-  getChristmasBonusDayStateMeta,
+  DEFAULT_SYMBOLIC_ENTRY_FEE_KZ,
+  LIVE_ROOM_ACCESS_COURSE_ID,
   getChristmasBonusStatusMeta,
   subscribeChristmasBonusConfig,
 } from '../services/christmasBonusService';
@@ -58,7 +59,6 @@ export default function StudentChristmasBonus({
 }: StudentChristmasBonusProps) {
   const [searchParams, setSearchParams] = useSearchParams();
   const [config, setConfig] = useState<ChristmasBonusConfig>(DEFAULT_CHRISTMAS_BONUS_CONFIG);
-  const [selectedDay, setSelectedDay] = useState<number>(1);
   const [coverFailed, setCoverFailed] = useState<boolean>(false);
 
   const [currentUserId, setCurrentUserId] = useState<string | null>(() => auth.currentUser?.uid || null);
@@ -70,42 +70,107 @@ export default function StudentChristmasBonus({
   const autoJoinedOnceRef = useRef(false);
 
   const [levelTwoCourseIds, setLevelTwoCourseIds] = useState<string[]>([]);
+  const [coursesLoaded, setCoursesLoaded] = useState(false);
   const [enrolledCourseIds, setEnrolledCourseIds] = useState<string[]>([]);
+  const [enrollmentsLoaded, setEnrollmentsLoaded] = useState(false);
   const [userRole, setUserRole] = useState<string>('student');
+  const [liveRoomTxStatus, setLiveRoomTxStatus] = useState<'none' | 'pending' | 'approved'>('none');
+  const [txLoaded, setTxLoaded] = useState(false);
+  const [showSymbolicCheckout, setShowSymbolicCheckout] = useState(false);
 
   useEffect(() => {
-    getDocs(collection(db, 'courses')).then((snap) => {
-      const l2Ids: string[] = [];
-      snap.forEach((d) => {
-        const data = d.data();
-        const order = getCourseLevelOrder({ title: data.title, order: data.order });
-        if (order === 2 || (data.title && data.title.toLowerCase().includes('fusion'))) {
-          l2Ids.push(d.id);
-        }
+    getDocs(collection(db, 'courses'))
+      .then((snap) => {
+        const l2Ids: string[] = [];
+        snap.forEach((d) => {
+          const data = d.data();
+          const order = getCourseLevelOrder({ title: data.title, order: data.order });
+          if (order === 2 || (data.title && data.title.toLowerCase().includes('fusion'))) {
+            l2Ids.push(d.id);
+          }
+        });
+        setLevelTwoCourseIds(l2Ids);
+      })
+      .catch(() => {})
+      .finally(() => {
+        setCoursesLoaded(true);
       });
-      setLevelTwoCourseIds(l2Ids);
-    }).catch(() => {});
   }, []);
 
   useEffect(() => {
     const user = auth.currentUser;
     if (!user) {
       setEnrolledCourseIds([]);
+      setEnrollmentsLoaded(true);
       return;
     }
+    setEnrollmentsLoaded(false);
     const unsub = subscribeUserEnrollments(user, (enrollData) => {
       setEnrolledCourseIds(enrollData.enrolledCourses || []);
       if (enrollData.userProfile?.role) {
         setUserRole(enrollData.userProfile.role);
       }
+      setEnrollmentsLoaded(true);
     });
     return () => unsub();
+  }, [currentUserId]);
+
+  useEffect(() => {
+    if (!currentUserId) {
+      setLiveRoomTxStatus('none');
+      setTxLoaded(true);
+      return;
+    }
+
+    setTxLoaded(false);
+    const txQuery = query(
+      collection(db, 'transactions'),
+      where('userId', '==', currentUserId)
+    );
+
+    const unsubTx = onSnapshot(
+      txQuery,
+      (snap) => {
+        let nextStatus: 'none' | 'pending' | 'approved' = 'none';
+        snap.forEach((docSnap) => {
+          const data = docSnap.data();
+          if (data?.courseId === LIVE_ROOM_ACCESS_COURSE_ID) {
+            if (data.status === 'approved') {
+              nextStatus = 'approved';
+            } else if ((data.status === 'pending' || !data.status) && nextStatus !== 'approved') {
+              nextStatus = 'pending';
+            }
+          }
+        });
+        setLiveRoomTxStatus(nextStatus);
+        setTxLoaded(true);
+      },
+      () => {
+        setTxLoaded(true);
+      }
+    );
+
+    return () => unsubTx();
   }, [currentUserId]);
 
   const isMaster = isMasterEmail(auth.currentUser?.email || studentEmail);
   const isAdminOrProducer = isMaster || userRole === 'admin' || userRole === 'producer';
   const hasLevelTwoCourse = enrolledCourseIds.some((id) => levelTwoCourseIds.includes(id));
   const isLevelTwoUser = isAdminOrProducer || hasLevelTwoCourse;
+  const hasPaidRoomAccess =
+    enrolledCourseIds.includes(LIVE_ROOM_ACCESS_COURSE_ID) || liveRoomTxStatus === 'approved';
+  const canEnterDirectly = isLevelTwoUser || hasPaidRoomAccess;
+
+  const symbolicFeeKz =
+    typeof config.symbolicEntryFeeKz === 'number' && config.symbolicEntryFeeKz > 0
+      ? config.symbolicEntryFeeKz
+      : DEFAULT_SYMBOLIC_ENTRY_FEE_KZ;
+  const formattedSymbolicFee = new Intl.NumberFormat('pt-AO', {
+    style: 'currency',
+    currency: 'AOA',
+    maximumFractionDigits: 0,
+    minimumFractionDigits: 0,
+  }).format(symbolicFeeKz);
 
   useEffect(() => {
     const unsubAuth = auth.onAuthStateChanged((u) => {
@@ -134,7 +199,10 @@ export default function StudentChristmasBonus({
       setIsAuthModalOpen(true);
       return;
     }
-    if (!isLevelTwoUser) return;
+    if (!canEnterDirectly) {
+      setShowSymbolicCheckout(true);
+      return;
+    }
     if (isJoiningRoom || isRoomMember) return;
 
     setIsJoiningRoom(true);
@@ -152,19 +220,57 @@ export default function StudentChristmasBonus({
     } finally {
       setIsJoiningRoom(false);
     }
-  }, [currentUserId, isJoiningRoom, isRoomMember, studentName, studentEmail, isLevelTwoUser]);
+  }, [currentUserId, isJoiningRoom, isRoomMember, studentName, studentEmail, canEnterDirectly]);
+
+  const handlePaySymbolicFee = useCallback(() => {
+    const activeUid = auth.currentUser?.uid || currentUserId;
+    if (!activeUid) {
+      setIsAuthModalOpen(true);
+      return;
+    }
+    setShowSymbolicCheckout(true);
+  }, [currentUserId]);
 
   useEffect(() => {
     const shouldAutoJoin = searchParams.get('autoJoinRoom') === '1';
-    if (shouldAutoJoin && currentUserId && !autoJoinedOnceRef.current) {
+    if (
+      shouldAutoJoin &&
+      currentUserId &&
+      coursesLoaded &&
+      enrollmentsLoaded &&
+      txLoaded &&
+      !autoJoinedOnceRef.current
+    ) {
       autoJoinedOnceRef.current = true;
-      handleJoinLiveRoom().finally(() => {
+      const clearParam = () => {
         const nextParams = new URLSearchParams(searchParams);
         nextParams.delete('autoJoinRoom');
         setSearchParams(nextParams, { replace: true });
-      });
+      };
+
+      if (isRoomMember) {
+        clearParam();
+      } else if (canEnterDirectly) {
+        handleJoinLiveRoom().finally(clearParam);
+      } else {
+        if (liveRoomTxStatus === 'none') {
+          setShowSymbolicCheckout(true);
+        }
+        clearParam();
+      }
     }
-  }, [searchParams, setSearchParams, currentUserId, handleJoinLiveRoom]);
+  }, [
+    searchParams,
+    setSearchParams,
+    currentUserId,
+    coursesLoaded,
+    enrollmentsLoaded,
+    txLoaded,
+    isRoomMember,
+    canEnterDirectly,
+    liveRoomTxStatus,
+    handleJoinLiveRoom,
+  ]);
 
   useEffect(() => {
     const unsub = subscribeChristmasBonusConfig((next) => {
@@ -180,8 +286,7 @@ export default function StudentChristmasBonus({
   }, [coverSrc]);
 
   const statusMeta = getChristmasBonusStatusMeta(config.status);
-  const activeDay = config.days.find((d) => d.dayNumber === selectedDay) || config.days[0];
-  const activeDayStateMeta = getChristmasBonusDayStateMeta(activeDay.sessionState);
+  const activeDay = config.days[0] || DEFAULT_CHRISTMAS_BONUS_CONFIG.days[0];
 
   const effectiveRoomUrl =
     (activeDay.customRoomUrl && activeDay.customRoomUrl.trim()) ||
@@ -203,19 +308,42 @@ export default function StudentChristmasBonus({
   const operatorsSectionTitle =
     config.operatorsTitle?.trim() || DEFAULT_CHRISTMAS_BONUS_OPERATORS_TITLE;
 
+  if (showSymbolicCheckout && !canEnterDirectly) {
+    return (
+      <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-8 animate-in fade-in duration-300">
+        <CourseCheckout
+          courseId={LIVE_ROOM_ACCESS_COURSE_ID}
+          courseTitle="Entrada na Sala de Operação Ao Vivo (Valor Simbólico)"
+          coursePrice={symbolicFeeKz}
+          courseCover={coverSrc}
+          backLabel="Voltar à Sala Ao Vivo"
+          disableCoupons={true}
+          itemLabel="Sala de Operação Ao Vivo"
+          priceLabel="Valor Simbólico de Entrada:"
+          approvedCtaLabel="Entrar na Sala Ao Vivo"
+          onApprovedAction={() => {
+            setShowSymbolicCheckout(false);
+            handleJoinLiveRoom();
+          }}
+          onBack={() => setShowSymbolicCheckout(false)}
+        />
+      </div>
+    );
+  }
+
   return (
     <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-10 animate-in fade-in duration-300">
 
       {/* HERO COVER CARD */}
       <section className="relative rounded-3xl overflow-hidden border border-[#e9c349]/25 bg-[#0f1311] shadow-2xl shadow-black">
-        {/* Ícone Natalício no Topo do Cartão */}
-        <div className="relative z-20 flex flex-wrap items-center justify-between gap-3 px-5 sm:px-8 pt-5 sm:pt-6">
-          <div className="inline-flex items-center gap-2.5 px-3.5 py-2 rounded-2xl bg-black/70 backdrop-blur-md border border-emerald-500/35 shadow-lg">
-            <span className="w-8 h-8 rounded-xl bg-gradient-to-br from-rose-600/90 via-rose-500 to-amber-500 text-white flex items-center justify-center shadow-sm">
-              <Gift className="w-4.5 h-4.5" />
+        {/* Barra Superior Compacta nos Cantos */}
+        <div className="relative z-20 flex flex-wrap items-center justify-between gap-3 px-5 sm:px-7 py-4 bg-[#0b0e0d]/95 border-b border-white/10">
+          <div className="inline-flex items-center gap-2.5">
+            <span className="w-8 h-8 rounded-xl bg-gradient-to-br from-rose-600/90 via-rose-500 to-amber-500 text-white flex items-center justify-center shadow-sm shrink-0">
+              <Gift className="w-4 h-4" />
             </span>
             <div className="flex items-center gap-2">
-              <TreePine className="w-4 h-4 text-emerald-400" />
+              <TreePine className="w-4 h-4 text-emerald-400 shrink-0" />
               <span className="text-xs font-extrabold uppercase tracking-wider text-[#e9c349] whitespace-nowrap">
                 {config.festiveTag || 'Bônus de Boas Festas'}
               </span>
@@ -223,14 +351,14 @@ export default function StudentChristmasBonus({
           </div>
 
           <span
-            className={`px-3 py-1.5 rounded-full text-[11px] font-bold border backdrop-blur-md whitespace-nowrap ${statusMeta.accentClass}`}
+            className={`px-3 py-1 rounded-lg text-[11px] font-bold border whitespace-nowrap ${statusMeta.accentClass}`}
           >
             {statusMeta.label}
           </span>
         </div>
 
-        {/* 16:9 Cover Artwork Layer with Guaranteed CSS Gradient Fallback */}
-        <div className="relative mt-4 sm:mt-5 aspect-[16/9] max-h-[440px] w-full overflow-hidden bg-[radial-gradient(circle_at_25%_20%,rgba(16,185,129,0.22),transparent_48%),radial-gradient(circle_at_80%_25%,rgba(233,195,73,0.24),transparent_45%),linear-gradient(135deg,#07130e_0%,#0c0c0c_55%,#1a1109_100%)]">
+        {/* 16:9 Cover Artwork Layer — Imagem Livre no Centro com Letreiros Apenas nos Cantos */}
+        <div className="relative aspect-[16/9] max-h-[520px] w-full overflow-hidden bg-[radial-gradient(circle_at_25%_20%,rgba(16,185,129,0.22),transparent_48%),radial-gradient(circle_at_80%_25%,rgba(233,195,73,0.24),transparent_45%),linear-gradient(135deg,#07130e_0%,#0c0c0c_55%,#1a1109_100%)]">
           {!coverFailed && coverSrc && (
             <img
               src={coverSrc}
@@ -241,53 +369,78 @@ export default function StudentChristmasBonus({
             />
           )}
 
-          <div className="absolute inset-0 bg-gradient-to-t from-[#0b0b0b] via-[#0b0b0b]/65 to-black/20" />
+          {/* Vinheta suave apenas na borda inferior para leitura nos cantos sem escurecer a imagem */}
+          <div className="absolute inset-x-0 bottom-0 h-28 bg-gradient-to-t from-[#0b0b0b]/85 via-[#0b0b0b]/25 to-transparent pointer-events-none" />
 
-          <div className="absolute inset-x-0 bottom-0 p-5 sm:p-8 lg:p-10 z-10">
-            <div className="max-w-3xl">
-              <p className="text-[11px] sm:text-xs font-mono uppercase tracking-[0.22em] text-emerald-300 font-bold mb-2">
-                Edição Especial de Natal · Operação ao Vivo
+          {/* Letreiros compactos ancorados exclusivamente nos cantos inferiores (Tablet/Desktop) */}
+          <div className="hidden sm:flex items-end justify-between gap-4 absolute inset-x-0 bottom-0 p-4 sm:p-5 lg:p-6 z-10 pointer-events-none">
+            <div className="pointer-events-auto max-w-md rounded-2xl bg-black/70 backdrop-blur-md border border-white/15 px-4 py-3 shadow-xl">
+              <p className="text-[10px] font-mono uppercase tracking-[0.18em] text-emerald-300 font-bold mb-1">
+                Edição Especial · Operação ao Vivo
               </p>
-
               <h1
-                className="font-headline font-black text-white tracking-tight leading-[1.08]"
-                style={{ fontSize: 'clamp(1.75rem, 4vw, 3.25rem)', textWrap: 'balance' }}
+                className="font-headline font-black text-white tracking-tight leading-tight text-lg md:text-2xl"
+                style={{ textWrap: 'balance' }}
               >
                 {config.title || 'Bônus de Natal'}
               </h1>
-
-              <p
-                className="mt-2 text-base sm:text-xl font-bold text-[#e9c349] leading-snug"
-                style={{ textWrap: 'balance' }}
-              >
-                {config.subtitle || '45 dias de operação ao vivo às 22h com Marks, o Monstro'}
-              </p>
-
-              <p className="mt-3 text-xs sm:text-sm text-stone-300 leading-relaxed max-w-2xl">
-                {config.description}
-              </p>
-
-              <div className="mt-4 pt-4 border-t border-white/15 flex flex-wrap items-center gap-x-4 gap-y-2 text-xs text-stone-300 font-mono tabular-nums">
-                <span className="inline-flex items-center gap-1.5">
-                  <Calendar className="w-3.5 h-3.5 text-[#e9c349]" />
-                  <span>{config.startDate}</span>
-                </span>
-                <span className="text-stone-600" aria-hidden="true">·</span>
-                <span className="inline-flex items-center gap-1.5">
-                  <Clock className="w-3.5 h-3.5 text-emerald-400" />
-                  <span>{config.liveTimeWat}</span>
-                </span>
-                <span className="text-stone-600" aria-hidden="true">·</span>
-                <span className="inline-flex items-center gap-1.5">
-                  <Sparkles className="w-3.5 h-3.5 text-rose-400" />
-                  <span>{config.endDate || `${config.days.length} Dias Consecutivos`}</span>
-                </span>
-                <span className="text-stone-600" aria-hidden="true">·</span>
-                <span className="text-[#e9c349] font-sans font-bold">
-                  {operatorsSectionTitle}
-                </span>
-              </div>
             </div>
+
+            <div className="pointer-events-auto shrink-0 rounded-2xl bg-black/70 backdrop-blur-md border border-[#e9c349]/30 px-4 py-2.5 text-right shadow-xl">
+              <p className="text-xs font-mono font-black text-[#e9c349] tabular-nums whitespace-nowrap">
+                {config.liveTimeWat || '22:00 WAT'}
+              </p>
+              <p className="text-[11px] font-mono text-stone-200 tabular-nums whitespace-nowrap mt-0.5">
+                {config.endDate || `${config.days.length} Dias Consecutivos`}
+              </p>
+            </div>
+          </div>
+        </div>
+
+        {/* Faixa Editorial Abaixo da Imagem para Leitura Confortável */}
+        <div className="px-5 sm:px-7 py-5 bg-[#0d110f] border-t border-white/10 space-y-3">
+          <div className="sm:hidden space-y-1">
+            <p className="text-[10px] font-mono uppercase tracking-[0.18em] text-emerald-300 font-bold">
+              Edição Especial · Operação ao Vivo
+            </p>
+            <h1
+              className="font-headline font-black text-white tracking-tight leading-tight text-xl"
+              style={{ textWrap: 'balance' }}
+            >
+              {config.title || 'Bônus de Natal'}
+            </h1>
+          </div>
+
+          <p
+            className="text-sm sm:text-lg font-bold text-[#e9c349] leading-snug"
+            style={{ textWrap: 'balance' }}
+          >
+            {config.subtitle || '45 dias de operação ao vivo às 22h com Marks, o Monstro'}
+          </p>
+
+          <p className="text-xs sm:text-sm text-stone-300 leading-relaxed max-w-3xl">
+            {config.description}
+          </p>
+
+          <div className="pt-3 border-t border-white/10 flex flex-wrap items-center gap-x-4 gap-y-2 text-xs text-stone-300 font-mono tabular-nums">
+            <span className="inline-flex items-center gap-1.5">
+              <Calendar className="w-3.5 h-3.5 text-[#e9c349]" />
+              <span>{config.startDate}</span>
+            </span>
+            <span className="text-stone-600" aria-hidden="true">·</span>
+            <span className="inline-flex items-center gap-1.5">
+              <Clock className="w-3.5 h-3.5 text-emerald-400" />
+              <span>{config.liveTimeWat}</span>
+            </span>
+            <span className="text-stone-600" aria-hidden="true">·</span>
+            <span className="inline-flex items-center gap-1.5">
+              <Sparkles className="w-3.5 h-3.5 text-rose-400" />
+              <span>{config.endDate || `${config.days.length} Dias Consecutivos`}</span>
+            </span>
+            <span className="text-stone-600" aria-hidden="true">·</span>
+            <span className="text-[#e9c349] font-sans font-bold">
+              {operatorsSectionTitle}
+            </span>
           </div>
         </div>
       </section>
@@ -370,160 +523,9 @@ export default function StudentChristmasBonus({
         </div>
       </section>
 
-      {/* ASYMMETRIC BENTO GRID: CLEAN 45-DAY SCHEDULE + LIVE ROOM ACCESS */}
-      <div className="mt-8 grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-        {/* Left Column: 45-Day Selector & Saved Operational Info */}
-        <div className="lg:col-span-7 bg-[#131313] border border-white/10 rounded-3xl p-5 sm:p-7 shadow-xl">
-          <div className="flex flex-wrap items-center justify-between gap-3 pb-4 border-b border-white/10">
-            <div>
-              <h2 className="text-lg sm:text-xl font-extrabold text-white font-headline">
-                Calendário dos {config.days.length} Dias com Marks, o Monstro
-              </h2>
-              <p className="text-xs text-stone-400 mt-0.5">
-                Selecione um dia para consultar a data, horário em Angola e estado da sala ao vivo.
-              </p>
-            </div>
-            <span className="text-xs font-mono text-stone-400 tabular-nums">
-              Dia {String(activeDay.dayNumber).padStart(2, '0')} de {String(config.days.length).padStart(2, '0')}
-            </span>
-          </div>
-
-          {/* Interactive 45-Day Strip */}
-          <div
-            className="grid grid-cols-5 sm:grid-cols-9 gap-1.5 sm:gap-2 mt-5"
-            role="tablist"
-            aria-label="Dias de operação ao vivo"
-          >
-            {config.days.map((day) => {
-              const isSelected = day.dayNumber === activeDay.dayNumber;
-              return (
-                <button
-                  key={day.dayNumber}
-                  type="button"
-                  role="tab"
-                  aria-selected={isSelected}
-                  onClick={() => setSelectedDay(day.dayNumber)}
-                  className={`py-2 px-1 rounded-xl text-center transition-all cursor-pointer border font-mono tabular-nums ${
-                    isSelected
-                      ? 'bg-[#e9c349] text-black border-[#e9c349] font-black shadow-md'
-                      : 'bg-black/40 text-stone-300 border-white/10 hover:border-[#e9c349]/40 hover:text-white font-semibold'
-                  }`}
-                >
-                  <span className="block text-[9px] uppercase opacity-80">Dia</span>
-                  <span className="block text-xs sm:text-sm">{String(day.dayNumber).padStart(2, '0')}</span>
-                </button>
-              );
-            })}
-          </div>
-
-          {/* Selected Day Saved Operational Details (Zero invented titles) */}
-          <div className="mt-5 p-5 rounded-2xl bg-black/50 border border-[#e9c349]/25 space-y-4">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <h3 className="text-lg sm:text-xl font-black text-white font-headline font-mono tabular-nums">
-                Dia {String(activeDay.dayNumber).padStart(2, '0')}
-              </h3>
-              <span className={`text-xs font-bold ${activeDayStateMeta.badgeClass}`}>
-                {activeDayStateMeta.label}
-              </span>
-            </div>
-
-            <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-xs text-stone-300 font-mono tabular-nums pt-2 border-t border-white/10">
-              <span className="inline-flex items-center gap-1.5">
-                <Calendar className="w-3.5 h-3.5 text-[#e9c349]" />
-                <span>{activeDay.dateLabel}</span>
-              </span>
-              <span className="text-stone-600" aria-hidden="true">·</span>
-              <span className="inline-flex items-center gap-1.5">
-                <Clock className="w-3.5 h-3.5 text-emerald-400" />
-                <span>{activeDay.timeLabel || config.liveTimeWat}</span>
-              </span>
-              {activeDay.customRoomUrl?.trim() && (
-                <>
-                  <span className="text-stone-600" aria-hidden="true">·</span>
-                  <span className="inline-flex items-center gap-1 text-emerald-300">
-                    <Link2 className="w-3.5 h-3.5" />
-                    <span>Link próprio deste dia</span>
-                  </span>
-                </>
-              )}
-            </div>
-
-            {activeDay.quickNotice?.trim() && (
-              <div className="pt-2 border-t border-white/10">
-                <span className="block text-[11px] font-mono uppercase tracking-wider text-stone-400 mb-1">
-                  Aviso da Sessão
-                </span>
-                <p className="text-xs sm:text-sm text-stone-200 leading-relaxed">
-                  {activeDay.quickNotice}
-                </p>
-              </div>
-            )}
-          </div>
-
-          {/* Compact All-Days Overview */}
-          <div className="mt-5 max-h-[420px] overflow-y-auto pr-1.5 space-y-2">
-            {config.days.map((day) => {
-              const isSelected = day.dayNumber === activeDay.dayNumber;
-              const dState = getChristmasBonusDayStateMeta(day.sessionState);
-              const hasDayLink = Boolean(day.customRoomUrl?.trim());
-              const dayPadded = String(day.dayNumber).padStart(2, '0');
-              return (
-                <button
-                  key={`row-${day.dayNumber}`}
-                  type="button"
-                  onClick={() => setSelectedDay(day.dayNumber)}
-                  className={`w-full text-left p-3.5 rounded-2xl border transition-all flex items-center justify-between gap-3 cursor-pointer ${
-                    isSelected
-                      ? 'bg-[#e9c349]/10 border-[#e9c349]/40 text-white'
-                      : 'bg-black/25 border-white/5 hover:border-white/15 text-stone-300'
-                  }`}
-                >
-                  <div className="flex items-center gap-3 min-w-0">
-                    <span
-                      className={`w-8 h-8 rounded-lg flex items-center justify-center text-xs font-mono font-black shrink-0 tabular-nums ${
-                        isSelected
-                          ? 'bg-[#e9c349] text-black'
-                          : 'bg-white/5 text-[#e9c349] border border-white/10'
-                      }`}
-                    >
-                      {dayPadded}
-                    </span>
-                    <div className="min-w-0">
-                      <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs sm:text-sm">
-                        <span className="font-bold text-white font-mono tabular-nums">
-                          Dia {dayPadded}
-                        </span>
-                        <span className="text-stone-600" aria-hidden="true">·</span>
-                        <span className="text-stone-300 truncate">{day.dateLabel}</span>
-                        <span className="text-stone-600" aria-hidden="true">·</span>
-                        <span className={`text-xs font-semibold ${dState.badgeClass}`}>
-                          {dState.label}
-                        </span>
-                      </div>
-                      {day.quickNotice?.trim() && (
-                        <p className="text-[11px] text-stone-400 truncate mt-0.5">
-                          {day.quickNotice}
-                        </p>
-                      )}
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-2 shrink-0">
-                    {hasDayLink && (
-                      <Link2 className="w-3.5 h-3.5 text-emerald-400" aria-label="Link próprio configurado" />
-                    )}
-                    <span className="text-[11px] font-mono text-stone-300 whitespace-nowrap tabular-nums">
-                      {day.timeLabel}
-                    </span>
-                  </div>
-                </button>
-              );
-            })}
-          </div>
-        </div>
-
-        {/* Right Column: Live Room Card & Student Status */}
-        <div className="lg:col-span-5 space-y-5 lg:sticky lg:top-24">
-          <div className="bg-[#131313] border border-[#e9c349]/25 rounded-3xl p-5 sm:p-7 shadow-xl">
+      {/* LIVE ROOM CARD & STUDENT STATUS */}
+      <div className="mt-8 space-y-5">
+        <div className="bg-[#131313] border border-[#e9c349]/25 rounded-3xl p-5 sm:p-7 shadow-xl">
             <div className="flex items-center gap-3 pb-4 border-b border-white/10">
               <div className="w-11 h-11 rounded-2xl bg-emerald-500/15 border border-emerald-500/30 text-emerald-400 flex items-center justify-center shrink-0">
                 <Radio className="w-5 h-5" />
@@ -571,13 +573,34 @@ export default function StudentChristmasBonus({
                     {activeDay.timeLabel || config.liveTimeWat}
                   </span>
                 </div>
+                <div className="flex items-center justify-between gap-2 pt-2 border-t border-white/5">
+                  <span className="text-stone-400">Entrada na Sala:</span>
+                  {isLevelTwoUser ? (
+                    <span className="font-bold text-emerald-400">
+                      Gratuito (Nível 2)
+                    </span>
+                  ) : hasPaidRoomAccess ? (
+                    <span className="font-bold text-emerald-400">
+                      Acesso Liberado ({formattedSymbolicFee})
+                    </span>
+                  ) : (
+                    <span className="font-mono font-bold text-[#e9c349] tabular-nums">
+                      {formattedSymbolicFee}{' '}
+                      <span className="font-sans font-normal text-stone-400">(Grátis p/ Nível 2)</span>
+                    </span>
+                  )}
+                </div>
               </div>
 
               {/* Aderir à Sala de Operação Ao Vivo + Acompanhar exclusivamente em Mensagens */}
               <div className="p-4 rounded-2xl bg-black/60 border border-[#e9c349]/30 space-y-3">
                 <div className="flex items-center justify-between gap-2">
-                  <span className="font-bold text-white text-xs sm:text-sm">
-                    {liveRoom.title}
+                  <span className="text-[11px] font-bold text-stone-200">
+                    {isLevelTwoUser
+                      ? 'Nível 2 · Entrada Gratuita'
+                      : hasPaidRoomAccess
+                      ? 'Entrada Simbólica Confirmada'
+                      : `Valor Simbólico: ${formattedSymbolicFee} (Nível 2 não paga)`}
                   </span>
                   <span
                     className={`text-[10px] font-bold font-mono whitespace-nowrap ${
@@ -588,61 +611,92 @@ export default function StudentChristmasBonus({
                   </span>
                 </div>
 
-                {isLevelTwoUser ? (
-                  isRoomMember ? (
-                    <>
-                      <div className="flex items-start gap-2 text-emerald-300 text-xs leading-relaxed">
-                        <CheckCircle2 className="w-4 h-4 shrink-0 mt-0.5" />
-                        <span>
-                          Você aderiu à sala. Acompanhe o contador e a liberação oficial diretamente na sua aba <strong>Mensagens</strong>.
-                        </span>
-                      </div>
+                {isRoomMember ? (
+                  <>
+                    <div className="flex items-start gap-2 text-emerald-300 text-xs leading-relaxed">
+                      <CheckCircle2 className="w-4 h-4 shrink-0 mt-0.5" />
+                      <span>
+                        Você aderiu à sala. Acompanhe o contador e a liberação oficial diretamente na sua aba <strong>Mensagens</strong>.
+                      </span>
+                    </div>
 
-                      {onOpenLiveRoomMessages && (
-                        <button
-                          type="button"
-                          id="btn-go-live-room-messages"
-                          onClick={onOpenLiveRoomMessages}
-                          className="w-full py-3.5 px-5 rounded-xl bg-[#e9c349] hover:bg-[#d4b03f] text-black font-black text-xs sm:text-sm transition-all shadow-lg shadow-[#e9c349]/20 flex items-center justify-center gap-2 cursor-pointer whitespace-nowrap"
-                        >
-                          <MessageSquare className="w-4 h-4" />
-                          <span>Ir para Mensagens (Acompanhar Sala)</span>
-                        </button>
-                      )}
-                    </>
-                  ) : (
-                    <>
-                      <p className="text-stone-300 text-xs leading-relaxed">
-                        Garanta a sua vaga na sala de espera oficial. Quando o administrador liberar a sala, receberá os links e orientações diretamente em Mensagens.
-                      </p>
+                    {onOpenLiveRoomMessages && (
                       <button
                         type="button"
-                        id="btn-join-christmas-live-room"
-                        onClick={handleJoinLiveRoom}
-                        disabled={isJoiningRoom}
-                        className="w-full py-3.5 px-5 rounded-xl bg-[#e9c349] hover:bg-[#d4b03f] text-black font-black text-xs sm:text-sm transition-all shadow-lg shadow-[#e9c349]/20 flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50 whitespace-nowrap"
+                        id="btn-go-live-room-messages"
+                        onClick={onOpenLiveRoomMessages}
+                        className="w-full py-3.5 px-5 rounded-xl bg-[#e9c349] hover:bg-[#d4b03f] text-black font-black text-xs sm:text-sm transition-all shadow-lg shadow-[#e9c349]/20 flex items-center justify-center gap-2 cursor-pointer whitespace-nowrap"
                       >
-                        <Radio className="w-4 h-4" />
-                        <span>{isJoiningRoom ? 'Confirmando adesão...' : 'Aderir à Sala Ao Vivo'}</span>
+                        <MessageSquare className="w-4 h-4" />
+                        <span>Ir para Mensagens (Acompanhar Sala)</span>
                       </button>
-                    </>
-                  )
-                ) : (
-                  <div className="p-3.5 rounded-2xl bg-amber-500/10 border border-amber-500/30 space-y-2.5">
-                    <div className="flex items-center gap-2 text-amber-300 font-bold text-xs">
-                      <Lock className="w-4 h-4 shrink-0 text-amber-400" />
-                      <span>Exclusivo para Alunos do Nível 2</span>
-                    </div>
+                    )}
+                  </>
+                ) : canEnterDirectly ? (
+                  <>
                     <p className="text-stone-300 text-xs leading-relaxed">
-                      A adesão à Sala de Operação ao Vivo é permitida apenas a estudantes matriculados no <strong>Nível 2 (Método Fusion)</strong>. Você pode explorar todo o conteúdo da página e calendário livremente.
+                      {isLevelTwoUser
+                        ? 'Como aluno do Nível 2 (Método Fusion), a sua entrada é totalmente gratuita. Garanta a sua vaga e receba os links diretamente em Mensagens.'
+                        : 'O seu valor simbólico foi confirmado! Garanta a sua vaga na sala e acompanhe tudo diretamente em Mensagens.'}
                     </p>
                     <button
                       type="button"
-                      disabled
-                      className="w-full py-3 px-4 rounded-xl bg-stone-800 text-stone-400 font-bold text-xs border border-white/10 flex items-center justify-center gap-2 cursor-not-allowed opacity-75"
+                      id="btn-join-christmas-live-room"
+                      onClick={handleJoinLiveRoom}
+                      disabled={isJoiningRoom}
+                      className="w-full py-3.5 px-5 rounded-xl bg-[#e9c349] hover:bg-[#d4b03f] text-black font-black text-xs sm:text-sm transition-all shadow-lg shadow-[#e9c349]/20 flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50 whitespace-nowrap"
                     >
-                      <Lock className="w-3.5 h-3.5" />
-                      <span>Bloqueado (Requer Nível 2)</span>
+                      <Radio className="w-4 h-4" />
+                      <span>
+                        {isJoiningRoom
+                          ? 'Confirmando adesão...'
+                          : isLevelTwoUser
+                          ? 'Entrar na Sala Ao Vivo · Grátis (Nível 2)'
+                          : 'Aderir à Sala Ao Vivo'}
+                      </span>
+                    </button>
+                  </>
+                ) : liveRoomTxStatus === 'pending' ? (
+                  <div className="p-3.5 rounded-2xl bg-amber-500/10 border border-amber-500/30 space-y-2.5">
+                    <div className="flex items-center gap-2 text-amber-300 font-bold text-xs">
+                      <Clock className="w-4 h-4 shrink-0 text-amber-400" />
+                      <span>Pagamento Simbólico em Análise ({formattedSymbolicFee})</span>
+                    </div>
+                    <p className="text-stone-300 text-xs leading-relaxed">
+                      Já registámos a sua solicitação de entrada. Assim que o administrador confirmar o pagamento, o acesso à Sala Ao Vivo será liberado automaticamente!
+                    </p>
+                    <button
+                      type="button"
+                      id="btn-join-christmas-live-room"
+                      onClick={handlePaySymbolicFee}
+                      className="w-full py-3 px-4 rounded-xl bg-[#e9c349] hover:bg-[#d4b03f] text-black font-black text-xs transition-all flex items-center justify-center gap-2 cursor-pointer"
+                    >
+                      <MessageSquare className="w-4 h-4" />
+                      <span>Ver Detalhes / Enviar Comprovativo</span>
+                    </button>
+                  </div>
+                ) : (
+                  <div className="p-3.5 rounded-2xl bg-[#181611] border border-[#e9c349]/35 space-y-3">
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-2 text-[#e9c349] font-bold text-xs">
+                        <Ticket className="w-4 h-4 shrink-0" />
+                        <span>Valor Simbólico de Entrada: {formattedSymbolicFee}</span>
+                      </div>
+                      <span className="text-[11px] font-bold text-emerald-400">
+                        Nível 2 não paga
+                      </span>
+                    </div>
+                    <p className="text-stone-300 text-xs leading-relaxed">
+                      Para entrar nesta sala paga-se apenas um valor simbólico de <strong className="text-[#e9c349]">{formattedSymbolicFee}</strong>. Quem está matriculado no <strong className="text-emerald-400">Nível 2 (Método Fusion)</strong> entra gratuitamente!
+                    </p>
+                    <button
+                      type="button"
+                      id="btn-join-christmas-live-room"
+                      onClick={handlePaySymbolicFee}
+                      className="w-full py-3.5 px-5 rounded-xl bg-[#e9c349] hover:bg-[#d4b03f] text-black font-black text-xs sm:text-sm transition-all shadow-lg shadow-[#e9c349]/20 flex items-center justify-center gap-2 cursor-pointer whitespace-nowrap"
+                    >
+                      <Ticket className="w-4 h-4" />
+                      <span>Entrar na Sala · Pagar Valor Simbólico ({formattedSymbolicFee})</span>
                     </button>
                   </div>
                 )}
@@ -697,7 +751,6 @@ export default function StudentChristmasBonus({
               )}
             </div>
           </div>
-        </div>
       </div>
 
       <ChristmasBonusAuthModal

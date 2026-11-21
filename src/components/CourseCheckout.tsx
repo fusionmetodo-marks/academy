@@ -15,6 +15,12 @@ interface CheckoutProps {
   courseCover?: string;
   onBack: () => void;
   preAppliedCoupon?: Coupon | null;
+  backLabel?: string;
+  disableCoupons?: boolean;
+  itemLabel?: string;
+  priceLabel?: string;
+  approvedCtaLabel?: string;
+  onApprovedAction?: () => void;
 }
 
 const DEFAULT_PAYMENT_METHODS = [
@@ -24,7 +30,20 @@ const DEFAULT_PAYMENT_METHODS = [
   { id: 'kwik', type: 'kwik', shortName: 'KWIK Pagamentos', bankName: 'Transferência KWIK', accountNumber: '931 112 233', holderName: 'MARKS O MONSTRO ACADEMY' }
 ];
 
-export default function CourseCheckout({ courseId, courseTitle, coursePrice, courseCover, onBack, preAppliedCoupon }: CheckoutProps) {
+export default function CourseCheckout({
+  courseId,
+  courseTitle,
+  coursePrice,
+  courseCover,
+  onBack,
+  preAppliedCoupon,
+  backLabel,
+  disableCoupons = false,
+  itemLabel = 'Curso',
+  priceLabel = 'Preço do Curso:',
+  approvedCtaLabel = 'Assistir Curso Agora',
+  onApprovedAction,
+}: CheckoutProps) {
   const navigate = useNavigate();
   const [user, setUser] = useState<any>(null);
   const [studentNameInput, setStudentNameInput] = useState('');
@@ -123,24 +142,26 @@ export default function CourseCheckout({ courseId, courseTitle, coursePrice, cou
         }
         setCouponsList(loadedCoupons);
 
-        // Aplicação inteligente automática de cupão
-        if (preAppliedCoupon) {
-          setAppliedCoupon(preAppliedCoupon);
-          const discountStr = preAppliedCoupon.type === 'percentage' 
-            ? `${preAppliedCoupon.discountValue}%` 
-            : new Intl.NumberFormat('pt-AO', { style: 'currency', currency: 'AOA', maximumFractionDigits: 0 }).format(Number(preAppliedCoupon.discountValue));
-          setCouponSuccessMsg(`Cupão ${preAppliedCoupon.code} aplicado com sucesso! (-${discountStr})`);
-        } else if (loadedCoupons.length > 0) {
-          const activeCoupons = loadedCoupons.filter(c => c && c.active !== false);
-          const courseSpecific = activeCoupons.find(c => c.scope === 'course' && c.courseId === courseId);
-          const general = activeCoupons.find(c => c.scope === 'all' || !c.scope || !c.courseId);
-          const best = courseSpecific || general;
-          if (best) {
-            setAppliedCoupon(best);
-            const discountStr = best.type === 'percentage' 
-              ? `${best.discountValue}%` 
-              : new Intl.NumberFormat('pt-AO', { style: 'currency', currency: 'AOA', maximumFractionDigits: 0 }).format(Number(best.discountValue));
-            setCouponSuccessMsg(`Cupão ${best.code} aplicado com sucesso! (-${discountStr})`);
+        // Aplicação inteligente automática de cupão (ignora quando desativado)
+        if (!disableCoupons) {
+          if (preAppliedCoupon) {
+            setAppliedCoupon(preAppliedCoupon);
+            const discountStr = preAppliedCoupon.type === 'percentage' 
+              ? `${preAppliedCoupon.discountValue}%` 
+              : new Intl.NumberFormat('pt-AO', { style: 'currency', currency: 'AOA', maximumFractionDigits: 0 }).format(Number(preAppliedCoupon.discountValue));
+            setCouponSuccessMsg(`Cupão ${preAppliedCoupon.code} aplicado com sucesso! (-${discountStr})`);
+          } else if (loadedCoupons.length > 0) {
+            const activeCoupons = loadedCoupons.filter(c => c && c.active !== false);
+            const courseSpecific = activeCoupons.find(c => c.scope === 'course' && c.courseId === courseId);
+            const general = activeCoupons.find(c => c.scope === 'all' || !c.scope || !c.courseId);
+            const best = courseSpecific || general;
+            if (best) {
+              setAppliedCoupon(best);
+              const discountStr = best.type === 'percentage' 
+                ? `${best.discountValue}%` 
+                : new Intl.NumberFormat('pt-AO', { style: 'currency', currency: 'AOA', maximumFractionDigits: 0 }).format(Number(best.discountValue));
+              setCouponSuccessMsg(`Cupão ${best.code} aplicado com sucesso! (-${discountStr})`);
+            }
           }
         }
 
@@ -335,7 +356,7 @@ export default function CourseCheckout({ courseId, courseTitle, coursePrice, cou
     };
 
     fetchCheckoutConfig();
-  }, [courseId]);
+  }, [courseId, disableCoupons, preAppliedCoupon]);
 
   const handleApplyCoupon = () => {
     setCouponError(null);
@@ -589,7 +610,7 @@ export default function CourseCheckout({ courseId, courseTitle, coursePrice, cou
           onClick={onBack} 
           className="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl bg-black/60 border border-gray-800/80 text-gray-300 hover:text-[#e9c349] hover:border-[#e9c349]/50 mb-6 sm:mb-8 transition-all text-xs sm:text-sm font-medium cursor-pointer backdrop-blur-md shadow-lg"
         >
-          <ArrowLeft className="w-4 h-4" /> Voltar aos detalhes do curso
+          <ArrowLeft className="w-4 h-4" /> {backLabel || 'Voltar aos detalhes do curso'}
         </button>
 
         <div className="flex flex-col lg:flex-row gap-6 lg:gap-8 items-start w-full">
@@ -676,14 +697,14 @@ export default function CourseCheckout({ courseId, courseTitle, coursePrice, cou
                   </div>
                 )}
                 <div>
-                  <span className="text-[11px] font-bold text-[#e9c349] uppercase tracking-wider block mb-1 font-mono">Curso</span>
+                  <span className="text-[11px] font-bold text-[#e9c349] uppercase tracking-wider block mb-1 font-mono">{itemLabel}</span>
                   <span className="text-white font-bold text-base md:text-lg block leading-snug">{safeTitle}</span>
                 </div>
 
                 {/* Preços e Subtotal com Detalhamento de Desconto */}
                 <div className="pt-4 border-t border-gray-800/80 space-y-2.5">
                   <div className="flex justify-between items-center text-xs text-gray-400">
-                    <span>Preço do Curso:</span>
+                    <span>{priceLabel}</span>
                     <span className={`font-semibold ${discountAmount > 0 ? 'line-through text-gray-500' : 'text-gray-200'}`}>
                       {new Intl.NumberFormat('pt-AO', { style: 'currency', currency: 'AOA', maximumFractionDigits: 0, minimumFractionDigits: 0 }).format(safePrice)}
                     </span>
@@ -700,6 +721,7 @@ export default function CourseCheckout({ courseId, courseTitle, coursePrice, cou
                   )}
 
                   {/* SEÇÃO DO CUPÃO DE DESCONTO */}
+                  {!disableCoupons && (
                   <div className="pt-2 pb-1">
                     {!appliedCoupon ? (
                       <div>
@@ -792,6 +814,7 @@ export default function CourseCheckout({ courseId, courseTitle, coursePrice, cou
                       </div>
                     )}
                   </div>
+                  )}
 
                   <div className="flex justify-between items-center pt-3 border-t border-gray-800">
                     <span className="text-gray-300 font-medium">Total:</span>
@@ -812,11 +835,15 @@ export default function CourseCheckout({ courseId, courseTitle, coursePrice, cou
                   <button 
                     type="button"
                     onClick={() => {
-                      navigate(`/classroom?courseId=${courseId}`);
+                      if (onApprovedAction) {
+                        onApprovedAction();
+                      } else {
+                        navigate(`/classroom?courseId=${courseId}`);
+                      }
                     }}
                     className="w-full bg-emerald-500 hover:bg-emerald-400 text-black font-extrabold py-3 px-4 rounded-xl text-xs transition-all cursor-pointer flex items-center justify-center gap-2 shadow-lg"
                   >
-                    Assistir Curso Agora
+                    {approvedCtaLabel}
                   </button>
                 </div>
               ) : (existingTxStatus === 'pending' || submissionSuccess) ? (
@@ -886,7 +913,7 @@ export default function CourseCheckout({ courseId, courseTitle, coursePrice, cou
                       onClick={onBack}
                       className="w-full bg-black/60 hover:bg-black/90 border border-gray-800 text-stone-400 hover:text-white py-2.5 px-4 rounded-xl text-xs font-medium transition-all cursor-pointer"
                     >
-                      Voltar aos Detalhes
+                      {backLabel || 'Voltar aos Detalhes'}
                     </button>
                   </div>
                 </div>

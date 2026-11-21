@@ -26,6 +26,7 @@ import {
   DEFAULT_CHRISTMAS_BONUS_DAYS,
   DEFAULT_CHRISTMAS_BONUS_OPERATORS,
   DEFAULT_CHRISTMAS_BONUS_OPERATORS_TITLE,
+  DEFAULT_SYMBOLIC_ENTRY_FEE_KZ,
   isChristmasBonusCardActive,
   saveChristmasBonusConfig,
 } from '../services/christmasBonusService';
@@ -249,6 +250,10 @@ export default function ChristmasBonusEditorModal({
             quickNotice: d.quickNotice.trim(),
             customRoomUrl: d.customRoomUrl.trim(),
           })),
+          symbolicEntryFeeKz:
+            Number.isFinite(Number(draftForm.symbolicEntryFeeKz)) && Number(draftForm.symbolicEntryFeeKz) > 0
+              ? Math.round(Number(draftForm.symbolicEntryFeeKz))
+              : DEFAULT_SYMBOLIC_ENTRY_FEE_KZ,
         },
         adminName
       );
@@ -542,16 +547,42 @@ export default function ChristmasBonusEditorModal({
             </div>
           </div>
 
-          <div>
-            <label className="block text-[11px] font-bold text-stone-300 uppercase tracking-wider mb-1">
-              Subtítulo Principal
-            </label>
-            <input
-              type="text"
-              value={draftForm.subtitle}
-              onChange={(e) => setDraftForm({ ...draftForm, subtitle: e.target.value })}
-              className="w-full bg-[#0e0e0e] border border-white/15 focus:border-[#e9c349] rounded-xl py-2.5 px-3.5 text-white text-xs sm:text-sm outline-none"
-            />
+          <div className="grid grid-cols-1 md:grid-cols-12 gap-3.5">
+            <div className="md:col-span-8">
+              <label className="block text-[11px] font-bold text-stone-300 uppercase tracking-wider mb-1">
+                Subtítulo Principal
+              </label>
+              <input
+                type="text"
+                value={draftForm.subtitle}
+                onChange={(e) => setDraftForm({ ...draftForm, subtitle: e.target.value })}
+                className="w-full bg-[#0e0e0e] border border-white/15 focus:border-[#e9c349] rounded-xl py-2.5 px-3.5 text-white text-xs sm:text-sm outline-none"
+              />
+            </div>
+
+            <div className="md:col-span-4">
+              <label className="block text-[11px] font-bold text-[#e9c349] uppercase tracking-wider mb-1">
+                Valor Simbólico da Sala (Kz)
+              </label>
+              <input
+                type="number"
+                min={100}
+                step={100}
+                id="modal-input-christmas-symbolic-fee"
+                value={draftForm.symbolicEntryFeeKz ?? DEFAULT_SYMBOLIC_ENTRY_FEE_KZ}
+                onChange={(e) =>
+                  setDraftForm({
+                    ...draftForm,
+                    symbolicEntryFeeKz: Number(e.target.value),
+                  })
+                }
+                placeholder="5000"
+                className="w-full bg-[#0e0e0e] border border-[#e9c349]/35 focus:border-[#e9c349] rounded-xl py-2.5 px-3.5 text-white font-mono text-xs sm:text-sm outline-none"
+              />
+              <p className="text-[10px] text-stone-400 mt-1">
+                Alunos do Nível 2 entram gratuitamente.
+              </p>
+            </div>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">

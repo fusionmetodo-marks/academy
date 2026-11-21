@@ -43,6 +43,17 @@ export const handleApproveTransaction = async (
         courseId,
         transactionId,
       }).catch(() => {});
+
+      if (courseId === 'live-room-christmas-bonus') {
+        import('./liveRoomService')
+          .then(({ CHRISTMAS_LIVE_ROOM_ID, joinLiveRoom }) =>
+            joinLiveRoom({
+              roomId: CHRISTMAS_LIVE_ROOM_ID,
+              userId,
+            })
+          )
+          .catch(() => {});
+      }
     }
 
     return { success: true, message: 'Pagamento aprovado e curso liberado com sucesso!' };

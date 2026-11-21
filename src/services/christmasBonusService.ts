@@ -34,6 +34,7 @@ export interface ChristmasBonusConfig {
   operatorsTitle: string;
   operators: ChristmasBonusOperator[];
   days: ChristmasBonusDay[];
+  symbolicEntryFeeKz: number;
   updatedAt: string;
   updatedBy?: string;
 }
@@ -41,6 +42,8 @@ export interface ChristmasBonusConfig {
 export const LIVE_OPERATION_DAYS_COUNT = 45;
 export const DEFAULT_LIVE_TIME_SHORT = '22:00 WAT';
 export const DEFAULT_LIVE_TIME_FULL = '22:00 WAT (Horário de Angola)';
+export const LIVE_ROOM_ACCESS_COURSE_ID = 'live-room-christmas-bonus';
+export const DEFAULT_SYMBOLIC_ENTRY_FEE_KZ = 5000;
 
 export const DEFAULT_CHRISTMAS_BONUS_DAYS: ChristmasBonusDay[] = Array.from(
   { length: LIVE_OPERATION_DAYS_COUNT },
@@ -81,6 +84,7 @@ export const DEFAULT_CHRISTMAS_BONUS_CONFIG: ChristmasBonusConfig = {
   operatorsTitle: DEFAULT_CHRISTMAS_BONUS_OPERATORS_TITLE,
   operators: DEFAULT_CHRISTMAS_BONUS_OPERATORS,
   days: DEFAULT_CHRISTMAS_BONUS_DAYS,
+  symbolicEntryFeeKz: DEFAULT_SYMBOLIC_ENTRY_FEE_KZ,
   updatedAt: new Date().toISOString(),
   updatedBy: 'Administração Money Building',
 };
@@ -189,6 +193,12 @@ function mergeConfig(raw?: Partial<ChristmasBonusConfig> | null): ChristmasBonus
       ? normalizedRaw.operatorsTitle.trim()
       : DEFAULT_CHRISTMAS_BONUS_OPERATORS_TITLE;
 
+  const rawSymbolicFee = Number(normalizedRaw?.symbolicEntryFeeKz);
+  const symbolicEntryFeeKz =
+    Number.isFinite(rawSymbolicFee) && rawSymbolicFee > 0
+      ? Math.round(rawSymbolicFee)
+      : DEFAULT_SYMBOLIC_ENTRY_FEE_KZ;
+
   return {
     ...DEFAULT_CHRISTMAS_BONUS_CONFIG,
     ...normalizedRaw,
@@ -196,6 +206,7 @@ function mergeConfig(raw?: Partial<ChristmasBonusConfig> | null): ChristmasBonus
     operatorsTitle,
     operators: resolvedOperators,
     days,
+    symbolicEntryFeeKz,
   };
 }
 
